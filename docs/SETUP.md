@@ -3,7 +3,13 @@
 ## Prerequisites
 
 - Node.js >= 18 (developed against v22.11.0 via nvm). Check with `node -v`.
-- npm (ships with Node; developed against 10.9.0).
+- [pnpm](https://pnpm.io) (developed against 12.4.1). Install with
+  `npm install -g pnpm`, or via Corepack if your Corepack install can reach
+  npm's registry (`corepack enable && corepack prepare pnpm@12.4.1 --activate`).
+  If Corepack fails with a `Cannot find matching keyid` signature error,
+  its bundled key set is stale -- skip it and install pnpm directly with
+  `npm install -g pnpm` instead (remove any existing corepack pnpm/pnpx
+  shims first if you hit `EEXIST`).
 - git, and the [GitHub CLI](https://cli.github.com/) (`gh`) if you want to
   work with pull requests/issues from the terminal.
 
@@ -12,34 +18,15 @@
 ```bash
 git clone <repo-url> quay
 cd quay
-npm install            # installs root + engine + cli workspaces in one pass
-npm test                # runs the item-1 loopback proof automatically
-npm run demo:loopback   # runs it manually; prints both sides' output live
+pnpm install            # installs root + engine + cli workspaces in one pass
+pnpm test               # runs the item-1 loopback proof automatically
+pnpm run demo:loopback  # runs it manually; prints both sides' output live
 ```
 
-`npm install` at the repo root installs dependencies for every npm
-workspace (`engine/`, `cli/`) in one pass, and links `@quay/cli`'s
-dependency on `@quay/engine` locally -- no publishing step needed during
-development.
-
-## IntelliJ IDEA
-
-This is a plain Node.js monorepo; there's no hand-authored `.idea/`
-project file checked into git (IDE state is personal and `.idea/` is
-git-ignored). To open it:
-
-1. `File > Open...` and select the `quay/` root folder (not a subfolder).
-2. If prompted, install/enable the **Node.js** plugin (Preferences ->
-   Plugins -> search "Node.js").
-3. Preferences -> Languages & Frameworks -> Node.js: point the Node
-   interpreter at your local install (e.g. the nvm path returned by
-   `which node`).
-4. IntelliJ will detect `package.json` in the root, `engine/`, and `cli/`
-   automatically since they're declared as npm workspaces in the root
-   `package.json`.
-5. Optional: right-click `cli/test/local-loopback.test.js` -> "Run" to
-   execute it directly from the IDE (IntelliJ auto-detects Node's built-in
-   test runner via the `node:test` import).
+`pnpm install` at the repo root installs dependencies for every workspace
+package declared in `pnpm-workspace.yaml` (`engine/`, `cli/`) in one pass,
+and symlinks `@quay/cli`'s `workspace:*` dependency on `@quay/engine`
+locally -- no publishing step needed during development.
 
 ## Project layout recap
 
@@ -73,5 +60,5 @@ Pin exact versions (per the plan's Phase A instruction) and install into
 the workspace that needs it, e.g.:
 
 ```bash
-npm install hypercore@11.36.1 --workspace=engine --save-exact
+pnpm add hypercore@11.36.1 --filter @quay/engine --save-exact
 ```

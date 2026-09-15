@@ -1,5 +1,7 @@
 # Quay
 
+<img src="assets/quay.jpg" alt="Quay icon" width="96" />
+
 Quay is a one-shot, no-account file drop between two devices: QR or 6-word
 code, LAN first, DHT second, relay if a direct connection can't be
 established. No intermediary server sees your file unless a relay carries
@@ -37,12 +39,12 @@ Node `net`/`fs`/`crypto`.
 
 ## Quickstart
 
-Prerequisites: Node.js >= 18 (developed against v22.11.0), npm.
+Prerequisites: Node.js >= 18 (developed against v22.11.0), [pnpm](https://pnpm.io) (developed against 12.4.1).
 
 ```bash
-npm install
-npm test               # runs the item-1 loopback proof automatically
-npm run demo:loopback  # runs it manually and prints both sides' output live
+pnpm install
+pnpm test               # runs the item-1 loopback proof automatically
+pnpm run demo:loopback  # runs it manually and prints both sides' output live
 ```
 
 See [`docs/SETUP.md`](docs/SETUP.md) for IntelliJ IDEA setup and more detail

@@ -7,12 +7,9 @@
   "engines": {
     "node": ">=18"
   },
-  "workspaces": [
-    "engine",
-    "cli"
-  ],
+  "packageManager": "pnpm@12.4.1",
   "scripts": {
-    "test": "npm run test --workspace=cli",
+    "test": "pnpm --filter @quay/cli test",
     "demo:loopback": "node cli/src/demo-loopback.js"
   }
 }

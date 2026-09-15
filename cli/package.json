@@ -15,6 +15,6 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@quay/engine": "0.1.0"
+    "@quay/engine": "workspace:*"
   }
 }
