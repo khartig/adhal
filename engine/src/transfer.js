@@ -36,13 +36,25 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE } = 
 
   socket.write(encodeFrame(Buffer.from(JSON.stringify(manifest), 'utf8')))
 
+  // A raw TCP net.Socket (item 1) tolerates ignoring write()'s backpressure
+  // signal because the OS gives it deep send buffers. Hyperswarm's
+  // encrypted duplex (item 2+) does not -- blasting writes without
+  // pausing on a false return / waiting for 'drain' overwhelms it and the
+  // connection resets partway through a multi-MB file. Pause/resume the
+  // read stream to respect it.
   await new Promise((resolve, reject) => {
     const readStream = fs.createReadStream(filePath, { highWaterMark: chunkSize })
+
     readStream.on('data', (chunk) => {
-      socket.write(encodeFrame(chunk))
+      const ok = socket.write(encodeFrame(chunk))
+      if (!ok) {
+        readStream.pause()
+        socket.once('drain', () => readStream.resume())
+      }
     })
     readStream.on('end', resolve)
     readStream.on('error', reject)
+    socket.on('error', reject)
   })
 
   return { name: manifest.name, size: manifest.size, sha256 }
@@ -52,6 +64,11 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE } = 
 // `outputDir`, and resolves once the declared size has been received and
 // hashed. Full-file hash verification (comparing against the manifest's
 // sha256) is the caller's job, matching the doc's v1 data path step 6.
+/**
+ * @param {NodeJS.EventEmitter & { removeListener: Function }} socket
+ * @param {string} outputDir
+ * @param {{ onManifest?: (manifest: any) => void }} [options]
+ */
 function receiveFile (socket, outputDir, { onManifest } = {}) {
   return new Promise((resolve, reject) => {
     let manifest = null

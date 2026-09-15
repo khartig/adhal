@@ -49,8 +49,8 @@ async function main () {
   })
 
   server.listen(port, '127.0.0.1', () => {
-    const actualPort = server.address().port
-    console.log(`[receive] listening on 127.0.0.1:${actualPort}`)
+    const address = /** @type {import('net').AddressInfo} */ (server.address())
+    console.log(`[receive] listening on 127.0.0.1:${address.port}`)
   })
 }
 

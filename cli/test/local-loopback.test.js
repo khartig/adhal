@@ -52,6 +52,7 @@ function waitForPattern (state, pattern, timeoutMs = 5000) {
   })
 }
 
+/** @returns {Promise<void>} */
 function waitForExit (child) {
   return new Promise((resolve, reject) => {
     child.on('exit', (code) => {

@@ -14,12 +14,21 @@ rather than a custom NAT-traversal stack.
 
 ## Status
 
-**Phase A, item 1 (of the plan's section 4 ordered list):** proven. Two CLI
-processes on one machine exchange a 10 MB file over a localhost TCP pipe and
-independently print matching SHA-256 hashes -- zero NAT, zero Hyperswarm,
-just the chunking/framing/hashing pipeline. See
-[`docs/Refined-Implementation-Plan.md` section 4](docs/Refined-Implementation-Plan.md#4-implement-first-easiest-highest-chance-of-success)
-for the full ordered list; items 2+ (LAN via Hyperswarm, code/QR, challenge-response,
+**Phase A, items 1-2 (of the plan's section 4 ordered list):** proven.
+
+- Item 1: two CLI processes on one machine exchange a 10 MB file over a
+  localhost TCP pipe and independently print matching SHA-256 hashes --
+  zero NAT, zero Hyperswarm, just the chunking/framing/hashing pipeline.
+- Item 2: the same manifest/chunk protocol, now carried over an
+  end-to-end Noise-encrypted Hyperswarm connection instead of a bare TCP
+  socket. `pnpm test` proves this against an isolated local DHT testnet
+  (no internet required, so it's fast and CI-safe); `pnpm run demo:swarm`
+  proves it against the real public DHT, which needs outbound UDP
+  reachability to Hyperswarm's bootstrap nodes -- this can time out in
+  sandboxed environments that only permit TCP/HTTPS egress.
+
+See [`docs/Refined-Implementation-Plan.md` section 4](docs/Refined-Implementation-Plan.md#4-implement-first-easiest-highest-chance-of-success)
+for the full ordered list; items 3+ (6-word code/QR, challenge-response,
 resume, relay, ...) are not yet implemented.
 
 ## Project layout
@@ -43,8 +52,9 @@ Prerequisites: Node.js >= 18 (developed against v22.11.0), [pnpm](https://pnpm.i
 
 ```bash
 pnpm install
-pnpm test               # runs the item-1 loopback proof automatically
-pnpm run demo:loopback  # runs it manually and prints both sides' output live
+pnpm test               # runs the item-1 and item-2 proofs automatically
+pnpm run demo:loopback  # item 1, manually, printing both sides' output live
+pnpm run demo:swarm     # item 2, manually, against the real public DHT
 ```
 
 See [`docs/SETUP.md`](docs/SETUP.md) for IntelliJ IDEA setup and more detail

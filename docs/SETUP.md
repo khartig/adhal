@@ -54,6 +54,27 @@ node cli/src/send.js 5000 /path/to/some/file
 Both processes print a `sha256:` line; they should match. Port `0` in
 place of `5000` asks the OS for a free port (the demo script uses this).
 
+## TypeScript (checkJs, no build step)
+
+Source stays plain `.js` (CommonJS, matching the Holepunch packages) --
+there is no compile step and the dev/run workflow (`node cli/src/send.js`,
+`node --test`) is unchanged. `tsconfig.json` at the repo root turns on
+`checkJs`/`allowJs`/`noEmit` so TypeScript type-checks the existing JS
+using inferred types plus JSDoc hints where inference is ambiguous (see
+`engine/src/transfer.js` and `cli/src/demo-loopback.js` for examples).
+Run it with:
+
+```bash
+pnpm run typecheck
+```
+
+`hyperswarm`, `hyperdht`, `hypercore-crypto`, and `protomux` ship no type
+declarations at all (`compact-encoding` and `b4a` do). Once item 2 starts
+importing them, expect a `noImplicitAny`/`TS7016` error per package the
+first time it's required -- add a small ambient `.d.ts` shim (only for the
+functions actually called, not the full API) under a new `types/` directory
+rather than turning off `checkJs`.
+
 ## Adding a Holepunch package
 
 Pin exact versions (per the plan's Phase A instruction) and install into

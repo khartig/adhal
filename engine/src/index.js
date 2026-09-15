@@ -2,5 +2,7 @@
 
 module.exports = {
   ...require('./frame'),
-  ...require('./transfer')
+  ...require('./transfer'),
+  ...require('./topic'),
+  ...require('./swarm')
 }

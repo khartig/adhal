@@ -10,6 +10,12 @@
   "packageManager": "pnpm@12.4.1",
   "scripts": {
     "test": "pnpm --filter @quay/cli test",
-    "demo:loopback": "node cli/src/demo-loopback.js"
+    "typecheck": "tsc --noEmit",
+    "demo:loopback": "node cli/src/demo-loopback.js",
+    "demo:swarm": "node cli/src/demo-swarm.js"
+  },
+  "devDependencies": {
+    "@types/node": "^26.5.1",
+    "typescript": "^7.0.2"
   }
 }

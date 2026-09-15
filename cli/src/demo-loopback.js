@@ -14,6 +14,7 @@ const { spawn } = require('node:child_process')
 const RECEIVE_SCRIPT = path.join(__dirname, 'receive.js')
 const SEND_SCRIPT = path.join(__dirname, 'send.js')
 
+/** @returns {Promise<void>} */
 function waitForExit (child, label) {
   return new Promise((resolve, reject) => {
     child.on('exit', (code) => {

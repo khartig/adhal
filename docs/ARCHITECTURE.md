@@ -30,16 +30,43 @@ Hyperdrive/Autobase/CRDTs are explicitly out of scope for v1 content -- a
 framed stream plus a small on-disk manifest is enough, and is easier to
 resume and test.
 
-## What's implemented today (item 1 only)
+## What's implemented today (items 1-2)
 
 `engine/src/frame.js` and `engine/src/transfer.js` implement steps 4-6 of
-the data path above, minus the Hyperswarm/Protomux transport -- item 1
-proves the framing/manifest/chunking/hashing logic over a plain localhost
-TCP socket, with zero NAT and zero DHT involved. `cli/src/send.js` and
-`cli/src/receive.js` are the two CLI processes described in section 4, item
-1 of the plan. Steps 1-3, 7, resume (step 5's offset persistence), and the
-Hyperswarm-based transport all belong to later items in section 4 and are
-not yet built.
+the data path above. Item 1 proves this over a plain localhost TCP socket
+(zero NAT, zero DHT); item 2 (`engine/src/swarm.js`, `engine/src/topic.js`)
+carries the *same* manifest/chunk protocol over an end-to-end
+Noise-encrypted Hyperswarm connection instead, proving topic-join +
+encrypted transport without changing the framing logic at all.
+`cli/src/send.js`/`receive.js` (item 1) and `cli/src/swarm-send.js`/
+`swarm-receive.js` (item 2) are the corresponding CLI pairs.
+
+Item 2 notes, found empirically while building it (see `engine/src/swarm.js`
+comments for detail):
+
+- Both peers must `join()` a topic with the (default) `server: true, client: true`.
+  Splitting roles asymmetrically (receiver server-only, sender client-only)
+  broke the connection -- the server side's `'connection'` event never fired
+  even though the client believed it had connected.
+- The server side's `'connection'` event fires only once the connection is
+  genuinely stable; the client side's fires earlier/optimistically. Writing
+  application data immediately after the client-side event can prevent the
+  server from ever confirming the connection. Fixed with a one-byte
+  readiness handshake: the server writes a marker byte once connected: the
+  client waits to receive it before sending anything.
+- `socket.write()`'s backpressure return value must be respected (pause the
+  read stream, resume on `'drain'`) -- a raw TCP socket (item 1) tolerates
+  ignoring this because of deep OS send buffers; the encrypted Hyperswarm
+  duplex does not.
+- Tearing the swarm down immediately after the sender's own `end()`
+  callback fires is not safe -- that only confirms a *local* flush, not
+  that the receiver got the last bytes. The receiver now ends its side
+  after it finishes reading, and the sender waits for the socket's
+  `'close'` event (both sides ended) before destroying its swarm.
+
+Steps 1-3 and 7 of the data path above, resume (step 5's offset
+persistence), and Protomux-based channel multiplexing all belong to later
+items in section 4 and are not yet built.
 
 ## Relay threat boundary
 

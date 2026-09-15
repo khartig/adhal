@@ -16,5 +16,8 @@
   },
   "dependencies": {
     "@quay/engine": "workspace:*"
+  },
+  "devDependencies": {
+    "hyperdht": "6.34.0"
   }
 }
