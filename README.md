@@ -1,6 +1,6 @@
 # Quay
 
-<img src="assets/quay.jpg" alt="Quay icon" width="96" />
+<img src="assets/AppIcon-preview-rounded.png" width="120" alt="Project logo" />
 
 Quay is a one-shot, no-account file drop between two devices: QR or 6-word
 code, LAN first, DHT second, relay if a direct connection can't be
