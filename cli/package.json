@@ -1,0 +1,20 @@
+{
+  "name": "@quay/cli",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Command-line send/receive proof of concept for the Quay transfer engine.",
+  "license": "MIT",
+  "bin": {
+    "quay-send": "src/send.js",
+    "quay-receive": "src/receive.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@quay/engine": "0.1.0"
+  }
+}

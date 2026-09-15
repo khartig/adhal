@@ -1,0 +1,22 @@
+# Dependencies
+node_modules/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+npm-debug.log*
+*.log
+
+# Build output
+dist/
+build/
+
+# Test / demo artifacts
+*.tmp
+.tmp/

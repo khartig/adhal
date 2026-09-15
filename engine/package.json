@@ -1,0 +1,19 @@
+{
+  "name": "@quay/engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Transport-agnostic transfer engine: framing, manifest, chunking, hashing. Holepunch (Hyperswarm/Hyperdht) join logic lands here starting with item 2.",
+  "license": "MIT",
+  "main": "src/index.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "b4a": "1.9.0",
+    "compact-encoding": "3.5.0",
+    "hyperdht": "6.34.0",
+    "hypercore-crypto": "3.7.0",
+    "hyperswarm": "4.17.1",
+    "protomux": "3.12.0"
+  }
+}
