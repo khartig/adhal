@@ -6,6 +6,28 @@ const Hyperswarm = require('hyperswarm')
 // stable. See acceptOnce/connectOnce below for why this exists.
 const READY = Buffer.from([0x01])
 
+// How many connection attempts Hyperswarm may have in flight at once.
+//
+// Hyperswarm's own default is MAX_PARALLEL = 3 (hyperswarm/index.js), and
+// it gates new dials on `connecting < maxParallel`. That is too tight for
+// this product, because a drop topic routinely accumulates *stale*
+// announces: a DHT announce outlives the process that made it, so every
+// abandoned or timed-out drop leaves a dead peer advertised under the
+// topic until the record expires.
+//
+// Dialing a dead peer is not cheap -- a holepunch to a process that is no
+// longer there took 10-17s to abort when measured. And Hyperswarm only
+// deprioritizes a peer once `attempts > 3` (hyperswarm/lib/peer-info.js),
+// i.e. after roughly four such rounds. So with only three slots, three
+// stale records are enough to starve a genuinely live peer of any slot at
+// all: observed as `swarm-send.js` timing out for 120s against a topic
+// carrying three dead announces, on the same network path where a freshly
+// generated topic connected in 9s.
+//
+// Raising this does not make the dead dials any faster; it just stops them
+// from crowding out the live peer.
+const MAX_PARALLEL = 16
+
 // engine owns all Holepunch join logic (see engine/package.json); cli/
 // only ever imports from @quay/engine, never hyperswarm/hyperdht directly.
 // `bootstrap` lets tests point at an isolated hyperdht testnet (see
@@ -15,10 +37,13 @@ const READY = Buffer.from([0x01])
 // provide the network's routing infrastructure (the testnet's own bootstrap
 // node already is one); regular peers just point at that bootstrap.
 /**
- * @param {{ bootstrap?: Array<{ host: string, port: number }> }} [options]
+ * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number }} [options]
  */
-function createSwarm ({ bootstrap } = {}) {
-  return new Hyperswarm(bootstrap ? { bootstrap } : {})
+function createSwarm ({ bootstrap, maxParallel = MAX_PARALLEL } = {}) {
+  return new Hyperswarm({
+    maxParallel,
+    ...(bootstrap ? { bootstrap } : {})
+  })
 }
 
 // How often we re-run our own DHT lookup while waiting for a peer.

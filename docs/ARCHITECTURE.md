@@ -72,6 +72,29 @@ comments for detail):
   drop code), and both sides re-run their own lookup every 4s via
   `discovery.refresh()` rather than trusting Hyperswarm's 10-minute
   schedule. 12 of 12 consecutive public-DHT runs then succeeded.
+- **Stale announces starve live peers at Hyperswarm's default
+  `maxParallel: 3`.** A DHT announce outlives the process that made it, so
+  every abandoned or timed-out drop leaves a dead peer advertised under the
+  topic until the record expires. Dialing a dead peer took 10-17s to abort
+  when measured, and Hyperswarm only deprioritizes one after `attempts > 3`
+  (`hyperswarm/lib/peer-info.js`) -- so three stale records can occupy all
+  three connection slots indefinitely. Observed as `swarm-send.js` timing
+  out for 120s against a topic carrying three dead announces, on the exact
+  network path where a freshly generated topic connected in 9s.
+  `createSwarm` now sets `maxParallel: 16`.
+- **Cross-ISP transfer verified (item 2's real exit criterion).** A Mac on
+  Starlink (CGNAT, DHT-observed `98.97.27.13`, firewalled) sent to a Linux
+  box on Comcast (`67.164.91.122`, firewalled) in ~9s. Worth recording
+  against plan section 9 spike 1: the Holepunch punch succeeded on a
+  genuinely hostile path, so the relay (section 4 item 9) is not on the
+  critical path for this network pair. Note that two hosts behind the *same*
+  NAT were not proven to work -- that case needs router hairpinning and is
+  the stronger argument for item 7 (mDNS/UDP multicast LAN discovery).
+- Diagnostics for re-running these measurements live in `engine/scratch-*.js`.
+  `scratch-lookup.js <topic-hex> [--connect]` separates "announce not
+  visible" from "visible but unpunchable"; `scratch-serve.js <code>` is a
+  receiver that accepts connections indefinitely so the far side can probe
+  repeatedly. `--connect` is destructive to a live `swarm-receive.js`.
 - A peer can connect and then die before confirming, surfacing as
   `connection reset by peer`. The window between the `'connection'` event
   and the server's READY byte had no `'error'` listener, so the
