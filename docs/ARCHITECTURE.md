@@ -58,6 +58,29 @@ comments for detail):
   read stream, resume on `'drain'`) -- a raw TCP socket (item 1) tolerates
   ignoring this because of deep OS send buffers; the encrypted Hyperswarm
   duplex does not.
+- **A topic announce is not instantly visible, and Hyperswarm only retries
+  a failed lookup every 10 minutes.** `REFRESH_INTERVAL` in
+  `hyperswarm/lib/peer-discovery.js` is 10 min plus up to 2 min of jitter.
+  An announce propagates only to the DHT nodes closest to the topic, so a
+  lookup finds it only if it happens to query a node that already has the
+  record. When both peers joined simultaneously, the loser of that race
+  found nothing and then sat idle for ten-plus minutes. Measured on a home
+  NAT: transfers either completed in ~5s or never completed at all, 5 of 11
+  runs succeeding, and raising the timeout from 30s to 120s rescued **zero**
+  stuck runs. Two fixes: the receiver now waits for `discovery.flushed()`
+  before reporting itself ready (the point at which a real UI may show the
+  drop code), and both sides re-run their own lookup every 4s via
+  `discovery.refresh()` rather than trusting Hyperswarm's 10-minute
+  schedule. 12 of 12 consecutive public-DHT runs then succeeded.
+- A peer can connect and then die before confirming, surfacing as
+  `connection reset by peer`. The window between the `'connection'` event
+  and the server's READY byte had no `'error'` listener, so the
+  `NoiseSecretStream` emitted an uncaught error and killed the process.
+  A candidate that fails this way is now discarded rather than being
+  treated as a fatal drop failure: the sender stays joined and waits for
+  the next candidate. The join timeout also stays armed until READY
+  actually arrives, so a connection that never confirms can no longer hang
+  the drop indefinitely.
 - Tearing the swarm down immediately after the sender's own `end()`
   callback fires is not safe -- that only confirms a *local* flush, not
   that the receiver got the last bytes. The receiver now ends its side

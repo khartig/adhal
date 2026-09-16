@@ -21,6 +21,23 @@ function parseBootstrap () {
   return raw ? JSON.parse(raw) : undefined
 }
 
+// QUAY_JOIN_TIMEOUT overrides how long we wait for a peer, in ms (0
+// disables the timeout). 30s is deliberate: on the public DHT a join that
+// is going to work lands in ~5-7s, and one that has hit the
+// lookup-before-announce race described in engine/src/swarm.js never
+// recovers no matter how long you wait -- measured, a 120s budget rescued
+// zero stuck runs. So a longer default just makes failures slower to
+// report. The override exists for diagnosing slow networks.
+function joinTimeout () {
+  const raw = process.env.QUAY_JOIN_TIMEOUT
+  if (!raw) return 30000
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new TypeError(`QUAY_JOIN_TIMEOUT must be a non-negative number, got ${raw}`)
+  }
+  return parsed
+}
+
 async function main () {
   const [, , code, outputDirArg] = process.argv
   if (!code) {
@@ -34,10 +51,18 @@ async function main () {
 
   const topic = topicFromCode(code)
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
-  console.log(`[swarm-receive] joining topic ${topic.toString('hex')}, waiting for a peer...`)
+  console.log(`[swarm-receive] joining topic ${topic.toString('hex')}...`)
 
   try {
-    const { socket, peerInfo } = await acceptOnce(swarm, topic)
+    const { socket, peerInfo } = await acceptOnce(swarm, topic, {
+      timeout: joinTimeout(),
+      // Only now are we actually discoverable. The sender must not start
+      // looking before this point -- see engine/src/swarm.js. In the real
+      // product this is the moment the drop code becomes safe to show a
+      // human; demo-swarm.js waits for this exact line before spawning
+      // the sender.
+      onAnnounced: () => console.log('[swarm-receive] announced, waiting for a peer...')
+    })
     console.log(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // Without a listener, a late socket-level error (e.g. after transfer
     // completes, while tearing down) throws as an uncaught exception

@@ -11,6 +11,17 @@ function parseBootstrap () {
   return raw ? JSON.parse(raw) : undefined
 }
 
+// See swarm-receive.js for why the public-DHT default is this generous.
+function joinTimeout () {
+  const raw = process.env.QUAY_JOIN_TIMEOUT
+  if (!raw) return 120000
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new TypeError(`QUAY_JOIN_TIMEOUT must be a non-negative number, got ${raw}`)
+  }
+  return parsed
+}
+
 async function main () {
   const [, , code, filePathArg] = process.argv
   if (!code || !filePathArg) {
@@ -24,7 +35,7 @@ async function main () {
   console.log(`[swarm-send] joining topic ${topic.toString('hex')}, looking for a peer...`)
 
   try {
-    const { socket, peerInfo } = await connectOnce(swarm, topic)
+    const { socket, peerInfo } = await connectOnce(swarm, topic, { timeout: joinTimeout() })
     console.log(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // See swarm-receive.js: without a listener, a late socket-level error
     // throws as an uncaught exception instead of something catchable.

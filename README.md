@@ -26,6 +26,11 @@ rather than a custom NAT-traversal stack.
   proves it against the real public DHT, which needs outbound UDP
   reachability to Hyperswarm's bootstrap nodes -- this can time out in
   sandboxed environments that only permit TCP/HTTPS egress.
+  `QUAY_JOIN_TIMEOUT=<ms>` overrides the 30s peer-discovery timeout (0
+  disables it) if you need a longer budget while diagnosing a slow
+  network. Note that a longer budget does not help the announce-propagation
+  race described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) -- that
+  one is fixed, not waited out.
 
 See [`docs/Refined-Implementation-Plan.md` section 4](docs/Refined-Implementation-Plan.md#4-implement-first-easiest-highest-chance-of-success)
 for the full ordered list; items 3+ (6-word code/QR, challenge-response,
