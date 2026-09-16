@@ -8,6 +8,13 @@
 //   (b) the announce is visible but connect fails -> holepunch/NAT problem
 //
 // Usage: node scratch-lookup.js <topic-hex> [--connect]
+//
+// WARNING: --connect is destructive to a live receiver. Dialing its public
+// key produces a real connection, which satisfies acceptOnce's "first peer
+// wins" and hands swarm-receive.js a socket that never sends a manifest.
+// The receiver then errors out and exits. Restart the receiver after any
+// --connect probe, and never point --connect at a receiver you are about
+// to send to.
 
 const DHT = require('hyperdht')
 const os = require('node:os')
