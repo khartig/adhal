@@ -86,9 +86,35 @@ comments for detail):
   out for 120s against a topic carrying three dead announces, on the exact
   network path where a freshly generated topic connected in 9s.
   `createSwarm` now sets `maxParallel: 16`.
+- **An unexplained transient, recorded because it cost a day and was not a
+  bug.** After the READY/ACK fix landed, a Starlink -> Comcast drop failed
+  repeatedly with *no candidate logged on either side* -- no connection
+  formed at all. During that window `scratch-lookup.js --connect` and
+  `scratch-swarm-dial.js` both connected from the same machine to the same
+  peer within seconds, so discovery and hole punching were demonstrably
+  working while the real pair could not connect. It then began working
+  again with no functional change to the swarm path: a 10 MB drop
+  succeeded at `refresh=4000` (the exact configuration that had been
+  failing) and again at `refresh=30000`.
+  Two hypotheses were investigated and **disproven**: that our 4s
+  `discovery.refresh()` was destroying in-flight DHT lookups (it coalesces
+  when the client/server flags are unchanged, so it does not), and that the
+  4s re-announce was churning holepunch relay state (disproven by the
+  `refresh=4000` success). No code change is attributable to the recovery.
+  The likely explanation is a transient condition on the Starlink path,
+  which a LEO satellite link makes plausible, but that is inference and not
+  measurement. If it returns, the diagnostics above now separate the
+  layers; what is still missing is a repeated-trial success rate, without
+  which a flaky path is indistinguishable from a broken one. That gap is
+  what `engine/scratch-trials.js` now closes -- see
+  [`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md).
 - **Cross-ISP transfer verified (item 2's real exit criterion).** A Mac on
   Starlink (CGNAT, DHT-observed `98.97.27.13`, firewalled) sent to a Linux
-  box on Comcast (`67.164.91.122`, firewalled) in ~9s. Worth recording
+  box on Comcast (`67.164.91.122`, firewalled) in ~9s. Re-verified for item
+  3 with the two-way handshake: generated six-word code, QR shown on
+  announce, 10 MB matching SHA-256 on both sides, at both
+  `QUAY_REFRESH_INTERVAL=4000` and `30000` (one run each -- enough to prove
+  the path works, not enough to establish a rate). Worth recording
   against plan section 9 spike 1: the Holepunch punch succeeded on a
   genuinely hostile path, so the relay (section 4 item 9) is not on the
   critical path for this network pair. Note that two hosts behind the *same*
