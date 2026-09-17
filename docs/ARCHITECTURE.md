@@ -98,7 +98,12 @@ comments for detail):
   `scratch-lookup.js <topic-hex> [--connect]` separates "announce not
   visible" from "visible but unpunchable"; `scratch-serve.js <code>` is a
   receiver that accepts connections indefinitely so the far side can probe
-  repeatedly. `--connect` is destructive to a live `swarm-receive.js`.
+  repeatedly. `scratch-swarm-dial.js <topic-hex> [--connect-once]` covers
+  the layer between them -- Hyperswarm's own discovery and dialing, whose
+  failures are otherwise invisible. Verified working across Starlink ->
+  Comcast: Hyperswarm dialed with 3 relay addresses and opened in 1.6s,
+  READY arrived, and with `--connect-once` the far side confirmed `got
+  ACK`. None of these tools are destructive to a live receiver any more.
 - A peer can connect and then die before confirming, surfacing as
   `connection reset by peer`. The window between the `'connection'` event
   and the server's READY byte had no `'error'` listener, so the
@@ -136,14 +141,41 @@ comments for detail):
   candidate and each discard, so "peers keep connecting and vanishing" is
   visible rather than inferred. Plan section 8's alpha gate requires being
   able to classify every failure; this is the minimum for that.
+- **Hyperswarm discards client dial errors, so a failing sender is
+  silent.** In `hyperswarm/index.js` `_connect`, the only `'error'`
+  handler on an outbound connection sets `peerInfo.forceRelaying` and
+  returns -- the error is never logged, re-emitted or counted. No amount of
+  logging in our own code reveals why a dial failed.
+  `engine/scratch-swarm-dial.js` wraps `swarm.dht.connect` to print them,
+  and reports the counters Hyperswarm does keep
+  (`swarm.stats.connects.client.{attempted,opened}`, `swarm.peers`, and
+  per-peer `attempts`/`banned`/`proven`). It also runs a raw `hyperdht`
+  dial from a second DHT node in the same process, so "raw dial works,
+  Hyperswarm dial does not" is one observation on one network path rather
+  than two runs minutes apart. `--connect-once` swaps its own bare
+  listener for the real `connectOnce`, which distinguishes "Hyperswarm can
+  reach the peer" from "our engine completes the handshake".
+- **Both peers dial each other, and Hyperswarm's duplicate resolution can
+  destroy a connection mid-handshake.** Because both sides join with
+  `server: true, client: true`, each pair produces two connections.
+  `_handleServerConnection` keeps one and destroys the other with
+  `ERR_DUPLICATE`, tie-breaking on
+  `existingIsOutdated = rawBytesRead > 0 && rawBytesWritten > 0`. A
+  connection in the middle of the READY/ACK exchange has written but not
+  yet read, so it does *not* count as established and is eligible to be
+  destroyed. This is survivable only because both sides now discard a
+  failed candidate and wait for the next one; with the old one-shot
+  `acceptOnce` it was another way to wedge the receiver permanently. Worth
+  remembering before any change that makes the handshake longer than one
+  round trip.
 - **`scratch-lookup.js --connect` and `scratch-hs-dial.js` are no longer
   destructive.** They never answer ACK, so a live receiver logs them as a
   dropped candidate and keeps waiting. A `CONNECTED` result from them
-  therefore no longer implies a drop would succeed -- it isolates
+  therefore no longer implies a drop would succeed – it isolates
   discovery and hole punching from the application handshake, which is
   exactly the distinction that was missing above.
 - Tearing the swarm down immediately after the sender's own `end()`
-  callback fires is not safe -- that only confirms a *local* flush, not
+  callback fires is not safe – that only confirms a *local* flush, not
   that the receiver got the last bytes. The receiver now ends its side
   after it finishes reading, and the sender waits for the socket's
   `'close'` event (both sides ended) before destroying its swarm.

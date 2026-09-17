@@ -22,18 +22,32 @@
 // fails" is observed at one instant on one network path rather than
 // inferred from two runs minutes apart.
 //
-// Usage: node scratch-swarm-dial.js <topic-hex> [--seconds 60]
+// Usage: node scratch-swarm-dial.js <topic-hex> [--seconds 60] [--connect-once]
 //
-// Non-destructive: it never answers the receiver's ACK, so a live
-// swarm-receive.js logs it as a dropped candidate and keeps waiting.
+// --connect-once replaces this tool's own bare 'connection' listener with
+// the REAL connectOnce() from engine/src/swarm.js, wired to the same
+// logging. That is the apples-to-apples comparison: without the flag, a
+// success proves only that Hyperswarm can reach the peer; with it, a
+// success means the engine's own code path completed the READY/ACK
+// handshake. If the plain run connects and the --connect-once run does
+// not, the fault is in our code, and this narrows it to connectOnce
+// without needing another cross-network round trip.
+//
+// Pair it with `node engine/scratch-serve.js <code>` on the far side,
+// which reports whether an ACK actually arrived.
+//
+// Non-destructive by default: without --connect-once it never answers the
+// receiver's ACK, so a live swarm-receive.js logs it as a dropped
+// candidate and keeps waiting.
 
 const DHT = require('hyperdht')
 const os = require('node:os')
-const { createSwarm } = require('./src/swarm')
+const { createSwarm, connectOnce } = require('./src/swarm')
 
 const topicHex = process.argv[2]
 const secondsFlag = process.argv.indexOf('--seconds')
 const RUN_SECONDS = secondsFlag === -1 ? 60 : Number(process.argv[secondsFlag + 1])
+const USE_CONNECT_ONCE = process.argv.includes('--connect-once')
 
 if (!topicHex || !/^[0-9a-f]{64}$/i.test(topicHex)) {
   console.error('Usage: scratch-swarm-dial.js <topic-hex> [--seconds 60]')
@@ -72,26 +86,57 @@ async function main () {
     return socket
   }
 
-  swarm.on('connection', (socket, peerInfo) => {
-    log(`*** CONNECTION from ${short(peerInfo.publicKey)} (client=${peerInfo.client}) ***`)
-    log('    a real drop would now exchange READY/ACK; this tool deliberately does not')
-    socket.on('error', () => {})
-    // Report what the receiver sends us, which should be READY (0x01).
-    socket.once('data', (chunk) => {
-      log(`    first byte from peer: 0x${chunk[0].toString(16)} (READY is 0x1)`)
+  let handshakeOutcome = 'not attempted'
+  let refresher = null
+
+  if (USE_CONNECT_ONCE) {
+    // Let the engine's own code own the join, the listener and the
+    // handshake, so a failure here is a failure of the real sender.
+    log('MODE: using the REAL connectOnce() from engine/src/swarm.js')
+    connectOnce(swarm, topic, {
+      timeout: RUN_SECONDS * 1000,
+      onCandidate: (info) => log(`   connectOnce candidate ${short(info.publicKey)}, awaiting READY`),
+      onCandidateDropped: (info, reason) => log(`   connectOnce dropped ${short(info.publicKey)} before READY (${reason})`)
+    }).then(
+      ({ socket, peerInfo }) => {
+        handshakeOutcome = 'RESOLVED'
+        log(`*** connectOnce RESOLVED with ${short(peerInfo.publicKey)} ***`)
+        log('    the engine completed READY/ACK -- the far side should now log "got ACK"')
+        socket.on('error', () => {})
+        // end(), not destroy(). connectOnce writes the ACK immediately
+        // before resolving, and destroy() discards unflushed bytes -- which
+        // threw the ACK away and made the far side report "connection reset
+        // by peer" instead of confirming the handshake, defeating the whole
+        // point of this mode.
+        socket.end()
+      },
+      (err) => {
+        handshakeOutcome = `REJECTED: ${err.message}`
+        log(`*** connectOnce REJECTED: ${err.message} ***`)
+      }
+    )
+  } else {
+    swarm.on('connection', (socket, peerInfo) => {
+      log(`*** CONNECTION from ${short(peerInfo.publicKey)} (client=${peerInfo.client}) ***`)
+      log('    a real drop would now exchange READY/ACK; this tool deliberately does not')
+      socket.on('error', () => {})
+      // Report what the receiver sends us, which should be READY (0x01).
+      socket.once('data', (chunk) => {
+        log(`    first byte from peer: 0x${chunk[0].toString(16)} (READY is 0x1)`)
+      })
     })
-  })
 
-  // --- join exactly as the sender does -------------------------------------
-  const discovery = swarm.join(topic)
-  const refresher = setInterval(() => {
-    discovery.refresh({ client: true, server: true }).catch(() => {})
-  }, 4000)
+    // --- join exactly as the sender does -----------------------------------
+    const discovery = swarm.join(topic)
+    refresher = setInterval(() => {
+      discovery.refresh({ client: true, server: true }).catch(() => {})
+    }, 4000)
 
-  discovery.flushed().then(
-    () => log('our own announce flushed (we are now discoverable too)'),
-    (err) => log(`announce failed: ${err.message}`)
-  )
+    discovery.flushed().then(
+      () => log('our own announce flushed (we are now discoverable too)'),
+      (err) => log(`announce failed: ${err.message}`)
+    )
+  }
 
   // --- independent raw dial, same process, same moment ---------------------
   const probe = new DHT()
@@ -135,11 +180,18 @@ async function main () {
 
   setTimeout(async () => {
     clearInterval(poll)
-    clearInterval(refresher)
+    if (refresher) clearInterval(refresher)
     const s = swarm.stats.connects
 
     log('')
     log('=== DIAGNOSIS ===')
+    if (USE_CONNECT_ONCE) {
+      log(`connectOnce outcome: ${handshakeOutcome}`)
+      log('Compare against a run WITHOUT --connect-once: if that one opens a')
+      log('connection and this one does not, the fault is in our engine code,')
+      log('not in Hyperswarm or the network.')
+      log('')
+    }
     if (swarm.peers.size === 0) {
       log('Hyperswarm never surfaced ANY peer for this topic.')
       log('Discovery is the problem, not the dial. If scratch-lookup.js finds')
