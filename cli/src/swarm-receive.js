@@ -100,8 +100,17 @@ async function main () {
   console.log(`[swarm-receive] joining topic ${topic.toString('hex')}...`)
 
   try {
-    const { socket, peerInfo } = await acceptOnce(swarm, topic, {
+    const { socket, peerInfo, pending } = await acceptOnce(swarm, topic, {
       timeout: joinTimeout(),
+      // Log each candidate and each discarded one. A drop that fails
+      // because peers connect and then vanish looks identical to one that
+      // found nobody unless these lines are visible.
+      onCandidate: (info) => {
+        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., sent READY, awaiting ACK`)
+      },
+      onCandidateDropped: (info, reason) => {
+        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before ACK (${reason}); still waiting`)
+      },
       // Only now are we actually discoverable. The sender must not start
       // looking before this point -- see engine/src/swarm.js. This is
       // therefore also the first moment the code may be shown to a human,
@@ -127,6 +136,9 @@ async function main () {
     socket.on('error', (err) => console.error('[swarm-receive] socket error:', err.message))
 
     const result = await receiveFile(socket, outputDir, {
+      // Bytes the handshake read alongside the ACK, if the sender
+      // coalesced them; dropping these would corrupt the first frame.
+      pending,
       onManifest: (manifest) => {
         console.log(`[swarm-receive] manifest: ${manifest.name} (${manifest.size} bytes)`)
       }

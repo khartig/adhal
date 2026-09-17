@@ -56,7 +56,18 @@ async function main () {
   console.log(`[swarm-send] joining topic ${topic.toString('hex')}, looking for a peer...`)
 
   try {
-    const { socket, peerInfo } = await connectOnce(swarm, topic, { timeout: joinTimeout() })
+    const { socket, peerInfo } = await connectOnce(swarm, topic, {
+      timeout: joinTimeout(),
+      // See swarm-receive.js: without these, "connected to several peers
+      // that all died before confirming" is indistinguishable from
+      // "never found anyone".
+      onCandidate: (info) => {
+        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., awaiting READY`)
+      },
+      onCandidateDropped: (info, reason) => {
+        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before READY (${reason}); still looking`)
+      }
+    })
     console.log(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // See swarm-receive.js: without a listener, a late socket-level error
     // throws as an uncaught exception instead of something catchable.

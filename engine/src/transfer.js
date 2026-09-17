@@ -65,11 +65,14 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE } = 
 // hashed. Full-file hash verification (comparing against the manifest's
 // sha256) is the caller's job, matching the doc's v1 data path step 6.
 /**
- * @param {NodeJS.EventEmitter & { removeListener: Function }} socket
+ * @param {NodeJS.EventEmitter & { removeListener: Function, pause?: Function, resume?: Function }} socket
  * @param {string} outputDir
- * @param {{ onManifest?: (manifest: any) => void }} [options]
+ * @param {{ onManifest?: (manifest: any) => void, pending?: Buffer | null }} [options]
+ *   `pending` is any payload the readiness handshake read off the socket
+ *   before handing it over -- see acceptOnce in ./swarm.js, which pauses
+ *   the socket and returns leftover bytes rather than swallowing them.
  */
-function receiveFile (socket, outputDir, { onManifest } = {}) {
+function receiveFile (socket, outputDir, { onManifest, pending } = {}) {
   return new Promise((resolve, reject) => {
     let manifest = null
     let writeStream = null
@@ -140,6 +143,14 @@ function receiveFile (socket, outputDir, { onManifest } = {}) {
 
     socket.on('data', onData)
     socket.on('error', fail)
+
+    // Feed the handshake's leftover bytes through the same path as live
+    // data, before resuming, so frame order is preserved.
+    if (pending && pending.length > 0) onData(pending)
+    // acceptOnce paused the socket to hold the gap between resolving and
+    // this listener being attached. Harmless when it never paused (item
+    // 1's plain TCP path passes no `pending` and does not pause).
+    if (typeof socket.resume === 'function') socket.resume()
   })
 }
 

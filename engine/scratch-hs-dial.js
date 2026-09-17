@@ -8,8 +8,10 @@
 //
 // Usage: node scratch-hs-dial.js <topic-hex> [--client-only]
 //
-// WARNING: destructive to a live swarm-receive.js -- a successful
-// connection satisfies its acceptOnce and it will exit. Restart it after.
+// Safe to point at a live swarm-receive.js since the READY/ACK handshake
+// landed (see engine/src/swarm.js): this tool never answers ACK, so the
+// receiver logs it as a dropped candidate and keeps waiting. It used to
+// satisfy acceptOnce outright and wedge the receiver.
 
 const Hyperswarm = require('hyperswarm')
 const os = require('node:os')

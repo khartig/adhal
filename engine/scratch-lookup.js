@@ -9,12 +9,17 @@
 //
 // Usage: node scratch-lookup.js <topic-hex> [--connect]
 //
-// WARNING: --connect is destructive to a live receiver. Dialing its public
-// key produces a real connection, which satisfies acceptOnce's "first peer
-// wins" and hands swarm-receive.js a socket that never sends a manifest.
-// The receiver then errors out and exits. Restart the receiver after any
-// --connect probe, and never point --connect at a receiver you are about
-// to send to.
+// --connect is now safe to point at a live receiver. It used to be
+// destructive: a raw dial satisfied acceptOnce's "first peer wins", handed
+// swarm-receive.js a socket that never sent a manifest, and wedged it.
+// Since the READY/ACK handshake landed (see engine/src/swarm.js), a dial
+// that never answers ACK is logged and discarded, and the receiver stays
+// joined and keeps waiting.
+//
+// So a CONNECTED result here no longer proves a *drop* would work -- it
+// proves discovery and hole punching work. If this succeeds while
+// swarm-send.js still times out, the failure is above the DHT, and the
+// sender's own timeout message will now say so.
 
 const DHT = require('hyperdht')
 const os = require('node:os')

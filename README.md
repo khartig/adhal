@@ -41,6 +41,15 @@ rather than a custom NAT-traversal stack.
   Both §9 open decisions (word list, QR payload contents) are resolved --
   see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-drop-code-item-3).
 
+The readiness handshake between the two peers is two-way (READY + ACK) as
+of the first cross-ISP attempt at an item-3 drop, which exposed a receiver
+that could be permanently consumed by a peer that connected and then
+vanished -- routine on a firewalled CGNAT path. Both sides now discard a
+candidate that fails to confirm and keep waiting, a join timeout says
+whether it found nobody or found peers that never completed the handshake,
+and each candidate is logged as it arrives or is dropped. Details and the
+measurement in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+
 See [`docs/Refined-Implementation-Plan.md` section 4](docs/Refined-Implementation-Plan.md#4-implement-first-easiest-highest-chance-of-success)
 for the full ordered list; items 4+ (challenge-response, progress/cancel,
 resume, relay, ...) are not yet implemented.

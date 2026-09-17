@@ -19,7 +19,9 @@ Device Noise keypair          <- identity, persisted locally
 1. Generate code -> topic = hash(code || app-salt) (32 bytes).
 2. Both peers `swarm.join(topic)`.
 3. Challenge-response: prove you know the code (HMAC over nonce). Don't
-   trust a stranger who merely found the topic.
+   trust a stranger who merely found the topic. (Not built. The
+   READY/ACK readiness handshake in `engine/src/swarm.js` is the slot this
+   goes in: replace the constant ACK byte with the proof.)
 4. Open a Protomux channel; send a manifest (name, size, chunk size,
    content hash).
 5. Stream chunks; ack by index; persist offset for resume.
@@ -102,10 +104,44 @@ comments for detail):
   and the server's READY byte had no `'error'` listener, so the
   `NoiseSecretStream` emitted an uncaught error and killed the process.
   A candidate that fails this way is now discarded rather than being
-  treated as a fatal drop failure: the sender stays joined and waits for
-  the next candidate. The join timeout also stays armed until READY
-  actually arrives, so a connection that never confirms can no longer hang
-  the drop indefinitely.
+  treated as a fatal drop failure: **both** sides stay joined and wait for
+  the next candidate. The join timeout also stays armed until the handshake
+  actually completes, so a connection that never confirms can no longer
+  hang the drop indefinitely.
+- **Hardening only the sender against that case caused a worse bug, and the
+  handshake is now two-way (READY + ACK).** `acceptOnce` used to resolve on
+  its *first* `'connection'` event: clear its timeout, remove its listener,
+  write READY, hand the socket to `receiveFile`. So the half-failed punch
+  the sender had just been hardened against would consume the receiver
+  permanently -- the sender correctly discarded the dead candidate and kept
+  dialing, while the receiver sat committed to a dead socket, unable to
+  answer any of it. Every later dial connected at the DHT/UDX layer and
+  then hung. Measured on Starlink -> Comcast: `hyperdht` discovery and a raw
+  dial both succeeded (`scratch-lookup.js --connect` reported `CONNECTED`)
+  while `swarm-send.js` timed out after 120s having transferred nothing.
+  The sender now answers READY with an ACK, so "this candidate confirmed"
+  is a state both sides agree on and both can discard a candidate that
+  fails. `acceptOnce` pauses the socket and returns any bytes that arrived
+  alongside the ACK as `pending`, which `receiveFile` feeds through its
+  decoder first -- otherwise a sender that coalesced its manifest into that
+  chunk would lose the first frame. This ACK is also where item 4's
+  challenge-response HMAC belongs, replacing a constant byte with a proof
+  that the peer knows the drop code.
+- **A join timeout now says which of the two failures it was.** Previously
+  both reported `timed out looking for a peer`, which was actively
+  misleading in the case above: the sender had found several. Zero
+  candidates means discovery found nobody (wrong code, or the other side
+  has not announced); one or more means the DHT and the punch worked and
+  the handshake did not. `onCandidate`/`onCandidateDropped` log each
+  candidate and each discard, so "peers keep connecting and vanishing" is
+  visible rather than inferred. Plan section 8's alpha gate requires being
+  able to classify every failure; this is the minimum for that.
+- **`scratch-lookup.js --connect` and `scratch-hs-dial.js` are no longer
+  destructive.** They never answer ACK, so a live receiver logs them as a
+  dropped candidate and keeps waiting. A `CONNECTED` result from them
+  therefore no longer implies a drop would succeed -- it isolates
+  discovery and hole punching from the application handshake, which is
+  exactly the distinction that was missing above.
 - Tearing the swarm down immediately after the sender's own `end()`
   callback fires is not safe -- that only confirms a *local* flush, not
   that the receiver got the last bytes. The receiver now ends its side

@@ -1,0 +1,221 @@
+'use strict'
+
+// Regression test for the failure that broke the first cross-ISP drop
+// attempt (Starlink sender -> Comcast receiver): hyperdht discovery and a
+// raw dial both succeeded, but no bytes ever moved and the sender reported
+// "timed out looking for a peer" having in fact found one.
+//
+// Cause: acceptOnce resolved on its first 'connection' event, clearing its
+// timeout and removing its listener before the peer had proven itself. A
+// punch that half-failed -- routine on a firewalled CGNAT path, and the
+// exact case connectOnce was already hardened against -- therefore
+// consumed the receiver permanently. The sender correctly discarded the
+// dead candidate and kept dialing; the receiver could no longer answer any
+// of it.
+//
+// The peer these tests use to reproduce that is a real Hyperswarm node
+// that joins the topic and then declines to finish the handshake -- either
+// dropping the connection once it has seen READY, or holding it open and
+// staying silent. That is what a half-failed punch, and equally a
+// scratch-lookup.js --connect probe, looks like from the receiver's side.
+
+const test = require('node:test')
+const assert = require('node:assert/strict')
+const path = require('node:path')
+const os = require('node:os')
+const fs = require('node:fs')
+const crypto = require('node:crypto')
+const { spawn } = require('node:child_process')
+const createTestnet = require('hyperdht/testnet')
+
+const {
+  createSwarm,
+  acceptOnce,
+  connectOnce,
+  topicFromCode,
+  generateCode,
+  sendFile,
+  receiveFile
+} = require('@quay/engine')
+
+const REPO_ROOT = path.resolve(__dirname, '..', '..')
+const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
+
+// Joins `topic` and refuses to complete the readiness handshake.
+// `mode: 'drop'` waits for READY and then kills the connection;
+// `mode: 'silent'` holds it open and never answers.
+async function joinAsBadPeer (bootstrap, topic, mode) {
+  const swarm = createSwarm({ bootstrap })
+  /** @type {(value?: any) => void} */
+  let sawReady = () => {}
+  const readySeen = new Promise((resolve) => { sawReady = resolve })
+
+  swarm.on('connection', (socket) => {
+    socket.on('error', () => {})
+    if (mode === 'drop') {
+      // Waiting for READY first makes this deterministic: the receiver is
+      // guaranteed to have reached the candidate stage before we kill it.
+      socket.once('data', () => {
+        sawReady()
+        socket.destroy()
+      })
+    } else {
+      socket.once('data', () => sawReady())
+    }
+  })
+
+  const discovery = swarm.join(topic)
+  await discovery.flushed()
+  return { swarm, readySeen }
+}
+
+function captureOutput (child) {
+  const state = { stdout: '', stderr: '' }
+  child.stdout.on('data', (c) => { state.stdout += c.toString('utf8') })
+  child.stderr.on('data', (c) => { state.stderr += c.toString('utf8') })
+  return state
+}
+
+function waitForPattern (state, pattern, timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now()
+    const timer = setInterval(() => {
+      const match = state.stdout.match(pattern)
+      if (match) { clearInterval(timer); resolve(match) } else if (Date.now() - start > timeoutMs) {
+        clearInterval(timer)
+        reject(new Error(`timed out waiting for ${pattern}\nstdout:\n${state.stdout}\nstderr:\n${state.stderr}`))
+      }
+    }, 20)
+  })
+}
+
+test('a peer that connects and vanishes without ACK does not consume the receiver', async (t) => {
+  const testnet = await createTestnet(3)
+  t.after(() => testnet.destroy())
+
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-handshake-'))
+  t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+
+  const sourcePath = path.join(tmpDir, 'source.bin')
+  const outputDir = path.join(tmpDir, 'received')
+  await fs.promises.mkdir(outputDir, { recursive: true })
+  const payload = crypto.randomBytes(512 * 1024)
+  await fs.promises.writeFile(sourcePath, payload)
+  const expected = crypto.createHash('sha256').update(payload).digest('hex')
+
+  const topic = topicFromCode(generateCode())
+  const receiveSwarm = createSwarm({ bootstrap: testnet.bootstrap })
+  t.after(() => receiveSwarm.destroy())
+
+  const dropped = []
+  let announce
+  const announced = new Promise((resolve) => { announce = resolve })
+
+  const accepted = acceptOnce(receiveSwarm, topic, {
+    timeout: 60000,
+    onAnnounced: () => announce(),
+    onCandidateDropped: (info, reason) => dropped.push(reason)
+  })
+  await announced
+
+  // Burn a candidate: connect, take the READY, then disappear.
+  const bad = await joinAsBadPeer(testnet.bootstrap, topic, 'drop')
+  await bad.readySeen
+  await bad.swarm.destroy()
+
+  // The bug was that the receiver was now permanently committed to that
+  // dead socket -- listener removed, timeout cleared. It must still be
+  // waiting, and a genuine sender must still be able to complete a drop.
+  const sendSwarm = createSwarm({ bootstrap: testnet.bootstrap })
+  t.after(() => sendSwarm.destroy())
+
+  const [{ socket: rxSocket, pending }, { socket: txSocket }] = await Promise.all([
+    accepted,
+    connectOnce(sendSwarm, topic, { timeout: 60000 })
+  ])
+
+  rxSocket.on('error', () => {})
+  txSocket.on('error', () => {})
+
+  const [received, sent] = await Promise.all([
+    receiveFile(rxSocket, outputDir, { pending }),
+    sendFile(txSocket, sourcePath)
+  ])
+
+  assert.equal(sent.sha256, expected)
+  assert.equal(received.sha256, expected, 'the drop completed despite the earlier dead candidate')
+  assert.ok(dropped.length >= 1, `the dead candidate should have been reported, got ${JSON.stringify(dropped)}`)
+
+  const onDisk = crypto.createHash('sha256').update(await fs.promises.readFile(received.path)).digest('hex')
+  assert.equal(onDisk, expected)
+})
+
+test('a join that finds nobody and one that finds a silent peer report different reasons', async (t) => {
+  const testnet = await createTestnet(3)
+  t.after(() => testnet.destroy())
+
+  // Nobody on the topic at all: the message must blame discovery.
+  const lonely = createSwarm({ bootstrap: testnet.bootstrap })
+  t.after(() => lonely.destroy())
+  await assert.rejects(
+    () => connectOnce(lonely, topicFromCode(generateCode()), { timeout: 1500 }),
+    /no peer ever connected/,
+    'with zero candidates the message must not claim a handshake problem'
+  )
+
+  // A peer that connects but stays silent. The receiver counts it as a
+  // candidate, so its timeout must point above the DHT -- this is the
+  // message that was missing when the cross-ISP attempt failed.
+  const topic = topicFromCode(generateCode())
+  const receiveSwarm = createSwarm({ bootstrap: testnet.bootstrap })
+  t.after(() => receiveSwarm.destroy())
+
+  let announce
+  const announced = new Promise((resolve) => { announce = resolve })
+  const accepted = acceptOnce(receiveSwarm, topic, {
+    timeout: 10000,
+    onAnnounced: () => announce()
+  })
+  await announced
+
+  const bad = await joinAsBadPeer(testnet.bootstrap, topic, 'silent')
+  t.after(() => bad.swarm.destroy())
+  await bad.readySeen
+
+  await assert.rejects(
+    () => accepted,
+    /connected but none completed the readiness handshake/,
+    'with candidates the message must point above the DHT, not at it'
+  )
+})
+
+test('the receiver CLI reports a dropped candidate and keeps waiting', async (t) => {
+  const testnet = await createTestnet(3)
+  t.after(() => testnet.destroy())
+
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-handshake-cli-'))
+  t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
+
+  const env = {
+    ...process.env,
+    QUAY_BOOTSTRAP: JSON.stringify(testnet.bootstrap),
+    QUAY_JOIN_TIMEOUT: '60000',
+    NO_COLOR: '1'
+  }
+
+  const receiveProc = spawn(process.execPath, [SWARM_RECEIVE, '--new', tmpDir], { env })
+  const output = captureOutput(receiveProc)
+  t.after(() => { if (receiveProc.exitCode === null) receiveProc.kill() })
+
+  const codeMatch = await waitForPattern(output, /scan the code above, or type: {2}(\S+)/)
+  const topic = topicFromCode(codeMatch[1])
+
+  const bad = await joinAsBadPeer(testnet.bootstrap, topic, 'drop')
+  t.after(() => bad.swarm.destroy())
+  await bad.readySeen
+
+  // The two lines that turn this failure from invisible into obvious.
+  await waitForPattern(output, /candidate \w+\.\.\., sent READY, awaiting ACK/)
+  await waitForPattern(output, /dropped before ACK \(.*\); still waiting/)
+  assert.equal(receiveProc.exitCode, null, 'the receiver must still be running')
+})
