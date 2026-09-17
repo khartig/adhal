@@ -6,7 +6,8 @@
   "license": "MIT",
   "bin": {
     "quay-send": "src/send.js",
-    "quay-receive": "src/receive.js"
+    "quay-receive": "src/receive.js",
+    "quay-code": "src/code.js"
   },
   "engines": {
     "node": ">=18"
@@ -15,9 +16,11 @@
     "test": "node --test"
   },
   "dependencies": {
-    "@quay/engine": "workspace:*"
+    "@quay/engine": "workspace:*",
+    "qrcode-generator": "2.0.4"
   },
   "devDependencies": {
-    "hyperdht": "6.34.0"
+    "hyperdht": "6.34.0",
+    "jsqr": "1.4.0"
   }
 }

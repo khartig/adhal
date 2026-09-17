@@ -14,6 +14,9 @@ const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 
+const { generateCode, encodeQrPayload } = require('@quay/engine')
+const { printQr } = require('./qr')
+
 const RECEIVE_SCRIPT = path.join(__dirname, 'swarm-receive.js')
 const SEND_SCRIPT = path.join(__dirname, 'swarm-send.js')
 
@@ -41,14 +44,23 @@ function waitForPattern (child, pattern) {
 async function main () {
   const sizeMb = Number(process.argv[2] || 10)
   const size = sizeMb * 1024 * 1024
-  const code = crypto.randomBytes(8).toString('hex')
+  // An item-3 word code rather than the opaque hex this used to generate,
+  // so the demo shows what a real drop actually puts on screen. The
+  // isolated-testnet test in cli/test/swarm-lan.test.js still drives the
+  // opaque path, so both stay exercised.
+  const code = generateCode()
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-swarm-demo-'))
   const sourcePath = path.join(tmpDir, 'demo-file.bin')
   const outputDir = path.join(tmpDir, 'received')
 
   console.log(`[demo] generating ${sizeMb} MB random file at ${sourcePath}`)
   await fs.promises.writeFile(sourcePath, crypto.randomBytes(size))
-  console.log(`[demo] one-time code for this run: ${code}`)
+  console.log('[demo] one-time code for this run:')
+  console.log()
+  printQr(encodeQrPayload(code))
+  console.log()
+  console.log(`  ${code}`)
+  console.log()
 
   const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, code, outputDir], { stdio: ['ignore', 'pipe', 'inherit'] })
   receiveProc.stdout.pipe(process.stdout)

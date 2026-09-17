@@ -6,7 +6,13 @@
 // only the transport changes, from a bare TCP socket to an end-to-end
 // Noise-encrypted Hyperswarm connection.
 //
-// Usage: swarm-receive.js <code> [outputDir]
+// Usage: swarm-receive.js [code] [outputDir]
+//        swarm-receive.js --new [outputDir]
+//
+// With no code, or with --new, one is generated (item 3) and shown as both
+// six words and a QR symbol. An explicit code may be six words in any
+// casing/separator style, or an opaque secret -- see ./resolve-code.js for
+// why both are accepted and how they are told apart.
 //
 // QUAY_BOOTSTRAP=<json bootstrap array> overrides the DHT bootstrap nodes
 // -- used by the automated test to run against an isolated local testnet
@@ -14,7 +20,9 @@
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, topicFromCode, receiveFile } = require('@quay/engine')
+const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload } = require('@quay/engine')
+const { resolveCode } = require('./resolve-code')
+const { printQr } = require('./qr')
 
 function parseBootstrap () {
   const raw = process.env.QUAY_BOOTSTRAP
@@ -38,18 +46,56 @@ function joinTimeout () {
   return parsed
 }
 
+// Splits argv into an optional code and an optional output directory.
+// `--new` is explicit rather than inferred so that the one-positional form
+// stays unambiguously "that's a code", exactly as item 2 defined it: a bare
+// path and a bare code are not reliably distinguishable, and guessing wrong
+// would silently save into a directory named after a word.
+function parseArgs (argv) {
+  const flags = argv.filter((a) => a.startsWith('--'))
+  const positional = argv.filter((a) => !a.startsWith('--'))
+  const wantsNew = flags.includes('--new')
+
+  for (const flag of flags) {
+    if (flag !== '--new') throw new Error(`unknown flag ${flag}`)
+  }
+
+  if (wantsNew) {
+    if (positional.length > 1) throw new Error('too many arguments')
+    return { codeArg: null, outputDirArg: positional[0] }
+  }
+  if (positional.length > 2) throw new Error('too many arguments')
+  return { codeArg: positional[0] || null, outputDirArg: positional[1] }
+}
+
 async function main () {
-  const [, , code, outputDirArg] = process.argv
-  if (!code) {
-    console.error('Usage: swarm-receive.js <code> [outputDir]')
+  let parsed
+  try {
+    parsed = parseArgs(process.argv.slice(2))
+  } catch (err) {
+    console.error(`[swarm-receive] ${err.message}`)
+    console.error('Usage: swarm-receive.js [code] [outputDir]')
+    console.error('       swarm-receive.js --new [outputDir]')
     process.exitCode = 1
     return
   }
 
-  const outputDir = outputDirArg ? path.resolve(outputDirArg) : process.cwd()
+  // A generated code is the default: item 3 exists because hand-typing a
+  // code on both machines was the friction worth removing.
+  const generated = parsed.codeArg === null
+  let resolved
+  try {
+    resolved = resolveCode(generated ? generateCode() : parsed.codeArg)
+  } catch (err) {
+    console.error(`[swarm-receive] ${err.message}`)
+    process.exitCode = 1
+    return
+  }
+  const { code, topic } = resolved
+
+  const outputDir = parsed.outputDirArg ? path.resolve(parsed.outputDirArg) : process.cwd()
   await fs.promises.mkdir(outputDir, { recursive: true })
 
-  const topic = topicFromCode(code)
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
   console.log(`[swarm-receive] joining topic ${topic.toString('hex')}...`)
 
@@ -57,11 +103,22 @@ async function main () {
     const { socket, peerInfo } = await acceptOnce(swarm, topic, {
       timeout: joinTimeout(),
       // Only now are we actually discoverable. The sender must not start
-      // looking before this point -- see engine/src/swarm.js. In the real
-      // product this is the moment the drop code becomes safe to show a
-      // human; demo-swarm.js waits for this exact line before spawning
-      // the sender.
-      onAnnounced: () => console.log('[swarm-receive] announced, waiting for a peer...')
+      // looking before this point -- see engine/src/swarm.js. This is
+      // therefore also the first moment the code may be shown to a human,
+      // which is why the QR is printed here and not before the join:
+      // showing it earlier invites exactly the lookup-before-announce race
+      // that engine/src/swarm.js documents. demo-swarm.js waits for this
+      // line before spawning the sender.
+      onAnnounced: () => {
+        console.log('[swarm-receive] announced, waiting for a peer...')
+        if (generated) {
+          console.log()
+          printQr(encodeQrPayload(code))
+          console.log()
+          console.log(`  scan the code above, or type:  ${code}`)
+          console.log()
+        }
+      }
     })
     console.log(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // Without a listener, a late socket-level error (e.g. after transfer

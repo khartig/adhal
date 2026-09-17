@@ -2,9 +2,16 @@
 'use strict'
 
 // Item 2 sender half. Usage: swarm-send.js <code> <filePath>
+//
+// The code may be six words (item 3) in any casing or separator style, or
+// the QR payload pasted verbatim -- 'QUAY1:ACID-ACORN-...' -- since that
+// decodes to the same thing a scanner would hand a UI. See
+// ./resolve-code.js for how that is distinguished from an opaque secret.
+//
 // See swarm-receive.js for the QUAY_BOOTSTRAP override.
 
-const { createSwarm, connectOnce, topicFromCode, sendFile } = require('@quay/engine')
+const { createSwarm, connectOnce, sendFile } = require('@quay/engine')
+const { resolveCode } = require('./resolve-code')
 
 function parseBootstrap () {
   const raw = process.env.QUAY_BOOTSTRAP
@@ -23,14 +30,28 @@ function joinTimeout () {
 }
 
 async function main () {
-  const [, , code, filePathArg] = process.argv
-  if (!code || !filePathArg) {
+  const [, , codeArg, filePathArg] = process.argv
+  if (!codeArg || !filePathArg) {
     console.error('Usage: swarm-send.js <code> <filePath>')
     process.exitCode = 1
     return
   }
 
-  const topic = topicFromCode(code)
+  // A mistyped word is reported here, before any network work, rather than
+  // surfacing 120 seconds later as a peer-discovery timeout.
+  let topic, code
+  try {
+    ({ topic, code } = resolveCode(codeArg))
+  } catch (err) {
+    console.error(`[swarm-send] ${err.message}`)
+    process.exitCode = 1
+    return
+  }
+  // Echo the canonical form when it differs, so a code that was pasted as
+  // a QR payload or with odd separators visibly normalized to the same
+  // words the other device is showing.
+  if (code !== codeArg) console.log(`[swarm-send] code: ${code}`)
+
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
   console.log(`[swarm-send] joining topic ${topic.toString('hex')}, looking for a peer...`)
 
@@ -45,7 +66,7 @@ async function main () {
     console.log(`[swarm-send] done: ${result.name}`)
     console.log(`[swarm-send] sha256: ${result.sha256}`)
 
-    // End our write side, then wait for the socket to fully close (i.e.
+    // End our write side, then wait for the socket to fully close (i.e.,
     // the receiver has also ended its side, per swarm-receive.js) before
     // tearing the swarm down. Destroying right after our own end() only
     // guarantees a *local* flush, not that the receiver actually got the

@@ -30,7 +30,7 @@ Hyperdrive/Autobase/CRDTs are explicitly out of scope for v1 content -- a
 framed stream plus a small on-disk manifest is enough, and is easier to
 resume and test.
 
-## What's implemented today (items 1-2)
+## What's implemented today (items 1-3)
 
 `engine/src/frame.js` and `engine/src/transfer.js` implement steps 4-6 of
 the data path above. Item 1 proves this over a plain localhost TCP socket
@@ -39,7 +39,9 @@ carries the *same* manifest/chunk protocol over an end-to-end
 Noise-encrypted Hyperswarm connection instead, proving topic-join +
 encrypted transport without changing the framing logic at all.
 `cli/src/send.js`/`receive.js` (item 1) and `cli/src/swarm-send.js`/
-`swarm-receive.js` (item 2) are the corresponding CLI pairs.
+`swarm-receive.js` (item 2) are the corresponding CLI pairs. Item 3 then
+replaces the hand-typed code both of those took with a generated one --
+see [The drop code](#the-drop-code-item-3) below.
 
 Item 2 notes, found empirically while building it (see `engine/src/swarm.js`
 comments for detail):
@@ -110,9 +112,83 @@ comments for detail):
   after it finishes reading, and the sender waits for the socket's
   `'close'` event (both sides ended) before destroying its swarm.
 
-Steps 1-3 and 7 of the data path above, resume (step 5's offset
-persistence), and Protomux-based channel multiplexing all belong to later
-items in section 4 and are not yet built.
+## The drop code (item 3)
+
+Step 1 of the data path. `engine/src/code.js` owns the code as a value,
+`engine/src/wordlist.js` holds the words, and `cli/src/qr.js` draws the
+symbol; `cli/src/resolve-code.js` is the only place in the CLI that turns
+user input into a topic.
+
+**Word list: EFF short list #1**, vendored (1295 of its 1296 words, all
+3-5 letters, ~62 bits over six words). Resolves plan section 9 spike 4.
+Chosen over BIP39 on two grounds. Typing cost: EFF's words are 3-5 letters
+against BIP39's up-to-8, and item 3 exists precisely to remove the friction
+of typing a code by hand on two machines. Optics: a six-word lowercase
+phrase drawn from BIP39 reads as a wallet seed phrase, which cuts against
+section 6's deliberate avoidance of crypto framing and would train users
+toward typing seed-like phrases into whatever asks for one. The list's one
+hyphenated entry, `yo-yo`, is dropped, because a hyphen separates words in
+a code and `yo-yo-acid` would otherwise be ambiguous; the count only needs
+to be a power of six if you are rolling physical dice, and these come from
+`crypto.randomInt` (rejection sampling -- 1295 is not a power of two, so a
+plain modulo would skew draws toward the front of the list).
+
+**QR payload: the typed code and nothing else**, as a versioned URI.
+Resolves plan section 9 spike 5.
+
+```
+QUAY1:ACID-ACORN-ACRE-ACTS-AFAR-AGENT      <- in the QR, at most 41 chars
+acid-acorn-acre-acts-afar-agent            <- shown to a human
+```
+
+Scanning and typing are therefore provably the same code path rather than
+two paths to test. Embedding the sender's public key would let a scanner
+`joinPeer()` directly and skip the topic lookup entirely -- attractive
+given the announce-propagation race below -- but that is item 4/7 work, and
+the `QUAY1` version prefix is what buys the room to add it without a format
+break. An unknown scheme (`QUAY2:`) is reported as "newer version" rather
+than misread as words.
+
+Two details are load-bearing rather than cosmetic:
+
+- **Uppercase in the QR, lowercase for humans.** QR's alphanumeric encoding
+  mode covers only `0-9 A-Z` and `space $%*+-./:` -- both `:` and `-`
+  qualify, lowercase does not. Measured against the worst-case
+  41-character payload, staying in alphanumeric mode is worth exactly one
+  version of headroom (`Q`: 29x29 alphanumeric vs 33x33 byte), and that is
+  spent on error correction: **ECC level Q (~25% recovery) at version 3,
+  29x29**. A bigger symbol would work against the cheap Android cameras
+  that spike 5 was worried about, so the headroom buys robustness against
+  glare, moire and poor focus instead of size. `parseCode` is
+  case-insensitive, so a scan still round-trips.
+- **The code is shown only after `discovery.flushed()`.** Same reasoning as
+  the announce-propagation race below: the moment the code is readable is
+  the moment the other side may start looking, so showing it before the
+  announce has flushed manufactures exactly that race. `swarm-receive.js`
+  prints the QR from inside `onAnnounced`.
+
+Input is normalized hard, because a code is read off another device's
+screen: case, and any run of `-`, `_`, `.` or whitespace as a separator, all
+collapse to one canonical lowercase hyphenated form, which is the only
+thing that reaches `topicFromCode`. `topicFromCode` itself hashes exactly
+what it is given and normalizes nothing, so that item 2's opaque hex codes
+keep working -- which makes feeding it an unnormalized word code a real
+footgun, since the result is a valid but wrong topic and presents as a
+discovery timeout. `resolveCode` exists to close that hole: an input
+*shaped* like a six-word code is held to the strict parse and reports which
+word is wrong, rather than being waved through as an opaque secret.
+
+`cli/src/code.js` (`quay-code`) prints a code, its payload, its topic and
+the symbol -- item 3's screenshottable artifact, and the quickest way to
+get a topic argument for `engine/scratch-lookup.js`.
+
+Verified by `cli/test/code.test.js`, which decodes the printed matrix with
+a real QR decoder (`jsqr`, test-only) and confirms the scan lands on the
+same topic the receiver joined.
+
+Steps 3 and 7 of the data path above, resume (step 5's offset persistence),
+and Protomux-based channel multiplexing all belong to later items in
+section 4 and are not yet built.
 
 ## Relay threat boundary
 
