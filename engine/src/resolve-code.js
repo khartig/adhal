@@ -1,10 +1,11 @@
 'use strict'
 
-// Turns whatever a human put on the command line into a topic, and is the
-// single place in the CLI that is allowed to call topicFromCode.
+// Turns whatever a human typed into a topic, and is the one place any
+// entry point should call to do that. Nothing outside this module should
+// reach for topicFromCode directly.
 //
 // The reason this exists rather than each script calling parseCode itself:
-// two kinds of string legitimately reach these scripts. Item 3's six-word
+// two kinds of string legitimately reach those scripts. Item 3's six-word
 // codes are one. The other is the opaque throwaway secret -- the
 // `crypto.randomBytes(8).toString('hex')` in demo-swarm.js, or a
 // hand-typed 'quay-test-3' while reproducing a network measurement -- and
@@ -19,7 +20,8 @@
 // engine/src/swarm.js, and the single most expensive class of bug to
 // misattribute in this codebase.
 
-const { parseCode, topicFromCode, WORD_COUNT, QR_SCHEME } = require('@quay/engine')
+const { parseCode, WORD_COUNT, QR_SCHEME } = require('./code')
+const { topicFromCode } = require('./topic')
 
 // Does this look like an *attempt* at a six-word code? If so we hold it to
 // the strict parse and report which word is wrong, instead of quietly

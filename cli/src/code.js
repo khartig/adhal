@@ -11,9 +11,8 @@
 // QUAY_QR_WIDE=1 switches to full-block rendering for console fonts
 // lacking the half-block glyphs; NO_COLOR drops the ANSI colors.
 
-const { generateCode, parseCode, encodeQrPayload, CODE_ENTROPY_BITS, WORD_COUNT } = require('@quay/engine')
+const { generateCode, parseCode, encodeQrPayload, resolveCode, CODE_ENTROPY_BITS, WORD_COUNT } = require('@quay/engine')
 const { printQr } = require('./qr')
-const { resolveCode } = require('./resolve-code')
 
 function main () {
   const args = process.argv.slice(2)

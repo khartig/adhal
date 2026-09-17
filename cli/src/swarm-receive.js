@@ -11,7 +11,7 @@
 //
 // With no code, or with --new, one is generated (item 3) and shown as both
 // six words and a QR symbol. An explicit code may be six words in any
-// casing/separator style, or an opaque secret -- see ./resolve-code.js for
+// casing/separator style, or an opaque secret -- see engine/src/resolve-code.js for
 // why both are accepted and how they are told apart.
 //
 // QUAY_BOOTSTRAP=<json bootstrap array> overrides the DHT bootstrap nodes
@@ -20,8 +20,8 @@
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload } = require('@quay/engine')
-const { resolveCode } = require('./resolve-code')
+const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode } = require('@quay/engine')
+
 const { printQr } = require('./qr')
 
 function parseBootstrap () {

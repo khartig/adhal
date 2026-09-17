@@ -11,14 +11,29 @@
 // that never sends one is reported rather than mistaken for a real peer.
 //
 // Usage: node scratch-serve.js <code>
+//
+// <code> is a six-word drop code in any casing or separator style, or the
+// QR payload verbatim, or an opaque secret -- the same inputs swarm-send.js
+// accepts, normalized the same way. That matters: this used to hash the
+// argument literally, so an uppercased or space-separated code produced a
+// valid but different topic and this process would sit announcing on a
+// topic no sender was looking at, with nothing on screen to say so.
 
 const Hyperswarm = require('hyperswarm')
 const os = require('node:os')
-const { topicFromCode } = require('./src/topic')
+const { resolveCode } = require('./src/resolve-code')
 
-const code = process.argv[2]
-if (!code) {
+const codeArg = process.argv[2]
+if (!codeArg) {
   console.error('Usage: scratch-serve.js <code>')
+  process.exit(1)
+}
+
+let code, topic
+try {
+  ({ code, topic } = resolveCode(codeArg))
+} catch (err) {
+  console.error(`scratch-serve: ${err.message}`)
   process.exit(1)
 }
 
@@ -30,12 +45,15 @@ const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, 
 async function main () {
   log(`host machine: ${os.hostname()} (${os.platform()})`)
 
-  const topic = topicFromCode(code)
   const swarm = new Hyperswarm()
 
   await swarm.dht.ready()
   log(`dht ready: host=${swarm.dht.host}:${swarm.dht.port} firewalled=${swarm.dht.firewalled}`)
   log(`my public key: ${swarm.keyPair.publicKey.toString('hex')}`)
+  // Print the canonical code, not the raw argument, so a normalization
+  // difference between the two machines is visible here rather than
+  // showing up only as a topic that no sender is looking at.
+  log(`code: ${code}`)
   log(`topic: ${topic.toString('hex')}`)
 
   let n = 0

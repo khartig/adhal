@@ -184,7 +184,7 @@ comments for detail):
 
 Step 1 of the data path. `engine/src/code.js` owns the code as a value,
 `engine/src/wordlist.js` holds the words, and `cli/src/qr.js` draws the
-symbol; `cli/src/resolve-code.js` is the only place in the CLI that turns
+symbol; `engine/src/resolve-code.js` is the only place that turns
 user input into a topic.
 
 **Word list: EFF short list #1**, vendored (1295 of its 1296 words, all

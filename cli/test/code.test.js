@@ -31,7 +31,7 @@ const {
 } = require('@quay/engine')
 const { WORDS, INDEX } = require('@quay/engine/src/wordlist')
 const { renderQr, ECC_LEVEL, QUIET_ZONE } = require('../src/qr')
-const { resolveCode } = require('../src/resolve-code')
+const { resolveCode } = require('@quay/engine')
 
 const execFileAsync = promisify(execFile)
 const CODE_SCRIPT = path.join(__dirname, '..', 'src', 'code.js')

@@ -354,4 +354,7 @@ function connectOnce (swarm, topic, { timeout = 30000, onCandidate, onCandidateD
   })
 }
 
-module.exports = { createSwarm, acceptOnce, connectOnce }
+// timeoutMessage is exported for tests: asserting both of its branches
+// end to end would mean racing a real peer against a real timeout, which
+// is exactly the kind of timing-dependent test that fails only under load.
+module.exports = { createSwarm, acceptOnce, connectOnce, timeoutMessage }

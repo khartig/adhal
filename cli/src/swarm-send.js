@@ -6,12 +6,11 @@
 // The code may be six words (item 3) in any casing or separator style, or
 // the QR payload pasted verbatim -- 'QUAY1:ACID-ACORN-...' -- since that
 // decodes to the same thing a scanner would hand a UI. See
-// ./resolve-code.js for how that is distinguished from an opaque secret.
+// engine/src/resolve-code.js for how that is distinguished from an opaque secret.
 //
 // See swarm-receive.js for the QUAY_BOOTSTRAP override.
 
-const { createSwarm, connectOnce, sendFile } = require('@quay/engine')
-const { resolveCode } = require('./resolve-code')
+const { createSwarm, connectOnce, sendFile, resolveCode } = require('@quay/engine')
 
 function parseBootstrap () {
   const raw = process.env.QUAY_BOOTSTRAP
