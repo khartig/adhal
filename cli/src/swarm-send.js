@@ -28,6 +28,22 @@ function joinTimeout () {
   return parsed
 }
 
+// QUAY_REFRESH_INTERVAL overrides how often we re-run our own DHT
+// announce/lookup, in ms (0 disables it, leaving Hyperswarm's internal
+// 10-minute schedule). See engine/src/swarm.js REFRESH_INTERVAL: the 4s
+// default is validated only for two peers on one machine, and on a
+// cross-ISP path a continuous re-announce is a suspect for churning
+// holepunch relay state.
+function refreshInterval () {
+  const raw = process.env.QUAY_REFRESH_INTERVAL
+  if (raw === undefined) return undefined
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new TypeError(`QUAY_REFRESH_INTERVAL must be a non-negative number, got ${raw}`)
+  }
+  return parsed
+}
+
 async function main () {
   const [, , codeArg, filePathArg] = process.argv
   if (!codeArg || !filePathArg) {
@@ -52,11 +68,12 @@ async function main () {
   if (code !== codeArg) console.log(`[swarm-send] code: ${code}`)
 
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
-  console.log(`[swarm-send] joining topic ${topic.toString('hex')}, looking for a peer...`)
+  console.log(`[swarm-send] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
     const { socket, peerInfo } = await connectOnce(swarm, topic, {
       timeout: joinTimeout(),
+      refreshInterval: refreshInterval(),
       // See swarm-receive.js: without these, "connected to several peers
       // that all died before confirming" is indistinguishable from
       // "never found anyone".

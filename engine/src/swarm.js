@@ -87,10 +87,33 @@ function createSwarm ({ bootstrap, maxParallel = MAX_PARALLEL } = {}) {
 // a single stuck run. Gating the client on the server's announce having
 // flushed made 4 of 4 runs succeed. Re-querying on our own much shorter
 // schedule fixes the same race without depending on who started first.
+//
+// CAUTION, AND WHY THIS IS NOW CONFIGURABLE: the evidence behind 4000 is
+// entirely from peers on ONE machine (`demo:swarm` spawns both locally),
+// where the hole punch is trivial. It is only validated as a fix for the
+// *client*-side lookup race.
+//
+// For a peer joined with `server: true`, `PeerDiscovery._refresh()` issues
+// a DHT *announce*, not a lookup (hyperswarm/lib/peer-discovery.js picks
+// `dht.announce` over `dht.lookup` when announcing). Re-announcing every
+// four seconds therefore re-registers holepunch relay state continuously,
+// and a sender that harvested relay addresses from one announce may be
+// punching against state that has already been replaced. That costs
+// nothing when both peers are local and relay state is irrelevant; on two
+// firewalled NATs across ISPs it is a live suspect for a punch that fails
+// silently on both sides.
+//
+// QUAY_REFRESH_INTERVAL exists to test that without editing code: set it
+// to 30000 to match scratch-serve.js (which is observed to accept
+// cross-ISP connections), or 0 to fall back to Hyperswarm's own 10-minute
+// schedule. Do not change this default until there is cross-ISP evidence
+// for the new value.
 const REFRESH_INTERVAL = 4000
 
-// Re-runs the DHT lookup/announce for `discovery` every REFRESH_INTERVAL
+// Re-runs the DHT lookup/announce for `discovery` every `interval` ms
 // until `isSettled()` reports we're done. Returns a stop function.
+// `interval: 0` disables our own refreshing entirely, leaving Hyperswarm's
+// internal schedule as the only one.
 //
 // Refresh errors are deliberately swallowed: a single failed re-query is
 // transient and shouldn't abort a drop that the next tick may complete.
@@ -98,12 +121,14 @@ const REFRESH_INTERVAL = 4000
 /**
  * @param {{ refresh: (opts?: object) => Promise<unknown> }} discovery
  * @param {() => boolean} isSettled
+ * @param {number} [interval]
  */
-function keepRefreshing (discovery, isSettled) {
+function keepRefreshing (discovery, isSettled, interval = REFRESH_INTERVAL) {
+  if (!interval) return () => {}
   const timer = setInterval(() => {
     if (isSettled()) return
     discovery.refresh({ client: true, server: true }).catch(() => {})
-  }, REFRESH_INTERVAL)
+  }, interval)
   return () => clearInterval(timer)
 }
 
@@ -149,13 +174,14 @@ function timeoutMessage (phase, timeout, candidates) {
  * @param {Buffer} topic
  * @param {{
  *   timeout?: number,
+ *   refreshInterval?: number,
  *   onAnnounced?: () => void,
  *   onCandidate?: (peerInfo: any) => void,
  *   onCandidateDropped?: (peerInfo: any, reason: string) => void
  * }} [options]
  * @returns {Promise<{ socket: any, peerInfo: any, pending: Buffer | null }>}
  */
-function acceptOnce (swarm, topic, { timeout = 30000, onAnnounced, onCandidate, onCandidateDropped } = {}) {
+function acceptOnce (swarm, topic, { timeout = 30000, refreshInterval = REFRESH_INTERVAL, onAnnounced, onCandidate, onCandidateDropped } = {}) {
   return new Promise((resolve, reject) => {
     let settled = false
     let candidates = 0
@@ -239,7 +265,7 @@ function acceptOnce (swarm, topic, { timeout = 30000, onAnnounced, onCandidate, 
     swarm.on('connection', onConnection)
 
     const discovery = swarm.join(topic)
-    stopRefreshing = keepRefreshing(discovery, () => settled)
+    stopRefreshing = keepRefreshing(discovery, () => settled, refreshInterval)
 
     discovery.flushed().then(
       () => {
@@ -265,12 +291,13 @@ function acceptOnce (swarm, topic, { timeout = 30000, onAnnounced, onCandidate, 
  * @param {Buffer} topic
  * @param {{
  *   timeout?: number,
+ *   refreshInterval?: number,
  *   onCandidate?: (peerInfo: any) => void,
  *   onCandidateDropped?: (peerInfo: any, reason: string) => void
  * }} [options]
  * @returns {Promise<{ socket: any, peerInfo: any }>}
  */
-function connectOnce (swarm, topic, { timeout = 30000, onCandidate, onCandidateDropped } = {}) {
+function connectOnce (swarm, topic, { timeout = 30000, refreshInterval = REFRESH_INTERVAL, onCandidate, onCandidateDropped } = {}) {
   return new Promise((resolve, reject) => {
     let settled = false
     let candidates = 0
@@ -350,7 +377,7 @@ function connectOnce (swarm, topic, { timeout = 30000, onCandidate, onCandidateD
     swarm.on('connection', onConnection)
 
     const discovery = swarm.join(topic)
-    stopRefreshing = keepRefreshing(discovery, () => settled)
+    stopRefreshing = keepRefreshing(discovery, () => settled, refreshInterval)
   })
 }
 

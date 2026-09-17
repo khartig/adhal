@@ -68,6 +68,22 @@ function parseArgs (argv) {
   return { codeArg: positional[0] || null, outputDirArg: positional[1] }
 }
 
+// QUAY_REFRESH_INTERVAL overrides how often we re-run our own DHT
+// announce/lookup, in ms (0 disables it, leaving Hyperswarm's internal
+// 10-minute schedule). See engine/src/swarm.js REFRESH_INTERVAL: the 4s
+// default is validated only for two peers on one machine, and on a
+// cross-ISP path a continuous re-announce is a suspect for churning
+// holepunch relay state.
+function refreshInterval () {
+  const raw = process.env.QUAY_REFRESH_INTERVAL
+  if (raw === undefined) return undefined
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new TypeError(`QUAY_REFRESH_INTERVAL must be a non-negative number, got ${raw}`)
+  }
+  return parsed
+}
+
 async function main () {
   let parsed
   try {
@@ -97,11 +113,12 @@ async function main () {
   await fs.promises.mkdir(outputDir, { recursive: true })
 
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
-  console.log(`[swarm-receive] joining topic ${topic.toString('hex')}...`)
+  console.log(`[swarm-receive] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
     const { socket, peerInfo, pending } = await acceptOnce(swarm, topic, {
       timeout: joinTimeout(),
+      refreshInterval: refreshInterval(),
       // Log each candidate and each discarded one. A drop that fails
       // because peers connect and then vanish looks identical to one that
       // found nobody unless these lines are visible.
