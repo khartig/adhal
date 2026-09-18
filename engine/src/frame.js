@@ -6,8 +6,47 @@
 // This is intentionally dumb for item 1 (localhost, zero NAT). Item 2+
 // swaps the transport for a Hyperswarm/Protomux channel; this module is
 // transport-agnostic so it keeps working either way.
+//
+// WHAT DELIBERATELY DID NOT LAND HERE. Item 5 gives every payload a
+// one-byte type tag, so CANCEL is distinguishable from file bytes. That
+// tag lives in ./message.js, not here, because this module's value is that
+// it has no opinion about its contents: it is the piece that stayed
+// correct and untouched through items 1-4, and folding the protocol into
+// it would spend that. See ./message.js for the full argument.
+//
+// What did land here is a size bound, which is a framing concern and
+// nothing else -- see maxFrameSize below.
 
 const HEADER_SIZE = 4
+
+// A declared length is four bytes from an untrusted peer, so its range is
+// 0 to 0xFFFFFFFF. Without a bound, a peer that declares 0xFFFFFFFF makes
+// this decoder buffer toward 4 GB waiting for a frame that will never
+// arrive -- a peer that proved it knows the code is not thereby
+// well-behaved, and nothing else in the stack caps this.
+//
+// 1 MiB is far above any frame a correct sender produces (a chunk is 64 KB
+// plus a one-byte tag; a manifest is a few hundred bytes) and far below
+// anything that threatens the process. It is a ceiling on absurdity, not a
+// tuning parameter: raise it if chunkSize ever grows, and keep the gap.
+const DEFAULT_MAX_FRAME_SIZE = 1024 * 1024
+
+class FrameLengthError extends Error {
+  /**
+   * @param {number} length the length the peer declared
+   * @param {number} max
+   */
+  constructor (length, max) {
+    super(`frame length ${length} exceeds the ${max} byte maximum`)
+    this.name = 'FrameLengthError'
+    // Matches the engine's error vocabulary (see ./errors.js) without this
+    // module having to depend on it -- framing predates that file and is
+    // reused by callers that want nothing else from the engine.
+    this.code = 'ERR_PROTOCOL'
+    this.length = length
+    this.max = max
+  }
+}
 
 function encodeFrame (payload) {
   const header = Buffer.alloc(HEADER_SIZE)
@@ -16,9 +55,14 @@ function encodeFrame (payload) {
 }
 
 class FrameDecoder {
-  constructor (onFrame) {
+  /**
+   * @param {(payload: Buffer) => void} onFrame
+   * @param {{ maxFrameSize?: number }} [options]
+   */
+  constructor (onFrame, { maxFrameSize = DEFAULT_MAX_FRAME_SIZE } = {}) {
     this._onFrame = onFrame
     this._buffer = Buffer.alloc(0)
+    this._maxFrameSize = maxFrameSize
   }
 
   push (chunk) {
@@ -30,6 +74,10 @@ class FrameDecoder {
       if (this._buffer.length < HEADER_SIZE) return
 
       const length = this._buffer.readUInt32BE(0)
+      // Checked against the *declared* length, before waiting for any of
+      // the body, so an absurd header costs one comparison rather than
+      // accumulating until the process dies.
+      if (length > this._maxFrameSize) throw new FrameLengthError(length, this._maxFrameSize)
       if (this._buffer.length < HEADER_SIZE + length) return
 
       const payload = this._buffer.subarray(HEADER_SIZE, HEADER_SIZE + length)
@@ -39,4 +87,4 @@ class FrameDecoder {
   }
 }
 
-module.exports = { encodeFrame, FrameDecoder, HEADER_SIZE }
+module.exports = { encodeFrame, FrameDecoder, FrameLengthError, HEADER_SIZE, DEFAULT_MAX_FRAME_SIZE }

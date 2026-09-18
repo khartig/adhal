@@ -14,7 +14,7 @@ rather than a custom NAT-traversal stack.
 
 ## Status
 
-**Phase A, items 1-4 (of the plan's section 4 ordered list):** proven.
+**Phase A, items 1-5 (of the plan's section 4 ordered list):** proven.
 
 - Item 1: two CLI processes on one machine exchange a 10 MB file over a
   localhost TCP pipe and independently print matching SHA-256 hashes --
@@ -51,6 +51,23 @@ rather than a custom NAT-traversal stack.
   [The code proof](docs/ARCHITECTURE.md#the-code-proof-item-4) -- including
   what it deliberately does not defend against, and note that it is a
   wire-format change, so both machines must be redeployed together.
+- Item 5: failures are now something a human can name and act on. The
+  receiver verifies the file against the sender's manifest digest and
+  renames it into place only if it passes (step 6 of the data path, which
+  had been written down since item 1 and implemented nowhere that
+  shipped); a manifest can no longer choose a path outside the output
+  directory; a sender that vanishes mid-transfer fails the receive instead
+  of hanging it forever; and a declared frame length is bounded rather
+  than buffered toward 4 GB. Progress is reported on both sides, and
+  Ctrl-C sends a real CANCEL so the peer reports a deliberate cancellation
+  rather than `connection reset by peer` -- which is exactly what a dead
+  hole punch looks like, and the confusion item 2 spent a week learning to
+  separate. Every failure now carries a machine-readable `.code`. **This
+  is a second wire-format change** (a one-byte type tag on every frame),
+  so again both machines must be redeployed together; a peer on an older
+  build is detected and told to redeploy rather than reported as
+  corruption. See
+  [Manifest, progress and cancel](docs/ARCHITECTURE.md#manifest-progress-and-cancel-item-5).
 
 The readiness handshake between the two peers became two-way as of the
 first cross-ISP attempt at an item-3 drop, which exposed a receiver
@@ -71,8 +88,8 @@ gates. See [`docs/MEASURING-TRANSFER-RELIABILITY.md`](docs/MEASURING-TRANSFER-RE
 assuming they can cost this project a day.
 
 See [`docs/Refined-Implementation-Plan.md` section 4](docs/Refined-Implementation-Plan.md#4-implement-first-easiest-highest-chance-of-success)
-for the full ordered list; items 5+ (progress/cancel, resume, relay, ...)
-are not yet implemented.
+for the full ordered list; items 6+ (resume, relay, ...) are not yet
+implemented.
 
 ## Project layout
 
@@ -98,7 +115,7 @@ Prerequisites: Node.js >= 18 (developed against v22.11.0), [pnpm](https://pnpm.i
 
 ```bash
 pnpm install
-pnpm test               # runs the item-1 to -4 proofs automatically
+pnpm test               # runs the item-1 to -5 proofs automatically
 pnpm run demo:loopback  # item 1, manually, printing both sides' output live
 pnpm run demo:swarm     # item 2, manually, against the real public DHT
 pnpm run code           # item 3, a drop code + its QR, ready to screenshot
@@ -114,6 +131,13 @@ node cli/src/swarm-receive.js --new ~/Downloads
 # on the sending machine, using the words it printed
 node cli/src/swarm-send.js acid-acorn-acre-acts-afar-agent ./some-file.bin
 ```
+
+Both sides show a progress bar while the transfer runs (`QUAY_NO_PROGRESS=1`
+turns it off), and Ctrl-C on either side cancels the drop deliberately: the
+other end reports a cancellation with your reason, rather than a dropped
+connection. The receiver prints a `verified:` line only when the file it
+wrote matches the digest the sender declared -- if it does not match,
+nothing is saved.
 
 The sender accepts the code in any casing or separator style, and accepts a
 scanned QR payload (`QUAY1:ACID-...`) verbatim; all of them normalize to

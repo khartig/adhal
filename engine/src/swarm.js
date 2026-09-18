@@ -1,6 +1,7 @@
 'use strict'
 
 const Hyperswarm = require('hyperswarm')
+const { TransferError, abortError } = require('./errors')
 const {
   makeNonce,
   bindPeers,
@@ -187,6 +188,26 @@ function timeoutMessage (phase, timeout, candidates) {
     '(the per-candidate lines say which of them failed the code proof)'
 }
 
+// The same distinction, carried as a code rather than as prose.
+//
+// engine/scratch-trials.js classified these two outcomes by regex-matching
+// the sentences above, which made the project's own measurement instrument
+// depend on their wording. The message stays exactly as it was -- it is
+// the useful thing for a human to read -- and the code is what anything
+// automated should switch on. See engine/src/errors.js.
+/**
+ * @param {string} phase
+ * @param {number} timeout
+ * @param {number} candidates
+ */
+function timeoutError (phase, timeout, candidates) {
+  return new TransferError(
+    candidates === 0 ? 'ERR_NO_PEER' : 'ERR_NO_HANDSHAKE',
+    timeoutMessage(phase, timeout, candidates),
+    { candidates, timeout }
+  )
+}
+
 // Joins `topic` and resolves with the first peer to complete the readiness
 // handshake *and* prove it knows the code. One drop, one peer -- item 2
 // doesn't need to handle multiple simultaneous peers, but it does need to
@@ -212,6 +233,7 @@ function timeoutMessage (phase, timeout, candidates) {
  *   key: Buffer,
  *   timeout?: number,
  *   refreshInterval?: number,
+ *   signal?: AbortSignal,
  *   onAnnounced?: () => void,
  *   onCandidate?: (peerInfo: any) => void,
  *   onCandidateDropped?: (peerInfo: any, reason: string) => void
@@ -219,7 +241,7 @@ function timeoutMessage (phase, timeout, candidates) {
  *   `key` is the drop key from dropKey(code) -- see ./proof.js
  * @returns {Promise<{ socket: any, peerInfo: any, pending: Buffer | null }>}
  */
-function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, onAnnounced, onCandidate, onCandidateDropped }) {
+function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, signal, onAnnounced, onCandidate, onCandidateDropped }) {
   // Required, not defaulted. A missing key can only mean a caller that was
   // not updated for item 4, and the failure mode of quietly carrying on
   // without one is the exact hole this function exists to close: it would
@@ -237,6 +259,22 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
       settled = true
       if (timer) clearTimeout(timer)
       if (stopRefreshing) stopRefreshing()
+      if (signal) signal.removeEventListener('abort', onAbort)
+    }
+
+    // Waiting for a peer is the likeliest moment for a human to give up --
+    // it is the only part of a drop that can take 30 seconds with nothing
+    // to show -- and until item 5 there was no path to cancel it at all.
+    //
+    // CAREFUL: this removes OUR listener, stops OUR timer, and rejects. It
+    // must not destroy the swarm. The swarm belongs to the caller, which
+    // may still need it (and does: every CLI destroys it in a `finally`,
+    // after this rejection has propagated).
+    function onAbort () {
+      if (settled) return
+      finish()
+      swarm.removeListener('connection', onConnection)
+      reject(abortError(0, signal.reason))
     }
 
     const timer = timeout
@@ -244,7 +282,7 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
         if (settled) return
         finish()
         swarm.removeListener('connection', onConnection)
-        reject(new Error(timeoutMessage('waiting for a peer', timeout, candidates)))
+        reject(timeoutError('waiting for a peer', timeout, candidates))
       }, timeout)
       : null
 
@@ -346,6 +384,15 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
 
     swarm.on('connection', onConnection)
 
+    if (signal) {
+      if (signal.aborted) {
+        swarm.removeListener('connection', onConnection)
+        reject(abortError(0, signal.reason))
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
+
     const discovery = swarm.join(topic)
     stopRefreshing = keepRefreshing(discovery, () => settled, refreshInterval)
 
@@ -375,13 +422,14 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
  *   key: Buffer,
  *   timeout?: number,
  *   refreshInterval?: number,
+ *   signal?: AbortSignal,
  *   onCandidate?: (peerInfo: any) => void,
  *   onCandidateDropped?: (peerInfo: any, reason: string) => void
  * }} options not optional, because `key` is not: see below
  *   `key` is the drop key from dropKey(code) -- see ./proof.js
- * @returns {Promise<{ socket: any, peerInfo: any }>}
+ * @returns {Promise<{ socket: any, peerInfo: any, pending: Buffer | null }>}
  */
-function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, onCandidate, onCandidateDropped }) {
+function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, signal, onCandidate, onCandidateDropped }) {
   // See acceptOnce: required rather than defaulted, because carrying on
   // without a key would silently hand a file to whoever answered.
   if (!Buffer.isBuffer(key)) {
@@ -397,6 +445,16 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
       settled = true
       if (timer) clearTimeout(timer)
       if (stopRefreshing) stopRefreshing()
+      if (signal) signal.removeEventListener('abort', onAbort)
+    }
+
+    // See acceptOnce's onAbort: removes our listener and our timer, never
+    // touches the caller's swarm.
+    function onAbort () {
+      if (settled) return
+      finish()
+      swarm.removeListener('connection', onConnection)
+      reject(abortError(0, signal.reason))
     }
 
     const timer = timeout
@@ -404,7 +462,7 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
         if (settled) return
         finish()
         swarm.removeListener('connection', onConnection)
-        reject(new Error(timeoutMessage('looking for a peer', timeout, candidates)))
+        reject(timeoutError('looking for a peer', timeout, candidates))
       }, timeout)
       : null
 
@@ -484,11 +542,17 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
         detach()
         finish()
         swarm.removeListener('connection', onConnection)
-        // No `pending` counterpart to acceptOnce's: the receiver writes
-        // nothing after this proof until the transfer is over, and sendFile
-        // never reads. Leftover bytes here would mean a peer that both
-        // proved itself and then talked out of turn.
-        resolve({ socket, peerInfo })
+        // Leftovers are handed back, exactly as acceptOnce does.
+        //
+        // This used to read "sendFile never reads, so leftover bytes would
+        // mean a peer that talked out of turn". Item 5 made that false:
+        // the sender now runs a decoder of its own so that a receiver's
+        // CANCEL is distinguishable from the socket dying. The receiver
+        // still writes nothing in the ordinary case, so `pending` is
+        // almost always empty -- but "almost always" is not a contract,
+        // and swallowing a coalesced CANCEL would lose precisely the
+        // message this item exists to deliver.
+        resolve({ socket, peerInfo, pending: reader.rest() })
       }
 
       socket.once('error', onFailed)
@@ -514,4 +578,4 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
 // timeoutMessage is exported for tests: asserting both of its branches
 // end to end would mean racing a real peer against a real timeout, which
 // is exactly the kind of timing-dependent test that fails only under load.
-module.exports = { createSwarm, acceptOnce, connectOnce, timeoutMessage }
+module.exports = { createSwarm, acceptOnce, connectOnce, timeoutMessage, timeoutError }

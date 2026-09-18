@@ -162,12 +162,17 @@ they disagree by much, something is wrong with the run itself.
 
 | Outcome | Meaning | Where to look |
 | --- | --- | --- |
-| `ok` | Transferred, and the receiver's hash matched the manifest | — |
+| `ok` | Transferred, verified by the engine, and cross-checked here | — |
 | `no-peer` | Timed out having seen **no** connection | Discovery or hole punching. Intermittent = flaky path; every trial = check both sides are really on the same topic. |
 | `no-handshake` | Peers connected but none completed the readiness handshake | **Our code**, not the network. Start at `acceptOnce`/`connectOnce` in `engine/src/swarm.js`. |
 | `bad-proof` | Peers connected and were rejected for not proving they know the code | Not the network either. On a private topic this should be zero: expect it only when the two hosts are running different builds (the code proof is a wire-format change — see `engine/src/proof.js`), and treat any other occurrence as someone else on your topic. |
-| `transfer-error` | Connected and handshake fine; the transfer threw | `engine/src/transfer.js`, framing or backpressure |
-| `hash-mismatch` | Completed, but the hash differs from the manifest | **Correctness bug. Stop feature work.** |
+| `transfer-error` | Connected and handshake fine; the transfer threw something with no code | `engine/src/transfer.js`. An uncoded error reaching this bucket is itself a small bug — see below. |
+| `hash-mismatch` | The engine rejected the file: its bytes do not match the manifest digest | **Correctness bug. Stop feature work.** |
+| `hash-crosscheck-disagreed` | The engine *accepted* a file this harness says is wrong | **Worse. The verification itself is broken** — `finalize()` in `engine/src/transfer.js`. |
+| `size-mismatch` | The peer sent more, or fewer, bytes than its manifest declared | `engine/src/transfer.js` |
+| `connection-lost` | The socket closed before the transfer finished | A punch that died mid-transfer. Before item 5 this hung forever instead of being counted. |
+| `unsafe-name` / `manifest-invalid` / `protocol-error` | The peer's manifest or framing was refused | On a private topic, almost always a build-version skew between the two hosts |
+| `cancelled-by-peer` / `cancelled-locally` | Someone stopped the drop deliberately | Not a failure of the path. Should be zero in an unattended run. |
 | `timeout-other` | Timed out without a recognised reason | Read the `error` field in the JSON |
 | `skipped` | The slot was already over when the trial began | Clock skew, or `--slot` too short |
 
@@ -177,8 +182,38 @@ is the one the codebase previously could not make: both used to report
 the DHT was fine. See `timeoutMessage` in `engine/src/swarm.js`.
 
 **`hash-mismatch` is categorically different from the others.** Everything
-else is a delivery failure; this is silent corruption. It is never folded
-into "failed" and should never be treated as a network statistic.
+else is a delivery failure; this is corruption. It is never folded into
+"failed" and should never be treated as a network statistic.
+
+### How these are classified, and why it changed in item 5
+
+Two things moved.
+
+**Classification is keyed on `err.code`, not on error messages.** It used
+to regex-match the text of an error, which coupled the only measurement
+instrument this project has to prose: rewording a sentence in
+`engine/src/swarm.js` would silently re-bucket results and nothing would
+have said so. The codes live in `engine/src/errors.js`. The regexes remain
+only as a documented fallback for errors that predate the vocabulary — a
+raw socket error, or something thrown by a dependency. **If a Quay error
+starts landing in `transfer-error`, the fix is to give it a code, not to
+add a pattern.**
+
+**Hash verification moved into the engine, which changed what this tool
+measures.** `receiveFile` now compares the received file against the
+manifest itself, so a corrupted transfer arrives as a *rejection* rather
+than as a successful receive with a mismatching digest. Without the
+`ERR_HASH_MISMATCH` mapping that would land in `transfer-error`, and the
+loudest output this tool has — `>> N HASH MISMATCH(ES) ... stop feature
+work` — would never have fired again. That is an easy failure to miss,
+because nothing would look broken; the alarm would simply be silent.
+
+The harness's own comparison is kept, now as a labelled cross-check
+reported as `hash-crosscheck-disagreed`. Reaching it means the engine
+verified the file and an independent comparison disagrees, which cannot be
+a corrupt transfer — the engine would have rejected it — and can only be a
+bug in the verification. The summary calls that out ahead of everything
+else.
 
 ### What the rate means
 

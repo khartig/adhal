@@ -24,15 +24,20 @@ Device Noise keypair          <- identity, persisted locally
    [The code proof](#the-code-proof-item-4) below.)
 4. Open a Protomux channel; send a manifest (name, size, chunk size,
    content hash).
-5. Stream chunks; ack by index; persist offset for resume.
+5. Stream chunks; ack by index; persist offset for resume. (Ack-by-index
+   and resume are item 6; the chunk streaming and the type space they will
+   use exist as of item 5.)
 6. Receiver verifies the full-file hash; atomic rename into Downloads.
+   **Implemented in item 5** -- see [Manifest, progress and cancel](#manifest-progress-and-cancel-item-5).
+   It was written down here during item 1 and, until then, existed nowhere
+   that shipped.
 7. Leave the topic. If "Keep" was off, forget the peer.
 
 Hyperdrive/Autobase/CRDTs are explicitly out of scope for v1 content -- a
 framed stream plus a small on-disk manifest is enough, and is easier to
 resume and test.
 
-## What's implemented today (items 1-4)
+## What's implemented today (items 1-5)
 
 `engine/src/frame.js` and `engine/src/transfer.js` implement steps 4-6 of
 the data path above. Item 1 proves this over a plain localhost TCP socket
@@ -45,7 +50,10 @@ encrypted transport without changing the framing logic at all.
 replaces the hand-typed code both of those took with a generated one --
 see [The drop code](#the-drop-code-item-3) below. Item 4 makes knowing that
 code a requirement rather than a convention -- see
-[The code proof](#the-code-proof-item-4).
+[The code proof](#the-code-proof-item-4). Item 5 makes every failure
+path say what it was, and adds the two things a human needs while a
+transfer is running -- see
+[Manifest, progress and cancel](#manifest-progress-and-cancel-item-5).
 
 Item 2 notes, found empirically while building it (see `engine/src/swarm.js`
 comments for detail):
@@ -115,8 +123,8 @@ comments for detail):
   refresh-interval hypothesis is dead on a sample of ten rather than on a
   single run, and the default stays at 4000.
 - **Cross-ISP transfer verified (item 2's real exit criterion).** A Mac on
-  Starlink (CGNAT, DHT-observed `98.97.27.13`, firewalled) sent to a Linux
-  box on Comcast (`67.164.91.122`, firewalled) in ~9s. Re-verified for item
+  Starlink (CGNAT, DHT-observed <host A>, firewalled) sent to a Linux
+  box on Comcast (<host B> firewalled) in ~9s. Re-verified for item
   3 with the two-way handshake: generated six-word code, QR shown on
   announce, 10 MB matching SHA-256 on both sides, at both
   `QUAY_REFRESH_INTERVAL=4000` and `30000`.
@@ -245,6 +253,165 @@ comments for detail):
   that the receiver got the last bytes. The receiver now ends its side
   after it finishes reading, and the sender waits for the socket's
   `'close'` event (both sides ended) before destroying its swarm.
+
+## Manifest, progress and cancel (item 5)
+
+Items 1-4 got a drop working. Item 5 is about what happens when it does
+not: before it, every failure path was silent, and four of them were live
+bugs.
+
+### The wire format, and the second break
+
+```
+frame   = [4-byte BE length][payload]      <- engine/src/frame.js
+payload = [1-byte type][body]              <- engine/src/message.js
+
+0x00  reserved, always invalid  (what a desynced/truncated stream looks like)
+0x01  MANIFEST  body = JSON {v, type, name, size, chunkSize, sha256}
+0x02  CHUNK     body = raw file bytes
+0x03  CANCEL    body = JSON {reason}
+0x04+ reserved for item 6 (ack-by-index, resume-from)
+```
+
+**This is the second wire-format change after item 4, and both machines
+must be redeployed together.** It was taken now because item 5 is the last
+cheap moment: before the tag, a frame was "the manifest if it is the first
+one, file bytes otherwise", so there was no way to say anything at all
+during a transfer – and item 6 needs two more messages. A type space that
+does not exist by then costs two breaks instead of one.
+
+`0x00` is reserved and always invalid so that a stream read out of phase
+fails loudly on the first frame rather than parsing as garbage and
+surfacing later as a hash mismatch. A pre-item-5 sender's untagged
+manifest begins `0x7b` (`{`), which is detected by name: the error says to
+redeploy both sides rather than sending someone hunting a corruption bug.
+
+The tag deliberately did *not* go into `frame.js`, which stays a pure
+length-prefixer with no opinion about its contents -- `transfer.js` simply
+never calls `encodeFrame` directly. `frame.js` did gain a `maxFrameSize`
+bound (default 1 MiB), because a declared length is four untrusted bytes
+and a peer announcing `0xFFFFFFFF` previously made the decoder buffer
+toward 4 GB.
+
+`engine/scratch-serve.js` needs no change and still works against a
+redeployed peer: it only speaks the handshake and never reads a frame.
+That makes it the right tool to reach for during a skewed rollout.
+
+### Error codes
+
+`engine/src/errors.js` defines one `TransferError` with a machine-readable
+`.code`. This is not tidiness. `engine/scratch-trials.js` -- the harness
+behind every reliability number in this repo -- classified failures by
+regex-matching error *messages*, so the project's own measurement
+instrument was coupled to prose.
+
+| `.code` | Meaning |
+| --- | --- |
+| `ABORT_ERR` (`name: 'AbortError'`) | we cancelled, locally |
+| `ERR_CANCELLED_PEER` | the peer cancelled, with its reason |
+| `ERR_HASH_MISMATCH` | the digest does not match the manifest's |
+| `ERR_SIZE_MISMATCH` | over-read, or a file that shrank mid-send |
+| `ERR_UNSAFE_NAME` | the manifest's name escapes the output directory |
+| `ERR_MANIFEST_INVALID` | a manifest field failed validation |
+| `ERR_PROTOCOL` | unknown tag, oversize frame, out-of-order frame |
+| `ERR_CONNECTION` | the socket closed before completion |
+| `ERR_NO_PEER` / `ERR_NO_HANDSHAKE` | the two join timeouts, above |
+
+Local cancellation uses Node's own `AbortError`/`ABORT_ERR` so
+`signal.reason` and generic abort handling work unchanged.
+
+### What the receiver now refuses
+
+- **A corrupted file.** `receiveFile` computed a SHA-256 and compared it
+  to nothing; only `scratch-trials.js` ever did the comparison, so the
+  measurement harness verified integrity and neither CLI did. It is now
+  compared against the manifest unconditionally, and the file streams into
+  `<name>.part` and is renamed into place only after it passes. The `.part`
+  name is predictable because item 6 must find it again.
+- **A filename that is not a filename.** `path.join(outputDir,
+  manifest.name)` was unvalidated, so a manifest naming `../../.bashrc`
+  wrote there. Item 4 stopped a *stranger* reaching the receiver; it never
+  stopped a peer who knows the code from aiming at any path. Names are now
+  refused by shape (empty, >255 bytes, NUL, `/` or `\`, `.`, `..` --
+  checked against both separators, since `path.basename` means different
+  things on different platforms) and then backstopped by asserting the
+  resolved path stays under the output directory. Windows device names
+  (`CON`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`, including trailing-dot
+  evasions) are prefixed `_` rather than refused -- Windows ships first and
+  rejecting `aux.txt` outright is hostile. A leading dot is *not* stripped:
+  `.bashrc` is a legitimate filename. `result.name` reports what was
+  written and `result.declaredName` what was asked for.
+- **More bytes than declared.** Refused rather than truncated: a correct
+  sender cannot over-read its own manifest, so trimming would hide a bug
+  and accept unbounded bytes from a peer that proved the code but is not
+  thereby well-behaved.
+- **A sender that vanishes.** `receiveFile` listened for `'data'` and
+  `'error'` but not `'end'`/`'close'`, so a truncated transfer never
+  settled -- no error, no timeout, no exit, forever. This was the routine
+  outcome of a half-failed punch.
+
+**Filename collisions are deliberately not handled.** `fs.rename`
+overwrites an existing destination, exactly as `createWriteStream` did.
+Overwrite / suffix / prompt is an accept-screen decision, and section 6
+puts the accept screen in Phase B.
+
+The sender was hardened for the same reason: `stat`, `hashFile` and
+`createReadStream` are three separate reads of a file that can change
+underneath them. The read is capped at `{ end: size - 1 }` and bytes sent
+are asserted to equal the declared size -- before this, a file that shrank
+mid-send resolved *successfully* having sent short.
+
+### Progress
+
+`onProgress({ bytes, total })`, one event per chunk, unthrottled, with a
+guaranteed first call at `bytes: 0` and a final call at `bytes === total`.
+No rate, ETA or percentage: those are derivable, and the engine cannot know
+whether its consumer is a 10 Hz bar, a test or a log. Presentation lives in
+`cli/src/progress.js` -- an in-place bar on a TTY, whole lines at fixed 25%
+milestones otherwise (milestones rather than a timer, so the line count is
+not load-sensitive and tests asserting on it are not flaky).
+`QUAY_NO_PROGRESS=1` silences it.
+
+**The sender's number is what it handed to the transport, not what the
+receiver stored.** A sender's bar can legitimately read 100% while the
+receiver is at 90%. Closing that gap is ack-by-index, which is item 6; the
+receiver's `verified:` line is the authoritative one.
+
+### Cancel
+
+An `AbortSignal`, so one controller covers both the join and the transfer.
+The sequence is symmetric: write CANCEL, wait briefly for it to flush, then
+reject locally with an `AbortError`. The peer's decoder sees the tag and
+rejects `ERR_CANCELLED_PEER` carrying the reason.
+
+The flush window is the point. Destroying immediately loses the message --
+the same lesson `swarm-send.js` already records about `end()` versus
+waiting for `'close'` -- and a lost CANCEL means the peer sees `connection
+reset by peer`, which is byte-for-byte what a dead punch looks like.
+Shipping a deliberate user action that is indistinguishable from this
+project's hardest-to-diagnose failure would have been a regression.
+Latency is bounded by roughly one chunk plus the high-water mark, not
+instantaneous.
+
+First settle wins on each side, so on a simultaneous cancel each end
+reports its own and the two logs cannot disagree about who cancelled. The
+peer's `reason` is untrusted -- it goes straight into a terminal -- so it
+is capped at 256 bytes with control characters stripped.
+
+Consequence worth noting: **`sendFile` now reads**, for inbound CANCEL. So
+`connectOnce` returns `pending` exactly as `acceptOnce` does, and the old
+comment claiming leftover bytes there could only mean a peer talking out of
+turn is no longer true.
+
+`cli/src/signals.js` turns SIGINT/SIGTERM into that signal: the first
+aborts and lets the normal catch/finally run (CANCEL written, socket ended,
+swarm destroyed) before exiting 130/143; the second exits immediately,
+because `swarm.destroy()` can take seconds and a Ctrl-C that appears to do
+nothing is one people follow with `kill -9`. `acceptOnce`/`connectOnce`
+take the same signal, so Ctrl-C works *while waiting for a peer* -- the
+likeliest moment a human cancels, and previously the one state with no way
+out but killing the process. Aborting removes only our own listener and
+timer; the swarm belongs to the caller.
 
 ## The drop code (item 3)
 

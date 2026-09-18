@@ -1,7 +1,9 @@
 'use strict'
 
 module.exports = {
+  ...require('./errors'),
   ...require('./frame'),
+  ...require('./message'),
   ...require('./transfer'),
   ...require('./code'),
   ...require('./topic'),

@@ -119,20 +119,48 @@ function codeForTrial (i) {
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 
-// Classifies a failure into something countable. The swarm layer's own
-// timeout message already distinguishes "found nobody" from "found peers
-// that never completed the handshake" (engine/src/swarm.js timeoutMessage);
-// this preserves that distinction in the tally instead of flattening every
-// failure into "it didn't work".
+// Classifies a failure into something countable.
+//
+// KEYED ON err.code SINCE ITEM 5, and that is not a cleanup. This harness
+// used to classify by regex-matching error *messages*, which coupled the
+// project's only measurement instrument to prose: rewording a sentence in
+// engine/src/swarm.js silently re-bucketed results, and nothing would have
+// said so. engine/src/errors.js exists largely for this.
+//
+// Item 5 also changed what this function has to catch. The engine now
+// verifies the received file against the manifest itself, so a corrupted
+// transfer arrives here as a REJECTION rather than as a successful receive
+// with a mismatching digest. Without the ERR_HASH_MISMATCH entry below it
+// would land in the generic 'transfer-error' bucket, and the loudest
+// output this tool has -- ">> N HASH MISMATCH(ES) ... stop feature work"
+// -- would never fire again.
+const OUTCOME_BY_CODE = {
+  ERR_NO_PEER: 'no-peer',
+  ERR_NO_HANDSHAKE: 'no-handshake',
+  ERR_HASH_MISMATCH: 'hash-mismatch',
+  ERR_SIZE_MISMATCH: 'size-mismatch',
+  ERR_CONNECTION: 'connection-lost',
+  ERR_UNSAFE_NAME: 'unsafe-name',
+  ERR_MANIFEST_INVALID: 'manifest-invalid',
+  ERR_PROTOCOL: 'protocol-error',
+  ERR_CANCELLED_PEER: 'cancelled-by-peer',
+  ABORT_ERR: 'cancelled-locally'
+}
+
 function classify (err) {
-  const message = err.message || String(err)
-  if (/no peer ever connected/.test(message)) return 'no-peer'
-  if (/none completed the readiness handshake/.test(message)) return 'no-handshake'
-  // Distinct from 'no-handshake': peers connected and were rejected for
-  // not knowing the code. On a private topic that should be zero, so a
-  // non-zero count here means either a build-version skew between the two
-  // hosts or someone else on the topic -- both of which would otherwise
-  // hide inside the handshake-failure bucket and be read as a NAT problem.
+  if (err && OUTCOME_BY_CODE[err.code]) return OUTCOME_BY_CODE[err.code]
+
+  // FALLBACK ONLY, and documented as such. Anything reaching these
+  // patterns is an error that predates the code vocabulary -- a raw
+  // socket error, or something thrown by a dependency. If a *quay* error
+  // starts landing here, the fix is to give it a code, not to add a
+  // pattern.
+  const message = (err && err.message) || String(err)
+  // Peers connected and were rejected for not knowing the code. On a
+  // private topic that should be zero, so a non-zero count means either a
+  // build-version skew between the two hosts or someone else on the
+  // topic -- both of which would otherwise hide inside the
+  // handshake-failure bucket and be read as a NAT problem.
   if (/failed the code proof/.test(message)) return 'bad-proof'
   if (/timed out/.test(message)) return 'timeout-other'
   return 'transfer-error'
@@ -173,14 +201,24 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
     })
     await new Promise((resolve) => socket.end(resolve))
 
-    // The real integrity check, and it is decidable locally: compare what
-    // we hashed off the wire against the hash the sender put in its
-    // manifest. A mismatch is a corruption bug, not a network failure, and
-    // must never be counted as merely "failed".
-    const hashOk = !!manifest && manifest.sha256 === result.sha256
+    // A CROSS-CHECK, no longer the integrity check itself.
+    //
+    // This comparison used to be the only place in the repo that verified
+    // a received file against its manifest -- the measurement harness did
+    // it and neither CLI did. Item 5 moved it into receiveFile, where it
+    // is unconditional, so reaching this line at all means the engine
+    // already compared these two digests and was satisfied.
+    //
+    // It is kept anyway, and labelled differently, because it now tests
+    // something else: that the engine's verification agrees with an
+    // independent comparison. A disagreement cannot be a corrupt transfer
+    // (the engine would have rejected it); it can only be a bug in the
+    // verification itself, which is worth hearing about loudly and
+    // separately.
+    const crossCheckOk = !!manifest && manifest.sha256 === result.sha256
     return {
       trial: i,
-      outcome: hashOk ? 'ok' : 'hash-mismatch',
+      outcome: crossCheckOk ? 'ok' : 'hash-crosscheck-disagreed',
       announcedMs: announcedAt,
       candidateMs: candidateAt,
       connectedMs: connectedAt,
@@ -210,7 +248,7 @@ async function runSenderTrial (i, budgetMs) {
   let dropped = 0
 
   try {
-    const { socket } = await connectOnce(swarm, topic, {
+    const { socket, pending } = await connectOnce(swarm, topic, {
       key: dropKey(code),
       timeout: budgetMs,
       refreshInterval: refreshMs,
@@ -220,7 +258,10 @@ async function runSenderTrial (i, budgetMs) {
     socket.on('error', () => {})
     const connectedAt = Date.now() - started
 
-    const result = await sendFile(socket, filePath)
+    // `pending` is anything the receiver coalesced after its proof.
+    // Ordinarily empty, but sendFile reads now (for CANCEL), so dropping
+    // it would lose a message rather than merely skipping a no-op.
+    const result = await sendFile(socket, filePath, { pending })
     socket.end()
     await Promise.race([
       new Promise((resolve) => socket.once('close', resolve)),
@@ -285,9 +326,20 @@ function summarise (results) {
   }
 
   // Interpretation, so the number is actionable rather than decorative.
+  //
+  // Both buckets count, and they mean different things. 'hash-mismatch'
+  // is the engine having rejected a file whose bytes did not match the
+  // manifest. 'hash-crosscheck-disagreed' is worse: the engine accepted a
+  // file that an independent comparison says is wrong, i.e. the
+  // verification itself is broken.
   const mismatches = results.filter((r) => r.outcome === 'hash-mismatch').length
+  const crossCheckFailures = results.filter((r) => r.outcome === 'hash-crosscheck-disagreed').length
   log('')
-  if (mismatches > 0) {
+  if (crossCheckFailures > 0) {
+    log(`>> ${crossCheckFailures} TRIAL(S) WHERE THE ENGINE ACCEPTED A FILE THIS HARNESS SAYS IS WRONG.`)
+    log('   That is a bug in hash verification itself, not in the transfer.')
+    log('   Stop everything and investigate engine/src/transfer.js finalize().')
+  } else if (mismatches > 0) {
     log(`>> ${mismatches} HASH MISMATCH(ES). This is a correctness bug, not a network`)
     log('   failure. Stop feature work and investigate framing/chunking.')
   } else if (results.length < 5) {

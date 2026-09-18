@@ -12,6 +12,10 @@
 
 const { createSwarm, connectOnce, sendFile, resolveCode, dropKey } = require('@quay/engine')
 
+const { createProgressReporter } = require('./progress')
+const { installCancelHandler } = require('./signals')
+const { describeError, isCancellation } = require('./report')
+
 function parseBootstrap () {
   const raw = process.env.QUAY_BOOTSTRAP
   return raw ? JSON.parse(raw) : undefined
@@ -68,10 +72,14 @@ async function main () {
   if (code !== codeArg) console.log(`[swarm-send] code: ${code}`)
 
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
+  const cancel = installCancelHandler({ label: 'swarm-send' })
+  const progress = createProgressReporter({ label: 'swarm-send' })
+  /** @type {Error | null} */
+  let socketError = null
   console.log(`[swarm-send] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
-    const { socket, peerInfo } = await connectOnce(swarm, topic, {
+    const { socket, peerInfo, pending } = await connectOnce(swarm, topic, {
       // Proves the peer knows the code before we transmit a byte of the
       // file to it. The topic alone is public once the receiver announces,
       // so without this we would hand the file to whoever answered first.
@@ -79,6 +87,11 @@ async function main () {
       key: dropKey(code),
       timeout: joinTimeout(),
       refreshInterval: refreshInterval(),
+      // Ctrl-C while still looking for a peer. This is the likeliest
+      // moment for someone to give up -- it is the part of a drop that
+      // can sit for two minutes with nothing to show -- and until item 5
+      // there was no way to cancel it.
+      signal: cancel.signal,
       // See swarm-receive.js: without these, "connected to several peers
       // that all died before confirming" is indistinguishable from
       // "never found anyone".
@@ -90,13 +103,41 @@ async function main () {
       }
     })
     console.log(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
-    // See swarm-receive.js: without a listener, a late socket-level error
-    // throws as an uncaught exception instead of something catchable.
-    socket.on('error', (err) => console.error('[swarm-send] socket error:', err.message))
+    // Without a listener, a late socket-level error (e.g. after the
+    // transfer completes, while tearing down) throws as an uncaught
+    // exception instead of something we can handle gracefully.
+    //
+    // Silent once we are cancelling, and that is the whole point of item
+    // 5 rather than tidiness: tearing down a cancelled transfer reliably
+    // produces "connection reset by peer", which is byte for byte what a
+    // dead hole punch looks like. Printing it right after "cancelled"
+    // would hand back exactly the ambiguity the CANCEL frame was added to
+    // remove.
+    //
+    // RECORDED RATHER THAN PRINTED, because printing it immediately is
+    // how a deliberate cancel ended up followed by "connection reset by
+    // peer" -- byte for byte what a dead hole punch looks like, and the
+    // exact ambiguity the CANCEL frame exists to remove. A socket that
+    // dies while a cancelled or completed transfer tears down explains
+    // nothing; one that dies during a transfer that then failed for an
+    // unclear reason explains a great deal, so it is reported there.
+    socket.on('error', (err) => { socketError = err })
 
-    const result = await sendFile(socket, filePathArg)
+    const result = await sendFile(socket, filePathArg, {
+      // Anything the receiver coalesced after its proof. Ordinarily
+      // empty, but a CANCEL could be in there, and dropping it would lose
+      // exactly the message item 5 exists to deliver.
+      pending,
+      signal: cancel.signal,
+      onProgress: progress.onProgress
+    })
+    progress.close()
     console.log(`[swarm-send] done: ${result.name}`)
     console.log(`[swarm-send] sha256: ${result.sha256}`)
+    // Honest about what this number is: bytes handed to the transport,
+    // not bytes the receiver has stored and verified. Acknowledgement by
+    // index is item 6.
+    console.log(`[swarm-send] sent ${result.size} bytes; the receiver's own "verified" line is the authoritative one`)
 
     // End our write side, then wait for the socket to fully close (i.e.,
     // the receiver has also ended its side, per swarm-receive.js) before
@@ -116,9 +157,16 @@ async function main () {
     })
     await closed
   } catch (err) {
-    console.error('[swarm-send] error:', err.message)
-    process.exitCode = 1
+    progress.close()
+    console.error(`[swarm-send] ${describeError(err)}`)
+    if (socketError && !isCancellation(err)) {
+      console.error(`[swarm-send] the socket also reported: ${socketError.message}`)
+    }
+    // A cancellation already set 130/143 in the signal handler. Flattening
+    // it to 1 would throw away the distinction this item is about.
+    if (!cancel.cancelled()) process.exitCode = 1
   } finally {
+    cancel.dispose()
     await swarm.destroy()
   }
 }

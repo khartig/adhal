@@ -23,6 +23,9 @@ const fs = require('fs')
 const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, dropKey } = require('@quay/engine')
 
 const { printQr } = require('./qr')
+const { createProgressReporter } = require('./progress')
+const { installCancelHandler } = require('./signals')
+const { describeError, isCancellation } = require('./report')
 
 function parseBootstrap () {
   const raw = process.env.QUAY_BOOTSTRAP
@@ -113,6 +116,10 @@ async function main () {
   await fs.promises.mkdir(outputDir, { recursive: true })
 
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
+  const cancel = installCancelHandler({ label: 'swarm-receive' })
+  const progress = createProgressReporter({ label: 'swarm-receive' })
+  /** @type {Error | null} */
+  let socketError = null
   console.log(`[swarm-receive] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
@@ -124,6 +131,11 @@ async function main () {
       key: dropKey(code),
       timeout: joinTimeout(),
       refreshInterval: refreshInterval(),
+      // Ctrl-C while waiting for a peer -- which, for a receiver showing
+      // a QR code, is almost the whole of its life. Before item 5 this
+      // was the one state with no way out but killing the process, and
+      // the sender then saw a reset indistinguishable from a dead punch.
+      signal: cancel.signal,
       // Log each candidate and each discarded one. A drop that fails
       // because peers connect and then vanish looks identical to one that
       // found nobody unless these lines are visible.
@@ -152,31 +164,62 @@ async function main () {
       }
     })
     console.log(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
-    // Without a listener, a late socket-level error (e.g. after transfer
-    // completes, while tearing down) throws as an uncaught exception
-    // instead of something we can handle gracefully.
-    socket.on('error', (err) => console.error('[swarm-receive] socket error:', err.message))
+    // Without a listener, a late socket-level error (e.g. after the
+    // transfer completes, while tearing down) throws as an uncaught
+    // exception instead of something we can handle gracefully.
+    //
+    // Silent once we are cancelling, and that is the whole point of item
+    // 5 rather than tidiness: tearing down a cancelled transfer reliably
+    // produces "connection reset by peer", which is byte for byte what a
+    // dead hole punch looks like. Printing it right after "cancelled"
+    // would hand back exactly the ambiguity the CANCEL frame was added to
+    // remove.
+    //
+    // RECORDED RATHER THAN PRINTED, because printing it immediately is
+    // how a deliberate cancel ended up followed by "connection reset by
+    // peer" -- byte for byte what a dead hole punch looks like, and the
+    // exact ambiguity the CANCEL frame exists to remove. A socket that
+    // dies while a cancelled or completed transfer tears down explains
+    // nothing; one that dies during a transfer that then failed for an
+    // unclear reason explains a great deal, so it is reported there.
+    socket.on('error', (err) => { socketError = err })
 
     const result = await receiveFile(socket, outputDir, {
       // Bytes the handshake read alongside the ACK, if the sender
       // coalesced them; dropping these would corrupt the first frame.
       pending,
+      signal: cancel.signal,
+      onProgress: progress.onProgress,
       onManifest: (manifest) => {
         console.log(`[swarm-receive] manifest: ${manifest.name} (${manifest.size} bytes)`)
       }
     })
 
+    progress.close()
     console.log(`[swarm-receive] done: ${result.name}`)
     console.log(`[swarm-receive] sha256: ${result.sha256}`)
+    // The line that turns plan phase-1 bar item 3 from an eyeball
+    // comparison of two hex strings into an assertion the receiver makes
+    // for itself. Until item 5 this comparison happened nowhere that
+    // shipped.
+    console.log('[swarm-receive] verified: the file matches the sender\'s manifest digest')
+    if (result.name !== result.declaredName) {
+      console.log(`[swarm-receive] renamed: the peer asked for ${JSON.stringify(result.declaredName)}`)
+    }
     console.log(`[swarm-receive] saved to: ${result.path}`)
 
     // Signal the sender we're fully done reading so it knows it's safe
     // to tear its side down too (see swarm-send.js).
     await new Promise((resolve) => socket.end(resolve))
   } catch (err) {
-    console.error('[swarm-receive] error:', err.message)
-    process.exitCode = 1
+    progress.close()
+    console.error(`[swarm-receive] ${describeError(err)}`)
+    if (socketError && !isCancellation(err)) {
+      console.error(`[swarm-receive] the socket also reported: ${socketError.message}`)
+    }
+    if (!cancel.cancelled()) process.exitCode = 1
   } finally {
+    cancel.dispose()
     await swarm.destroy()
   }
 }
