@@ -21,3 +21,4 @@ build/
 # Test / demo artifacts
 *.tmp
 .tmp/
+/trials/

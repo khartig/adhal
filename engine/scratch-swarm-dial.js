@@ -22,40 +22,63 @@
 // fails" is observed at one instant on one network path rather than
 // inferred from two runs minutes apart.
 //
-// Usage: node scratch-swarm-dial.js <topic-hex> [--seconds 60] [--connect-once]
+// Usage: node scratch-swarm-dial.js <topic-hex | code> [--seconds 60] [--connect-once]
+//
+// A 64-hex topic is enough for the default mode, which only observes
+// dials. --connect-once needs the CODE, not just the topic: the real
+// connectOnce now has to prove it knows the code (item 4,
+// engine/src/proof.js), and the topic alone -- which is public once the
+// receiver announces -- cannot produce that proof. That is the point of
+// the proof, so this tool is not given a way around it.
 //
 // --connect-once replaces this tool's own bare 'connection' listener with
 // the REAL connectOnce() from engine/src/swarm.js, wired to the same
 // logging. That is the apples-to-apples comparison: without the flag, a
 // success proves only that Hyperswarm can reach the peer; with it, a
-// success means the engine's own code path completed the READY/ACK
-// handshake. If the plain run connects and the --connect-once run does
-// not, the fault is in our code, and this narrows it to connectOnce
-// without needing another cross-network round trip.
+// success means the engine's own code path completed the readiness
+// handshake and the code proof. If the plain run connects and the
+// --connect-once run does not, the fault is in our code, and this narrows
+// it to connectOnce without needing another cross-network round trip.
 //
 // Pair it with `node engine/scratch-serve.js <code>` on the far side,
-// which reports whether an ACK actually arrived.
+// which reports whether the handshake actually completed.
 //
 // Non-destructive by default: without --connect-once it never answers the
-// receiver's ACK, so a live swarm-receive.js logs it as a dropped
+// receiver's challenge, so a live swarm-receive.js logs it as a dropped
 // candidate and keeps waiting.
 
 const DHT = require('hyperdht')
 const os = require('node:os')
 const { createSwarm, connectOnce } = require('./src/swarm')
+const { resolveCode } = require('./src/resolve-code')
+const { dropKey } = require('./src/proof')
 
-const topicHex = process.argv[2]
+const target = process.argv[2]
 const secondsFlag = process.argv.indexOf('--seconds')
 const RUN_SECONDS = secondsFlag === -1 ? 60 : Number(process.argv[secondsFlag + 1])
 const USE_CONNECT_ONCE = process.argv.includes('--connect-once')
 
-if (!topicHex || !/^[0-9a-f]{64}$/i.test(topicHex)) {
-  console.error('Usage: scratch-swarm-dial.js <topic-hex> [--seconds 60]')
+if (!target) {
+  console.error('Usage: scratch-swarm-dial.js <topic-hex | code> [--seconds 60] [--connect-once]')
   console.error('Get the topic from: node cli/src/code.js <six-word-code>')
   process.exit(1)
 }
 
-const topic = Buffer.from(topicHex, 'hex')
+// Either input works for observing dials; only a code can produce the
+// proof --connect-once needs. Told apart by shape, for the reason
+// engine/src/resolve-code.js gives: guessing would hash a mistyped code
+// into a valid-but-wrong topic and present as a discovery failure.
+const isTopicHex = /^[0-9a-f]{64}$/i.test(target)
+if (isTopicHex && USE_CONNECT_ONCE) {
+  console.error('--connect-once needs the code, not a topic hex: the real')
+  console.error('connectOnce must prove it knows the code (engine/src/proof.js),')
+  console.error('and the topic is public once the receiver announces it.')
+  process.exit(1)
+}
+
+const topic = isTopicHex ? Buffer.from(target, 'hex') : resolveCode(target).topic
+const key = isTopicHex ? null : dropKey(resolveCode(target).code)
+const topicHex = topic.toString('hex')
 const t0 = Date.now()
 const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a)
 const short = (buf) => buf.toString('hex').slice(0, 12)
@@ -94,20 +117,21 @@ async function main () {
     // handshake, so a failure here is a failure of the real sender.
     log('MODE: using the REAL connectOnce() from engine/src/swarm.js')
     connectOnce(swarm, topic, {
+      key,
       timeout: RUN_SECONDS * 1000,
-      onCandidate: (info) => log(`   connectOnce candidate ${short(info.publicKey)}, awaiting READY`),
-      onCandidateDropped: (info, reason) => log(`   connectOnce dropped ${short(info.publicKey)} before READY (${reason})`)
+      onCandidate: (info) => log(`   connectOnce candidate ${short(info.publicKey)}, awaiting READY + challenge`),
+      onCandidateDropped: (info, reason) => log(`   connectOnce dropped ${short(info.publicKey)} before proving (${reason})`)
     }).then(
       ({ socket, peerInfo }) => {
         handshakeOutcome = 'RESOLVED'
         log(`*** connectOnce RESOLVED with ${short(peerInfo.publicKey)} ***`)
-        log('    the engine completed READY/ACK -- the far side should now log "got ACK"')
+        log('    the engine completed the handshake and the code proof')
         socket.on('error', () => {})
-        // end(), not destroy(). connectOnce writes the ACK immediately
+        // end(), not destroy(). connectOnce writes its proof immediately
         // before resolving, and destroy() discards unflushed bytes -- which
-        // threw the ACK away and made the far side report "connection reset
-        // by peer" instead of confirming the handshake, defeating the whole
-        // point of this mode.
+        // threw that write away and made the far side report "connection
+        // reset by peer" instead of confirming the handshake, defeating the
+        // whole point of this mode.
         socket.end()
       },
       (err) => {
@@ -118,7 +142,7 @@ async function main () {
   } else {
     swarm.on('connection', (socket, peerInfo) => {
       log(`*** CONNECTION from ${short(peerInfo.publicKey)} (client=${peerInfo.client}) ***`)
-      log('    a real drop would now exchange READY/ACK; this tool deliberately does not')
+      log('    a real drop would now exchange the code proof; this tool deliberately does not')
       socket.on('error', () => {})
       // Report what the receiver sends us, which should be READY (0x01).
       socket.once('data', (chunk) => {

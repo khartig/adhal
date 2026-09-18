@@ -14,10 +14,14 @@
 // of it.
 //
 // The peer these tests use to reproduce that is a real Hyperswarm node
-// that joins the topic and then declines to finish the handshake:
-// it takes the READY byte and drops the connection. That is what a
-// half-failed punch, and equally a scratch-lookup.js --connect probe,
-// looks like from the receiver's side.
+// that joins the topic and then declines to finish the handshake: it takes
+// the receiver's READY and challenge and drops the connection. That is
+// what a half-failed punch, and equally a scratch-lookup.js --connect
+// probe, looks like from the receiver's side.
+//
+// Peers that answer the challenge *wrongly* -- the item 4 threat model --
+// are covered in code-proof.test.js. This file stays about candidates that
+// die rather than candidates that lie.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -36,14 +40,15 @@ const {
   topicFromCode,
   generateCode,
   sendFile,
-  receiveFile
+  receiveFile,
+  dropKey
 } = require('@quay/engine')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
 
 // Joins `topic`, waits for the receiver's READY, then drops the connection
-// without answering the ACK -- a peer that punches through and then
+// without answering the challenge -- a peer that punches through and then
 // vanishes mid-handshake.
 //
 // Waiting for READY before destroying is what makes this deterministic:
@@ -89,7 +94,7 @@ function waitForPattern (state, pattern, timeoutMs = 30000) {
   })
 }
 
-test('a peer that connects and vanishes without ACK does not consume the receiver', async (t) => {
+test('a peer that connects and vanishes without proving itself does not consume the receiver', async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -103,7 +108,9 @@ test('a peer that connects and vanishes without ACK does not consume the receive
   await fs.promises.writeFile(sourcePath, payload)
   const expected = crypto.createHash('sha256').update(payload).digest('hex')
 
-  const topic = topicFromCode(generateCode())
+  const code = generateCode()
+  const topic = topicFromCode(code)
+  const key = dropKey(code)
   const receiveSwarm = createSwarm({ bootstrap: testnet.bootstrap })
   t.after(() => receiveSwarm.destroy())
 
@@ -112,6 +119,7 @@ test('a peer that connects and vanishes without ACK does not consume the receive
   const announced = new Promise((resolve) => { announce = resolve })
 
   const accepted = acceptOnce(receiveSwarm, topic, {
+    key,
     timeout: 60000,
     onAnnounced: () => announce(),
     onCandidateDropped: (info, reason) => dropped.push(reason)
@@ -131,7 +139,7 @@ test('a peer that connects and vanishes without ACK does not consume the receive
 
   const [{ socket: rxSocket, pending }, { socket: txSocket }] = await Promise.all([
     accepted,
-    connectOnce(sendSwarm, topic, { timeout: 60000 })
+    connectOnce(sendSwarm, topic, { key, timeout: 60000 })
   ])
 
   rxSocket.on('error', () => {})
@@ -178,7 +186,7 @@ test('a join that finds nobody says so', async (t) => {
   t.after(() => lonely.destroy())
 
   await assert.rejects(
-    () => connectOnce(lonely, topicFromCode(generateCode()), { timeout: 1500 }),
+    () => connectOnce(lonely, topicFromCode(generateCode()), { key: dropKey(generateCode()), timeout: 1500 }),
     /no peer ever connected/
   )
 })
@@ -209,7 +217,7 @@ test('the receiver CLI reports a dropped candidate and keeps waiting', async (t)
   await bad.readySeen
 
   // The two lines that turn this failure from invisible into obvious.
-  await waitForPattern(output, /candidate \w+\.\.\., sent READY, awaiting ACK/)
-  await waitForPattern(output, /dropped before ACK \(.*\); still waiting/)
+  await waitForPattern(output, /candidate \w+\.\.\., sent READY \+ challenge, awaiting proof/)
+  await waitForPattern(output, /dropped before proving \(.*\); still waiting/)
   assert.equal(receiveProc.exitCode, null, 'the receiver must still be running')
 })

@@ -12,9 +12,12 @@
 // --connect is now safe to point at a live receiver. It used to be
 // destructive: a raw dial satisfied acceptOnce's "first peer wins", handed
 // swarm-receive.js a socket that never sent a manifest, and wedged it.
-// Since the READY/ACK handshake landed (see engine/src/swarm.js), a dial
-// that never answers ACK is logged and discarded, and the receiver stays
-// joined and keeps waiting.
+// Since the readiness handshake landed (see engine/src/swarm.js), a dial
+// that never answers the receiver's challenge is logged and discarded, and
+// the receiver stays joined and keeps waiting. Item 4's code proof closes
+// the door the rest of the way: a dial armed with nothing but the topic --
+// which is exactly what walking the DHT gives you, and what this tool
+// demonstrates -- can no longer complete the handshake at all.
 //
 // So a CONNECTED result here no longer proves a *drop* would work -- it
 // proves discovery and hole punching work. If this succeeds while

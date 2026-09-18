@@ -6,5 +6,6 @@ module.exports = {
   ...require('./code'),
   ...require('./topic'),
   ...require('./resolve-code'),
+  ...require('./proof'),
   ...require('./swarm')
 }

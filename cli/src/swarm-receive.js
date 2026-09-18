@@ -20,7 +20,7 @@
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode } = require('@quay/engine')
+const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, dropKey } = require('@quay/engine')
 
 const { printQr } = require('./qr')
 
@@ -117,16 +117,21 @@ async function main () {
 
   try {
     const { socket, peerInfo, pending } = await acceptOnce(swarm, topic, {
+      // Announcing the topic makes it public; the code stays private, so
+      // it is what proves a peer is the intended one rather than a
+      // stranger who walked the DHT. Without this we would accept a file
+      // from anyone and write it into `outputDir`. See engine/src/proof.js.
+      key: dropKey(code),
       timeout: joinTimeout(),
       refreshInterval: refreshInterval(),
       // Log each candidate and each discarded one. A drop that fails
       // because peers connect and then vanish looks identical to one that
       // found nobody unless these lines are visible.
       onCandidate: (info) => {
-        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., sent READY, awaiting ACK`)
+        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., sent READY + challenge, awaiting proof`)
       },
       onCandidateDropped: (info, reason) => {
-        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before ACK (${reason}); still waiting`)
+        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before proving (${reason}); still waiting`)
       },
       // Only now are we actually discoverable. The sender must not start
       // looking before this point -- see engine/src/swarm.js. This is

@@ -49,6 +49,7 @@ const {
   acceptOnce,
   connectOnce,
   resolveCode,
+  dropKey,
   sendFile,
   receiveFile
 } = require('./src')
@@ -127,6 +128,12 @@ function classify (err) {
   const message = err.message || String(err)
   if (/no peer ever connected/.test(message)) return 'no-peer'
   if (/none completed the readiness handshake/.test(message)) return 'no-handshake'
+  // Distinct from 'no-handshake': peers connected and were rejected for
+  // not knowing the code. On a private topic that should be zero, so a
+  // non-zero count here means either a build-version skew between the two
+  // hosts or someone else on the topic -- both of which would otherwise
+  // hide inside the handshake-failure bucket and be read as a NAT problem.
+  if (/failed the code proof/.test(message)) return 'bad-proof'
   if (/timed out/.test(message)) return 'timeout-other'
   return 'transfer-error'
 }
@@ -139,7 +146,7 @@ function classify (err) {
 // connect time by ten seconds would corrupt any read against plan section
 // 8's "10 MB median < 30-45s" target.
 async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
-  const { topic } = resolveCode(codeForTrial(i))
+  const { topic, code } = resolveCode(codeForTrial(i))
   const swarm = createSwarm()
   const outDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-trial-'))
   const started = Date.now()
@@ -151,6 +158,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
 
   try {
     const { socket, pending } = await acceptOnce(swarm, topic, {
+      key: dropKey(code),
       timeout: budgetMs,
       refreshInterval: refreshMs,
       onAnnounced: () => { announcedAt = Date.now() - started },
@@ -195,7 +203,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
 }
 
 async function runSenderTrial (i, budgetMs) {
-  const { topic } = resolveCode(codeForTrial(i))
+  const { topic, code } = resolveCode(codeForTrial(i))
   const swarm = createSwarm()
   const started = Date.now()
   let candidateAt = null
@@ -203,6 +211,7 @@ async function runSenderTrial (i, budgetMs) {
 
   try {
     const { socket } = await connectOnce(swarm, topic, {
+      key: dropKey(code),
       timeout: budgetMs,
       refreshInterval: refreshMs,
       onCandidate: () => { if (candidateAt === null) candidateAt = Date.now() - started },

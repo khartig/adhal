@@ -164,7 +164,8 @@ they disagree by much, something is wrong with the run itself.
 | --- | --- | --- |
 | `ok` | Transferred, and the receiver's hash matched the manifest | — |
 | `no-peer` | Timed out having seen **no** connection | Discovery or hole punching. Intermittent = flaky path; every trial = check both sides are really on the same topic. |
-| `no-handshake` | Peers connected but none completed READY/ACK | **Our code**, not the network. Start at `acceptOnce`/`connectOnce` in `engine/src/swarm.js`. |
+| `no-handshake` | Peers connected but none completed the readiness handshake | **Our code**, not the network. Start at `acceptOnce`/`connectOnce` in `engine/src/swarm.js`. |
+| `bad-proof` | Peers connected and were rejected for not proving they know the code | Not the network either. On a private topic this should be zero: expect it only when the two hosts are running different builds (the code proof is a wire-format change — see `engine/src/proof.js`), and treat any other occurrence as someone else on your topic. |
 | `transfer-error` | Connected and handshake fine; the transfer threw | `engine/src/transfer.js`, framing or backpressure |
 | `hash-mismatch` | Completed, but the hash differs from the manifest | **Correctness bug. Stop feature work.** |
 | `timeout-other` | Timed out without a recognised reason | Read the `error` field in the JSON |

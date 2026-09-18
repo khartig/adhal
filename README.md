@@ -14,7 +14,7 @@ rather than a custom NAT-traversal stack.
 
 ## Status
 
-**Phase A, items 1-3 (of the plan's section 4 ordered list):** proven.
+**Phase A, items 1-4 (of the plan's section 4 ordered list):** proven.
 
 - Item 1: two CLI processes on one machine exchange a 10 MB file over a
   localhost TCP pipe and independently print matching SHA-256 hashes --
@@ -40,9 +40,20 @@ rather than a custom NAT-traversal stack.
   given no code, and shows the QR at the moment it becomes discoverable.
   Both §9 open decisions (word list, QR payload contents) are resolved --
   see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-drop-code-item-3).
+- Item 4: knowing the code is now a requirement rather than a convention.
+  A receiver has to announce its topic to be findable, so the topic is
+  public from the moment a drop starts -- anyone walking the DHT can read
+  it, which is what `engine/scratch-lookup.js` does. The code is not
+  public, so the handshake ends with each side proving to the other, over
+  fresh nonces, that it has one. A stranger who scraped the topic can no
+  longer be handed a file, nor hand one over into your `~/Downloads`. It is
+  mutual because both of those are real. See
+  [The code proof](docs/ARCHITECTURE.md#the-code-proof-item-4) -- including
+  what it deliberately does not defend against, and note that it is a
+  wire-format change, so both machines must be redeployed together.
 
-The readiness handshake between the two peers is two-way (READY + ACK) as
-of the first cross-ISP attempt at an item-3 drop, which exposed a receiver
+The readiness handshake between the two peers became two-way as of the
+first cross-ISP attempt at an item-3 drop, which exposed a receiver
 that could be permanently consumed by a peer that connected and then
 vanished -- routine on a firewalled CGNAT path. Both sides now discard a
 candidate that fails to confirm and keep waiting, a join timeout says
@@ -50,9 +61,18 @@ whether it found nobody or found peers that never completed the handshake,
 and each candidate is logged as it arrives or is dropped. Details and the
 measurement in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+Reliability on that path is measured, not assumed: `engine/scratch-trials.js`
+runs N real drops back to back and reports a success rate, a connect-time
+distribution and a classified reason for every failure. On Starlink CGNAT to
+Comcast (2026-09-17, 10 trials x 10 MB) it recorded **10/10 with a ~12.9s
+median end-to-end and a 3.0s median connect**, clearing the plan's section 8
+gates. See [`docs/MEASURING-TRANSFER-RELIABILITY.md`](docs/MEASURING-TRANSFER-RELIABILITY.md)
+-- single runs cannot distinguish a flaky path from a broken one, and
+assuming they can cost this project a day.
+
 See [`docs/Refined-Implementation-Plan.md` section 4](docs/Refined-Implementation-Plan.md#4-implement-first-easiest-highest-chance-of-success)
-for the full ordered list; items 4+ (challenge-response, progress/cancel,
-resume, relay, ...) are not yet implemented.
+for the full ordered list; items 5+ (progress/cancel, resume, relay, ...)
+are not yet implemented.
 
 ## Project layout
 
@@ -78,7 +98,7 @@ Prerequisites: Node.js >= 18 (developed against v22.11.0), [pnpm](https://pnpm.i
 
 ```bash
 pnpm install
-pnpm test               # runs the item-1, -2 and -3 proofs automatically
+pnpm test               # runs the item-1 to -4 proofs automatically
 pnpm run demo:loopback  # item 1, manually, printing both sides' output live
 pnpm run demo:swarm     # item 2, manually, against the real public DHT
 pnpm run code           # item 3, a drop code + its QR, ready to screenshot
@@ -103,8 +123,7 @@ symbol for console fonts lacking the half-block glyphs, and `NO_COLOR`
 drops the ANSI colors (at the cost of relying on a light terminal
 background -- a QR only scans dark-on-light).
 
-See [`docs/SETUP.md`](docs/SETUP.md) for IntelliJ IDEA setup and more detail
-on running/extending the CLI.
+See [`docs/SETUP.md`](docs/SETUP.md) for setup and more detail on running/extending the CLI.
 
 ## License
 

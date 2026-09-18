@@ -10,7 +10,7 @@
 //
 // See swarm-receive.js for the QUAY_BOOTSTRAP override.
 
-const { createSwarm, connectOnce, sendFile, resolveCode } = require('@quay/engine')
+const { createSwarm, connectOnce, sendFile, resolveCode, dropKey } = require('@quay/engine')
 
 function parseBootstrap () {
   const raw = process.env.QUAY_BOOTSTRAP
@@ -72,16 +72,21 @@ async function main () {
 
   try {
     const { socket, peerInfo } = await connectOnce(swarm, topic, {
+      // Proves the peer knows the code before we transmit a byte of the
+      // file to it. The topic alone is public once the receiver announces,
+      // so without this we would hand the file to whoever answered first.
+      // See engine/src/proof.js.
+      key: dropKey(code),
       timeout: joinTimeout(),
       refreshInterval: refreshInterval(),
       // See swarm-receive.js: without these, "connected to several peers
       // that all died before confirming" is indistinguishable from
       // "never found anyone".
       onCandidate: (info) => {
-        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., awaiting READY`)
+        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., awaiting READY + challenge`)
       },
       onCandidateDropped: (info, reason) => {
-        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before READY (${reason}); still looking`)
+        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before proving (${reason}); still looking`)
       }
     })
     console.log(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)

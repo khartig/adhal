@@ -8,10 +8,14 @@
 //
 // Usage: node scratch-hs-dial.js <topic-hex> [--client-only]
 //
-// Safe to point at a live swarm-receive.js since the READY/ACK handshake
-// landed (see engine/src/swarm.js): this tool never answers ACK, so the
-// receiver logs it as a dropped candidate and keeps waiting. It used to
-// satisfy acceptOnce outright and wedge the receiver.
+// Safe to point at a live swarm-receive.js since the readiness handshake
+// landed (see engine/src/swarm.js): this tool never answers the receiver's
+// challenge, so the receiver logs it as a dropped candidate and keeps
+// waiting. It used to satisfy acceptOnce outright and wedge the receiver.
+//
+// It could not satisfy it now even if it tried: answering requires the
+// code proof of item 4 (engine/src/proof.js), and this tool is given only
+// a topic.
 
 const Hyperswarm = require('hyperswarm')
 const os = require('node:os')

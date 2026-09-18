@@ -5,10 +5,12 @@
 // diagnostic dial costs a manual restart on the other machine. This stays
 // up, so the far side can probe repeatedly.
 //
-// It mimics acceptOnce's READY/ACK handshake (see engine/src/swarm.js) so a
-// real swarm-send.js can also connect to it -- it just won't read the file.
-// The ACK it waits for is what a genuine sender answers with; a raw dial
-// that never sends one is reported rather than mistaken for a real peer.
+// It mimics acceptOnce's handshake (see engine/src/swarm.js) so a real
+// swarm-send.js can also connect to it -- it just won't read the file. That
+// now includes item 4's code proof: what a genuine sender answers with is
+// an HMAC over our challenge, so this reports three outcomes rather than
+// two -- a real sender, a peer that answered but could not prove it knows
+// the code, and a raw dial that never answered at all.
 //
 // Usage: node scratch-serve.js <code>
 //
@@ -22,6 +24,16 @@
 const Hyperswarm = require('hyperswarm')
 const os = require('node:os')
 const { resolveCode } = require('./src/resolve-code')
+const {
+  dropKey,
+  makeNonce,
+  bindPeers,
+  proveRole,
+  proofMatches,
+  MessageReader,
+  PROOF_SIZE,
+  NONCE_SIZE
+} = require('./src/proof')
 
 const codeArg = process.argv[2]
 if (!codeArg) {
@@ -38,7 +50,7 @@ try {
 }
 
 const READY = Buffer.from([0x01])
-const ACK = Buffer.from([0x02])
+const key = dropKey(code)
 const t0 = Date.now()
 const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a)
 
@@ -63,15 +75,35 @@ async function main () {
     socket.on('error', (err) => log(`  #${id} socket error: ${err.message}`))
     socket.on('close', () => log(`  #${id} closed`))
     // Distinguishing a real sender from a raw dial is the whole point of
-    // running this: a raw dial (scratch-lookup.js --connect, scratch-hs-dial.js)
-    // proves the punch worked, while an ACK proves the application
-    // handshake did too.
-    socket.once('data', (chunk) => {
-      if (chunk.length > 0 && chunk[0] === ACK[0]) log(`  #${id} got ACK -- a real sender completed the handshake`)
-      else log(`  #${id} first byte was 0x${chunk.length ? chunk[0].toString(16) : '??'}, not ACK -- raw dial, not a sender`)
+    // running this: a raw dial (scratch-lookup.js --connect,
+    // scratch-hs-dial.js) proves the punch worked, while a valid proof
+    // shows the application handshake worked too. Read by byte count, not
+    // by chunk, for the reason engine/src/proof.js gives.
+    const nonceR = makeNonce()
+    const peers = bindPeers(socket, 'receiver')
+    const reader = new MessageReader()
+    let answered = false
+    socket.on('data', (chunk) => {
+      if (answered) return
+      reader.push(chunk)
+      const message = reader.take(PROOF_SIZE + NONCE_SIZE)
+      if (!message) return
+      answered = true
+      const theirProof = message.subarray(0, PROOF_SIZE)
+      const nonceS = message.subarray(PROOF_SIZE)
+      if (proofMatches(proveRole(key, 'sender', nonceR, peers), theirProof)) {
+        log(`  #${id} VALID PROOF -- a real sender completed the handshake`)
+        // Answer, so the sender's own connectOnce resolves and it reports
+        // success too. Without this the far side would discard us and keep
+        // looking, which looks identical to a failure on its screen.
+        socket.write(proveRole(key, 'receiver', nonceS, peers))
+      } else {
+        log(`  #${id} BAD PROOF -- answered the challenge but does not know the code`)
+        log('       (or is running a build from before the proof landed)')
+      }
     })
-    socket.write(READY)
-    log(`  #${id} wrote READY, staying open`)
+    socket.write(Buffer.concat([READY, nonceR]))
+    log(`  #${id} wrote READY + challenge, staying open`)
   })
 
   const discovery = swarm.join(topic)
