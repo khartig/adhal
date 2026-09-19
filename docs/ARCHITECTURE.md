@@ -156,10 +156,11 @@ comments for detail):
   same path at `refresh=4000`** (below). There was no code defect; the
   refresh-interval hypothesis is dead on a sample of ten rather than on a
   single run, and the default stays at 4000.
-- **Cross-ISP transfer verified (the Hyperswarm milestone's real exit criterion).** A Mac on
+- **Cross-ISP transfer verified (the Hyperswarm milestone's real exit
+  criterion).** A Mac on
   Starlink (CGNAT, DHT-observed <host A>, firewalled) sent to a Linux
-  box on Comcast (<host B> firewalled) in ~9s. Re-verified for item
-  3 with the two-way handshake: generated six-word code, QR shown on
+  box on Comcast (<host B> firewalled) in ~9s. Re-verified for the
+  drop code with the two-way handshake: generated six-word code, QR shown on
   announce, 10 MB matching SHA-256 on both sides, at both
   `QUAY_REFRESH_INTERVAL=4000` and `30000`.
 - **Measured reliability on that path, 2026-09-17** (`scratch-trials.js`,

@@ -232,8 +232,8 @@ message. Section 3.1.
 
 ### 1.8 Real IPs in the repo
 
-`docs/ARCHITECTURE.md:126-127` records `<host-A>` (Starlink) and
-`<host-B>` (Comcast) as the test hosts. For a privacy-positioned project
+`docs/ARCHITECTURE.md` recorded two residential IP addresses (a Starlink
+host and a Comcast host) as the test hosts. For a privacy-positioned project
 these are the author's home IPs, and they will sit in git history. Replace with
 `<host-A>`/`<host-B>` and consider whether the history needs rewriting before
 the repo goes public. Also strip topics/public keys from anything an opt-in
