@@ -10,7 +10,7 @@
     "quay-code": "src/code.js"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20.19"
   },
   "scripts": {
     "test": "node --test",

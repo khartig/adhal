@@ -3,9 +3,18 @@
 // Minimal length-prefixed framing so a manifest (JSON) and raw file chunks
 // can share one TCP stream without ambiguity. Each frame is:
 //   [4-byte big-endian length][payload bytes]
-// This is intentionally dumb for the loopback milestone (localhost, zero NAT). The Hyperswarm work+
-// swaps the transport for a Hyperswarm/Protomux channel; this module is
-// transport-agnostic so it keeps working either way.
+// This is intentionally dumb for the loopback milestone (localhost, zero NAT).
+//
+// IT WAS EXPECTED TO BE REPLACED, AND IT WAS NOT. This comment used to say
+// the Hyperswarm work would swap the transport for a Hyperswarm/Protomux
+// channel. That never happened: Hyperswarm landed and this framing was
+// carried over onto the encrypted stream unchanged. W10 then settled the
+// question rather than leaving it forward-looking -- protomux@3.12.0 has
+// no priority, preempt or urgent path, so a CANCEL on a second channel
+// would queue behind already-written chunk bytes exactly as it does here,
+// and under v2's AEAD channel it would double-frame. The dependency is
+// gone; see PROTOCOL.md section 8.2. This module stays transport-agnostic
+// because that is what lets it sit under both.
 //
 // WHAT DELIBERATELY DID NOT LAND HERE. The failure-reporting work gives every payload a
 // one-byte type tag, so CANCEL is distinguishable from file bytes. That

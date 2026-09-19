@@ -68,8 +68,9 @@ Run it with:
 pnpm run typecheck
 ```
 
-`hyperswarm`, `hyperdht`, `hypercore-crypto`, and `protomux` ship no type
-declarations at all (`compact-encoding` and `b4a` do). Once the swarm code starts
+`hyperswarm`, `hyperdht`, and `hypercore-crypto` ship no type
+declarations at all (`compact-encoding`, `b4a`, `@noble/curves` and
+`@noble/hashes` do). Once the swarm code starts
 importing them, expect a `noImplicitAny`/`TS7016` error per package the
 first time it's required -- add a small ambient `.d.ts` shim (only for the
 functions actually called, not the full API) under a new `types/` directory

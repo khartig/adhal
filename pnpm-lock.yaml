@@ -191,6 +191,12 @@ importers:
 
   engine:
     dependencies:
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+      '@noble/hashes':
+        specifier: 2.4.0
+        version: 2.4.0
       b4a:
         specifier: 1.9.0
         version: 1.9.0
@@ -206,14 +212,19 @@ importers:
       hyperswarm:
         specifier: 4.17.1
         version: 4.17.1(bare-url@2.5.4)
-      protomux:
-        specifier: 3.12.0
-        version: 3.12.0
 
 packages:
 
   '@hyperswarm/secret-stream@6.9.2':
     resolution: {integrity: sha512-BE6tC6QxN6JBxUSsEbdr5Clo0MidouzLIywDNOGaaACsogJAGjRetJtJ7gjG7KXGXTBDybByArMAMHZ7ftjNSA==}
+
+  '@noble/curves@2.4.0':
+    resolution: {integrity: sha512-P4/62zrgfH33CneE3Dn4WhJVA22YUU0eR51wKIan4NVRvwsA0YnPTwWGpNbpuacSujmSFLvyzpyuR30+fbq2Ew==}
+    engines: {node: '>= 20.19.0'}
+
+  '@noble/hashes@2.4.0':
+    resolution: {integrity: sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA==}
+    engines: {node: '>= 20.19.0'}
 
   '@types/node@26.5.1':
     resolution: {integrity: sha512-CzNm2FezW4VR/LjG6yUdiEgLE/rAQ9Slj5gCu/C2VrdcW7I0ahNZ8DRbHT7zOZ6r3ONgd/bsQIeSaoDGrd1C6g==}
@@ -599,6 +610,12 @@ snapshots:
       - bare-url
       - react-native-b4a
       - sodium-javascript
+
+  '@noble/curves@2.4.0':
+    dependencies:
+      '@noble/hashes': 2.4.0
+
+  '@noble/hashes@2.4.0': {}
 
   '@types/node@26.5.1':
     dependencies:

@@ -632,9 +632,10 @@ Verified by `cli/test/code.test.js`, which decodes the printed matrix with
 a real QR decoder (`jsqr`, test-only) and confirms the scan lands on the
 same topic the receiver joined.
 
-Step D7 of the data path above, resume (D5's offset persistence), and
-Protomux-based channel multiplexing all belong to later stages and are not
-yet built.
+Step D7 of the data path above and resume (D5's offset persistence)
+belong to later stages and are not yet built. Protomux-based channel
+multiplexing was on that list and has since been ruled out rather than
+deferred -- see [`PROTOCOL.md`](PROTOCOL.md) §8.2.
 
 ## The code proof (D3)
 
@@ -689,7 +690,17 @@ number of bytes.
 and both sides keep waiting, reusing the resilience the Hyperswarm
 milestone already had. An
 attacker must not be able to end a drop just by connecting to it and
-failing. It is reported with its own reason string, though, because it is
+failing.
+
+> **Superseded in v2.** That last rule is a v1 rule and v2 reverses it
+> deliberately. Under v2 a nameplate-holder *can* end a drop, after 100
+> failed PAKE confirmations — see [`PROTOCOL.md`](PROTOCOL.md) §6 and
+> [`THREAT-MODEL.md`](THREAT-MODEL.md) §5.3. The trade is explicit:
+> unlimited guessing against ~31 bits is worse than a denial of service,
+> because a denial of service is visible and a silent compromise is not.
+> The v1 rule stands for the v1 handshake this section describes, which
+> is what still ships.
+ It is reported with its own reason string, though, because it is
 the one discard that is not a network problem: `cli/test/code-proof.test.js`
 covers wrong-code, reflected, replayed and relayed proofs, and asserts that
 a genuine drop still completes after three rejected peers.

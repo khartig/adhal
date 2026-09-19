@@ -247,22 +247,46 @@ arithmetic and argon2id. W10 decides on that real footing.
 
 ## Stage 1 — freeze the protocol
 
-- **W9 — [`PROTOCOL.md`](PROTOCOL.md).** Written. Includes the three
+- **W9 — [`PROTOCOL.md`](PROTOCOL.md). Done.** Includes the three
   resume traps the old plan omitted: the secret must outlive the process
   (prefer re-pairing over persisting a capability at rest); a `.part`
-  prefix cannot be trusted after a restart (re-hash, or carry block
-  hashes — decide *before* freezing the manifest); and the displayed hash
-  is transport integrity, not protection from a malicious sender.
+  prefix cannot be trusted after a restart; and the displayed hash is
+  transport integrity, not protection from a malicious sender.
 
-- **W10 — PAKE selection spike.** Cost a reviewed npm PAKE, libsodium
-  WASM, or CPace over ed25519 with `sodium-native` promoted to a direct
-  dependency and validated against CFRG vectors. **Do not hand-roll
-  without external review.** Also settle Protomux-vs-raw-stream now
-  (adopting it later is another break) and whether control and data share
-  one stream — today `CANCEL` queues behind already-written chunks.
+- **W10 — PAKE selection spike. Done, and the spec is frozen.** Every
+  §8 decision is settled and carries the running code that settled it:
 
-- **W11 — Implement v2.** Handshake, AEAD channel, message set, then
-  resume (`ACCEPT{resumeFrom}` + `CHECKPOINT`), against a stable spec.
+  | Decision | Outcome | Evidence |
+  | --- | --- | --- |
+  | §8.1 which PAKE | CPACE-X25519-SHA512 over `@noble/curves@2.4.0` | all 9 CFRG vectors + all 12 low-order vectors reproduce; 2.08 ms/side |
+  | §8.2 Protomux | No — keep the hand-rolled framing; dependency removed | protomux 3.12.0 has no priority path; cancel latency measured |
+  | §8.3 checkpoint | Every **5 seconds**, not every N bytes | fsync is a fixed ~17 ms cost, so a byte interval has no stable price |
+  | §7.2 resume | Re-hash the `.part` prefix; manifest stays fixed-shape | — |
+
+  The premise the spike started from was false and checking it was the
+  point: `sodium-native@5.1.0` exports 313 symbols and **zero**
+  ristretto255 ones, and is not resolvable from `engine/` at all.
+
+  Two things landed that were not asked for and are worth knowing.
+  **`engines.node` moved `>=18` → `>=20.19`** across all three
+  `package.json` files, because `@noble/curves@2.4.0` is ESM-only and
+  the CJS-compatible 1.9.7 does not export the Elligator2 map. And
+  `cli/test/cpace-vectors.test.js` is the repo's **first conformance
+  test** — every other expected value in `cli/test/` is recomputed at
+  runtime by the primitive under test, which proves self-consistency and
+  not correctness. It is the seed of W12.
+
+  §8.2's own estimate turned out to be wrong, which is the sort of thing
+  this standard exists to catch: "one chunk plus the high-water mark"
+  understates sender-side cancel latency by 4.5×, because
+  `writableHighWaterMark` is not the write-ahead depth.
+
+- **W11 — Implement v2**, against the frozen spec. Handshake
+  ([`PROTOCOL.md`](PROTOCOL.md) §3.2 has the full parameter mapping and
+  the four ways to get it wrong), AEAD channel, message set, then resume
+  (`ACCEPT{resumeFrom}` + `CHECKPOINT`). `engine/src/cpace.js` exists and
+  is tested; nothing consumes it yet. Also lands `ERR_ATTEMPT_CAP`, which
+  §10 specifies and nothing yet throws.
 
 ---
 

@@ -5,7 +5,7 @@
   "description": "Anonymous, one-shot peer-to-peer file drop. No account, no intermediary server unless relaying.",
   "license": "MIT",
   "engines": {
-    "node": ">=18"
+    "node": ">=20.19"
   },
   "packageManager": "pnpm@12.4.1",
   "scripts": {

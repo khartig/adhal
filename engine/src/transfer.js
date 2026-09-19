@@ -143,7 +143,8 @@ function progressReporter (onProgress, total) {
 
 // Sends one manifest frame (JSON) followed by the file as chunk frames.
 // `socket` is any writable+readable duplex stream (net.Socket for the loopback milestone;
-// a Hyperswarm/Protomux channel from the Hyperswarm work onward).
+// a Hyperswarm NoiseSecretStream from the Hyperswarm work onward -- not a
+// Protomux channel, which W10 ruled out; see PROTOCOL.md section 8.2).
 //
 // HONEST LIMIT ON `onProgress` HERE. The sender's `bytes` counts what has
 // been handed to the transport, not what the receiver has stored. The two
