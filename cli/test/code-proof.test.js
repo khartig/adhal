@@ -1,6 +1,6 @@
 'use strict'
 
-// Item 4 / data path step 3: a peer must prove it knows the drop code.
+// The code proof / data path step 3: a peer must prove it knows the drop code.
 //
 // The threat these tests pin down is not hypothetical, and the repo already
 // contains the tool that demonstrates it: a receiver has to announce
@@ -53,6 +53,7 @@ const {
   NONCE_SIZE,
   PROOF_SIZE
 } = require('@quay/engine')
+const { slow } = require('../test-helpers/tiers')
 
 const HELLO_SIZE = 1 + NONCE_SIZE
 const SENDER_PROOF_SIZE = PROOF_SIZE + NONCE_SIZE
@@ -232,7 +233,7 @@ function answerWith (forge) {
   }
 }
 
-test('a peer that found the topic but cannot prove the code is rejected, and the receiver keeps waiting', async (t) => {
+test('a peer that found the topic but cannot prove the code is rejected, and the receiver keeps waiting', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -333,7 +334,7 @@ test('a peer that found the topic but cannot prove the code is rejected, and the
   assert.equal(onDisk, expected)
 })
 
-test('a proof captured off a real exchange cannot be replayed at a receiver', async (t) => {
+test('a proof captured off a real exchange cannot be replayed at a receiver', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -403,13 +404,13 @@ test('a proof captured off a real exchange cannot be replayed at a receiver', as
 })
 
 test('the handshake refuses to run without a key at all', () => {
-  // A caller that was not updated for item 4 must fail loudly. Defaulting
+  // A caller that was not updated for the code proof must fail loudly. Defaulting
   // the key would restore the exact hole this file is about, silently.
   const topic = topicFromCode(generateCode())
   const swarm = createSwarm()
   // Deliberately mistyped: the point is the runtime guard, which is what
   // protects a caller that is not being typechecked (the scratch tools) or
-  // one built before item 4.
+  // one built before the code proof.
   /** @type {any} */
   const noKey = { timeout: 1 }
   try {

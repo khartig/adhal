@@ -1,6 +1,6 @@
 'use strict'
 
-// Automated version of docs/Refined-Implementation-Plan.md section 4, item 2:
+// Automated version of the Hyperswarm milestone:
 // "Same CLI over Hyperswarm on one LAN (two laptops) -- Proves topic join
 // + Noise without your protocol bugs." Two real CLI processes join the
 // same Hyperswarm topic and exchange a file over an encrypted DHT
@@ -16,6 +16,8 @@ const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 const createTestnet = require('hyperdht/testnet')
+const { generateCode } = require('@quay/engine')
+const { slow } = require('../test-helpers/tiers')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const SWARM_RECEIVE_SCRIPT = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
@@ -79,7 +81,13 @@ async function attemptTransfer (t) {
 
   try {
     const bootstrapEnv = JSON.stringify(testnet.bootstrap)
-    const code = `test-${crypto.randomBytes(8).toString('hex')}`
+    // A real generated code rather than the `test-<hex>` opaque string
+    // this used to use. Opaque codes are now opt-in (see resolveCode), so
+    // the old form would need `--unsafe-opaque` on both spawns -- and a
+    // test that has to disable a safety check to pass is testing the
+    // wrong path. generateCode() is equally unique per run and exercises
+    // what a user actually gets.
+    const code = generateCode()
     const env = { ...process.env, QUAY_BOOTSTRAP: bootstrapEnv }
 
     const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-swarm-'))
@@ -87,7 +95,7 @@ async function attemptTransfer (t) {
     const outputDir = path.join(tmpDir, 'received')
 
     try {
-      const size = 10 * 1024 * 1024 // 10 MB, matching the doc's item 1/2 spec
+      const size = 10 * 1024 * 1024 // 10 MB, matching the doc's loopback/Hyperswarm spec
       await fs.promises.writeFile(sourcePath, crypto.randomBytes(size))
       const expectedHash = await sha256File(sourcePath)
 
@@ -128,7 +136,7 @@ async function attemptTransfer (t) {
   }
 }
 
-test('two local processes transfer a 10 MB file over a Hyperswarm topic on an isolated DHT testnet', async (t) => {
+test('two local processes transfer a 10 MB file over a Hyperswarm topic on an isolated DHT testnet', slow, async (t) => {
   // NAT-traversal/hole-punch protocols are inherently probabilistic --
   // the doc's own premise is that punch success isn't 100% (hence a relay
   // fallback in a later phase). A handful of retries here absorbs that

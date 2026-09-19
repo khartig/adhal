@@ -19,7 +19,7 @@
 // what a half-failed punch, and equally a scratch-lookup.js --connect
 // probe, looks like from the receiver's side.
 //
-// Peers that answer the challenge *wrongly* -- the item 4 threat model --
+// Peers that answer the challenge *wrongly* -- the code-proof threat model --
 // are covered in code-proof.test.js. This file stays about candidates that
 // die rather than candidates that lie.
 
@@ -43,6 +43,7 @@ const {
   receiveFile,
   dropKey
 } = require('@quay/engine')
+const { slow } = require('../test-helpers/tiers')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
@@ -94,7 +95,7 @@ function waitForPattern (state, pattern, timeoutMs = 30000) {
   })
 }
 
-test('a peer that connects and vanishes without proving itself does not consume the receiver', async (t) => {
+test('a peer that connects and vanishes without proving itself does not consume the receiver', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -176,7 +177,7 @@ test('a timeout reports whether it found nobody or found peers that never confir
   assert.match(some, /not a DHT one/, 'must point above the DHT, not at it')
 })
 
-test('a join that finds nobody says so', async (t) => {
+test('a join that finds nobody says so', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -191,7 +192,7 @@ test('a join that finds nobody says so', async (t) => {
   )
 })
 
-test('the receiver CLI reports a dropped candidate and keeps waiting', async (t) => {
+test('the receiver CLI reports a dropped candidate and keeps waiting', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 

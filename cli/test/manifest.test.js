@@ -1,13 +1,13 @@
 'use strict'
 
 // The manifest is the one message that decides what happens on the
-// receiver's filesystem, and until item 5 it was trusted completely:
+// receiver's filesystem, and until that work it was trusted completely:
 // `path.join(outputDir, manifest.name)`, unvalidated, straight into
 // createWriteStream.
 //
-// That is a narrower hole than it looks, and a worse one. Item 4 stopped a
+// That is a narrower hole than it looks, and a worse one. The code proof stopped a
 // *stranger* from reaching the receiver at all -- so the peer sending this
-// manifest has proven it knows the drop code. What item 4 never addressed
+// manifest has proven it knows the drop code. What the code proof never addressed
 // is that knowing the code does not make a peer well-behaved, and a peer
 // that names its file `../../.bashrc` was, before these tests, writing
 // there. "You accepted a drop" and "you granted arbitrary file write" are
@@ -44,9 +44,9 @@ function manifestFor (body, overrides = {}) {
 // Drives a real receiveFile with a hand-built manifest, so the assertions
 // are about the shipping code path rather than about a validator called in
 // isolation.
-function offer (outputDir, manifest, body = null) {
+function offer (outputDir, manifest, body = null, options = {}) {
   const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
+  const received = receiveFile(socket, outputDir, options)
   peer.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8')))
   if (body) peer.write(encodeMessage(TYPE_CHUNK, body))
   return { received, peer }
@@ -132,34 +132,52 @@ test('a leading dot is a legitimate filename and is left alone', () => {
   assert.equal(safe.outputPath, path.join(dir, '.bashrc'))
 })
 
-test('a Windows device name is renamed rather than refused, and both names are reported', async (t) => {
+test('a Windows device name is renamed on Windows and left alone everywhere else', async (t) => {
   const outputDir = await tmpDir(t, 'manifest-reserved')
   const body = Buffer.from('a file that is legitimately called aux.txt')
 
-  const { received } = offer(outputDir, manifestFor(body, { name: 'aux.txt' }), body)
+  // THE RENAME IS NOW GATED ON THE PLATFORM, and the justification in the
+  // code changed with it. It used to be "Windows ships first"; macOS and
+  // Linux are the primary targets now, and `_aux.txt` on Linux is pure
+  // mangling of a name nothing on Linux objects to. It survives for
+  // Windows because a file received there under that name cannot be
+  // opened at all.
+  const { received } = offer(outputDir, manifestFor(body, { name: 'aux.txt' }), body, { platform: 'win32' })
   const result = await received
-
-  // Windows ships first, and refusing a file because of its name when one
-  // prefix character makes it work would be hostile. Nothing is hidden:
-  // the caller is told what was asked for and what was written.
   assert.equal(result.name, '_aux.txt')
   assert.equal(result.declaredName, 'aux.txt')
   assert.equal(path.basename(result.path), '_aux.txt')
   assert.deepEqual(await fs.promises.readFile(result.path), body)
+
+  // Passed explicitly rather than read from process.platform, so all
+  // three legs of the CI matrix assert both policies instead of each OS
+  // only ever exercising its own branch.
+  assert.equal(safeOutputName(outputDir, 'aux.txt', { platform: 'linux' }).name, 'aux.txt')
+  assert.equal(safeOutputName(outputDir, 'aux.txt', { platform: 'darwin' }).name, 'aux.txt')
 })
 
 test('trailing dots and spaces cannot be used to smuggle a device name past the check', () => {
   // Windows strips trailing dots and spaces before resolving a path, so
   // `CON.` and `CON ` are the device `CON`. Checking the raw string would
   // make the rename trivially evadable.
+  //
+  // Stage 0 strips them outright, on every platform, before the device
+  // check even runs -- a trailing dot or space is invisible in every file
+  // manager ever written, so it exists only to make two different names
+  // look like one. That makes the evasion impossible rather than merely
+  // detected, and `CON.` now normalises to `CON` before being renamed.
   const dir = path.join(os.tmpdir(), 'quay-names')
-  assert.equal(safeOutputName(dir, 'CON.').name, '_CON.')
-  assert.equal(safeOutputName(dir, 'com1  ').name, '_com1  ')
-  assert.equal(safeOutputName(dir, 'LPT9.txt').name, '_LPT9.txt')
+  const win = { platform: 'win32' }
+  assert.equal(safeOutputName(dir, 'CON.', win).name, '_CON')
+  assert.equal(safeOutputName(dir, 'com1  ', win).name, '_com1')
+  assert.equal(safeOutputName(dir, 'LPT9.txt', win).name, '_LPT9.txt')
+
+  // The stripping itself is not Windows-only.
+  assert.equal(safeOutputName(dir, 'report.pdf. ', { platform: 'linux' }).name, 'report.pdf')
 
   // And a name that merely starts with those letters is ordinary.
-  assert.equal(safeOutputName(dir, 'console.log').name, 'console.log')
-  assert.equal(safeOutputName(dir, 'nullable.json').name, 'nullable.json')
+  assert.equal(safeOutputName(dir, 'console.log', win).name, 'console.log')
+  assert.equal(safeOutputName(dir, 'nullable.json', win).name, 'nullable.json')
 })
 
 // --- field validation ----------------------------------------------------

@@ -1,10 +1,10 @@
 'use strict'
 
-// Automated proof of docs/Refined-Implementation-Plan.md section 4, item 3:
+// Automated proof of the drop code (data path D1):
 // "6-word code + QR encoding of the same payload."
 //
 // The load-bearing test in here is the round trip through a real QR
-// decoder. Everything else about item 3 can be checked by inspection, but
+// decoder. Everything else about the drop code can be checked by inspection, but
 // "would a phone actually read this" cannot, and it is the whole point of
 // the deliverable -- so jsqr (a test-only dependency, never shipped)
 // decodes the very matrix that cli/src/qr.js prints.
@@ -274,10 +274,13 @@ test('resolveCode holds a six-word-shaped input to the strict parse', () => {
   assert.equal(words.kind, 'words')
   assert.equal(words.code, 'acid-acorn-acre-acts-afar-agent')
 
-  // Item 2's opaque secrets have to keep working: demo-swarm.js generates
-  // hex, and the engine/scratch-*.js diagnostics take hand-typed strings.
+  // Opaque secrets have to keep working for the engine/scratch-*.js
+  // diagnostics, which take hand-typed strings -- but they are now
+  // opt-in, because an opaque code is whatever the caller typed and
+  // `quay-test-3` is dictionary-attackable in a way a generated word
+  // code is not. See resolveCode.
   for (const opaque of ['a3f9c2b18d7e4056', 'quay-test-3', 'acid-acorn']) {
-    const resolved = resolveCode(opaque)
+    const resolved = resolveCode(opaque, { allowOpaque: true })
     assert.equal(resolved.kind, 'opaque', `${opaque} should stay opaque`)
     assert.equal(resolved.code, opaque)
     assert.equal(resolved.topic.length, 32)
@@ -285,10 +288,19 @@ test('resolveCode holds a six-word-shaped input to the strict parse', () => {
 
   // Same string, same topic, regardless of which branch produced it.
   assert.equal(
-    resolveCode('quay-test-3').topic.toString('hex'),
-    resolveCode('quay-test-3').topic.toString('hex')
+    resolveCode('quay-test-3', { allowOpaque: true }).topic.toString('hex'),
+    resolveCode('quay-test-3', { allowOpaque: true }).topic.toString('hex')
   )
-  assert.throws(() => resolveCode('   '), /empty/)
+  assert.throws(() => resolveCode('   ', { allowOpaque: true }), /empty/)
+
+  // And the gate itself: the default refuses, naming the way out. This
+  // is the product-surface guarantee -- no CLI can emit a weak drop
+  // without someone having typed --unsafe-opaque.
+  assert.throws(
+    () => resolveCode('quay-test-3'),
+    /--unsafe-opaque/,
+    'an opaque code must be refused unless explicitly allowed'
+  )
 })
 
 test('code generation draws on the whole word list without favoring its start', (t) => {

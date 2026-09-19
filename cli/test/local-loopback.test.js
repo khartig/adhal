@@ -1,9 +1,10 @@
 'use strict'
+const { slow } = require('../test-helpers/tiers')
 
-// Automated version of docs/Refined-Implementation-Plan.md section 4, item 1:
+// Automated version of the loopback milestone:
 // "Node CLI: two processes on one machine, localhost pipe, send 10 MB,
 // print SHA-256 both sides." Zero NAT, zero Hyperswarm -- just proves the
-// chunking/hashing pipeline works before item 2 adds the DHT.
+// chunking/hashing pipeline works before the DHT transport adds.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -63,7 +64,7 @@ function waitForExit (child) {
   })
 }
 
-test('two local processes transfer a 10 MB file over a loopback TCP pipe and agree on the SHA-256', async (t) => {
+test('two local processes transfer a 10 MB file over a loopback TCP pipe and agree on the SHA-256', slow, async (t) => {
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-loopback-'))
   const sourcePath = path.join(tmpDir, 'source.bin')
   const outputDir = path.join(tmpDir, 'received')
@@ -72,7 +73,7 @@ test('two local processes transfer a 10 MB file over a loopback TCP pipe and agr
     fs.rmSync(tmpDir, { recursive: true, force: true })
   })
 
-  const size = 10 * 1024 * 1024 // 10 MB, matching the doc's item 1 spec
+  const size = 10 * 1024 * 1024 // 10 MB, matching the doc's loopback spec
   await fs.promises.writeFile(sourcePath, crypto.randomBytes(size))
   const expectedHash = await sha256File(sourcePath)
 

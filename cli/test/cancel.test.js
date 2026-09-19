@@ -1,6 +1,6 @@
 'use strict'
 
-// Cancellation, and the one distinction the whole of item 5 turns on:
+// Cancellation, and the one distinction the whole of the failure-reporting work turns on:
 // a peer that deliberately stopped must not look like a peer that died.
 //
 // Before this, Ctrl-C reset the socket and the far side printed
@@ -30,14 +30,17 @@ const {
   receiveFile,
   createSwarm,
   acceptOnce,
+  connectOnce,
   topicFromCode,
   generateCode,
   dropKey
 } = require('@quay/engine')
+const { slow } = require('../test-helpers/tiers')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
+const SWARM_SEND = path.join(REPO_ROOT, 'cli', 'src', 'swarm-send.js')
 
 async function fixture (t, label, size = 4 * 1024 * 1024) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
@@ -109,7 +112,7 @@ test('a sender that cancels makes the receiver report a cancellation, not a trun
 
   // The mirror case, and the one that would otherwise be worst: without a
   // CANCEL the receiver sees a socket that stopped, which is
-  // indistinguishable from a dead punch -- and before item 5 it did not
+  // indistinguishable from a dead punch -- and before that work it did not
   // even see that, it simply waited forever.
   assert.equal(received.ok, false)
   assert.equal(received.error.code, 'ERR_CANCELLED_PEER')
@@ -178,10 +181,32 @@ test('a simultaneous cancel settles both sides, each reporting its own', async (
     assert.ok(isCancellation, `expected a cancellation, got ${err.code}: ${err.message}`)
   }
 
-  // The one deterministic half: the side that aborted first cannot
-  // possibly have seen the other's CANCEL yet, so it reports its own.
-  assert.equal(sent.error.name, 'AbortError', 'the side that cancelled first reports its own cancellation')
-
+  // THIS USED TO ASSERT A WINNER, and the justification was wrong.
+  //
+  // It read: "the side that aborted first cannot possibly have seen the
+  // other's CANCEL yet, so it reports its own", and required
+  // `sent.error.name === 'AbortError'`. It passed for a reason that had
+  // nothing to do with ordering: the receiver did not honour
+  // `writeStream.write()`'s backpressure, so its socket was never paused,
+  // so the sender's CANCEL was always delivered into a flowing stream and
+  // settled the receiver before `rxController.abort()` could do anything.
+  // The receiver's own abort was a no-op, and the sender won by default.
+  //
+  // Stage 0 made the receiver pause when its disk falls behind, which is
+  // correct and which removes that accident. Measured with a 2 MB file:
+  // the receiver has already paused twice by the time the abort fires, so
+  // the sender's CANCEL sits in a buffer, the receiver's own abort wins
+  // locally, and *its* CANCEL reaches the still-flowing sender first. The
+  // sender now reports ERR_CANCELLED_PEER.
+  //
+  // Nothing is broken by that: both sides settle, both settle as
+  // cancellations, and neither reports a network or protocol error. Which
+  // one is which was always a race -- this test's own comment says so
+  // three lines up -- and it is now a race whose outcome depends on disk
+  // speed. Asserting a winner would be asserting the timing of a
+  // filesystem write. The single-sided cases, which are the ones a human
+  // actually produces by pressing Ctrl-C, are covered above and do pin
+  // down exactly who reports what.
   assert.deepEqual(await fs.promises.readdir(outputDir), [])
 })
 
@@ -190,7 +215,7 @@ test('a cancel reason chosen by the peer cannot smuggle escape sequences into a 
   const [txSocket, rxSocket] = duplexPair()
   const controller = new AbortController()
 
-  const hostile = `[2K\r[swarm-receive] verified: totally fine\n${'x'.repeat(1000)}`
+  const hostile = `\u001b[2K\r[swarm-receive] verified: totally fine\n${'x'.repeat(1000)}`
   const onProgress = ({ bytes, total }) => {
     if (bytes > 0 && bytes < total) controller.abort(hostile)
   }
@@ -205,7 +230,7 @@ test('a cancel reason chosen by the peer cannot smuggle escape sequences into a 
   // This string is printed straight into a terminal by the CLI, so a peer
   // must not be able to clear the line, forge a second log line, or run
   // the output off the screen.
-  assert.equal(/[ --]/.test(reason), false, 'control characters must be stripped')
+  assert.equal(/[\u0000-\u001f\u007f-\u009f]/.test(reason), false, 'control characters must be stripped')
   assert.ok(Buffer.byteLength(reason, 'utf8') <= 256, 'the reason must be capped')
 })
 
@@ -227,7 +252,7 @@ test('a transfer that is never cancelled is unaffected by having been given a si
 
 // --- cancelling while still waiting for a peer ---------------------------
 
-test('acceptOnce aborted while waiting rejects and leaves the swarm as it found it', async (t) => {
+test('acceptOnce aborted while waiting rejects and leaves the swarm as it found it', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -245,7 +270,7 @@ test('acceptOnce aborted while waiting rejects and leaves the swarm as it found 
   }))
 
   // This is the moment a human is most likely to give up -- a receiver
-  // showing a QR code spends nearly all its life here -- and until item 5
+  // showing a QR code spends nearly all its life here -- and until the failure-reporting work
   // there was no path out of it but killing the process.
   controller.abort('changed my mind')
   const outcome = await accepted
@@ -261,7 +286,7 @@ test('acceptOnce aborted while waiting rejects and leaves the swarm as it found 
   assert.equal(swarm.destroyed, false, 'the swarm belongs to the caller and must survive')
 })
 
-test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, and with 130', async (t) => {
+test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, and with 130', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -325,7 +350,7 @@ test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, an
   assert.ok(took < 15000, `teardown took ${took}ms, which is long enough to look like a hang`)
 })
 
-test('an acceptOnce given an already-aborted signal never joins at all', async (t) => {
+test('an acceptOnce given an already-aborted signal never joins at all', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -345,4 +370,137 @@ test('an acceptOnce given an already-aborted signal never joins at all', async (
   assert.equal(outcome.ok, false)
   assert.equal(outcome.error.name, 'AbortError')
   assert.equal(swarm.listenerCount('connection'), 0)
+})
+
+// --- the sender side ------------------------------------------------------
+//
+// THERE WAS NO SENDER-SIDE CANCEL TEST, AND THAT IS WHY THE BUG SHIPPED.
+//
+// `connectOnce` accepted a `signal`, documented it in its JSDoc, and
+// defined an `onAbort` that `finish()` dutifully removed -- but no line
+// ever called `signal.addEventListener('abort', onAbort)`. The signal was
+// inert. `acceptOnce` had the registration, so the receiver's Ctrl-C
+// worked, and the feature looked shipped from every angle anyone looked
+// at it from: README.md described it, ARCHITECTURE.md described it,
+// swarm-send.js passed a signal in with a comment explaining why it
+// mattered, and the test suite exercised exactly one of the two halves.
+//
+// Measured before the fix, aborting at 500ms against a 5000ms budget:
+// acceptOnce rejected at 502ms, connectOnce ran the full 5001ms and
+// reported ERR_NO_PEER. On the real sender that is a 120-second join in
+// which Ctrl-C does nothing at all.
+//
+// These two mirror the acceptOnce pair above exactly, which is the point:
+// a symmetry in the code deserves a symmetry in the tests, and the
+// asymmetry was the bug.
+
+test('connectOnce aborted while looking rejects and leaves the swarm as it found it', slow, async (t) => {
+  const testnet = await createTestnet(3)
+  t.after(() => testnet.destroy())
+
+  const swarm = createSwarm({ bootstrap: testnet.bootstrap })
+  t.after(() => swarm.destroy())
+
+  const code = generateCode()
+  const controller = new AbortController()
+
+  // Nothing is ever on this topic, so the only way out is the abort. If
+  // the signal is ignored the only other exit is the 60s timeout, so a
+  // regression here fails by timing out rather than by asserting wrong.
+  const connected = settle(connectOnce(swarm, topicFromCode(code), {
+    key: dropKey(code),
+    timeout: 60000,
+    signal: controller.signal
+  }))
+
+  const started = Date.now()
+  controller.abort('changed my mind')
+  const outcome = await connected
+  const took = Date.now() - started
+
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.error.name, 'AbortError', `expected an AbortError, got ${outcome.error.code}`)
+
+  // The assertion that actually pins the bug: it must reject *because of
+  // the abort*, not eventually because the join gave up.
+  assert.ok(took < 5000, `took ${took}ms, so the signal was ignored and something else ended the wait`)
+
+  // Aborting removes only our own listener; the swarm belongs to the
+  // caller, which destroys it in a `finally` after this propagates.
+  assert.equal(swarm.listenerCount('connection'), 0, 'the connection listener must be removed')
+  assert.equal(swarm.destroyed, false, 'the swarm belongs to the caller and must survive')
+})
+
+test('a connectOnce given an already-aborted signal never joins at all', slow, async (t) => {
+  const testnet = await createTestnet(3)
+  t.after(() => testnet.destroy())
+
+  const swarm = createSwarm({ bootstrap: testnet.bootstrap })
+  t.after(() => swarm.destroy())
+
+  const code = generateCode()
+  const controller = new AbortController()
+  controller.abort('too late')
+
+  const outcome = await settle(connectOnce(swarm, topicFromCode(code), {
+    key: dropKey(code),
+    timeout: 60000,
+    signal: controller.signal
+  }))
+
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.error.name, 'AbortError')
+  assert.equal(swarm.listenerCount('connection'), 0)
+})
+
+test('Ctrl-C while the sender CLI looks for a peer exits promptly, cleanly, and with 130', slow, async (t) => {
+  const testnet = await createTestnet(3)
+  t.after(() => testnet.destroy())
+
+  const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-sigint-send-'))
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }))
+  const sourcePath = path.join(tmp, 'source.bin')
+  await fs.promises.writeFile(sourcePath, crypto.randomBytes(1024))
+
+  const env = {
+    ...process.env,
+    QUAY_BOOTSTRAP: JSON.stringify(testnet.bootstrap),
+    // Generous, so "it exited quickly" cannot be the join timeout firing.
+    // This is the whole test: with the signal ignored, the process sits
+    // here for the full minute.
+    QUAY_JOIN_TIMEOUT: '60000',
+    QUAY_NO_PROGRESS: '1',
+    NO_COLOR: '1'
+  }
+
+  // A code nobody is listening on, so the sender stays in the join.
+  const sendProc = spawn(process.execPath, [SWARM_SEND, generateCode(), sourcePath], { env })
+  const out = { stdout: '', stderr: '' }
+  sendProc.stdout.on('data', (c) => { out.stdout += c.toString('utf8') })
+  sendProc.stderr.on('data', (c) => { out.stderr += c.toString('utf8') })
+  t.after(() => { if (sendProc.exitCode === null) sendProc.kill('SIGKILL') })
+
+  await new Promise((resolve, reject) => {
+    const started = Date.now()
+    const timer = setInterval(() => {
+      if (/joining topic/.test(out.stdout)) { clearInterval(timer); resolve(undefined) } else if (Date.now() - started > 30000) {
+        clearInterval(timer)
+        reject(new Error(`sender never joined\n${out.stdout}\n${out.stderr}`))
+      }
+    }, 50)
+  })
+
+  const interruptedAt = Date.now()
+  sendProc.kill('SIGINT')
+
+  const exitCode = await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`did not exit after SIGINT\n${out.stdout}\n${out.stderr}`)), 20000)
+    sendProc.on('exit', (code) => { clearTimeout(timer); resolve(code) })
+  })
+  const took = Date.now() - interruptedAt
+
+  assert.equal(exitCode, 130, `expected 130, got ${exitCode}\n${out.stdout}\n${out.stderr}`)
+  assert.match(out.stdout, /\[swarm-send\] cancelled \(SIGINT\)/)
+  assert.doesNotMatch(out.stdout + out.stderr, /no peer ever connected/, 'this was a cancellation, not a timeout')
+  assert.ok(took < 15000, `teardown took ${took}ms, which is long enough to look like a hang`)
 })

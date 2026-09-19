@@ -13,7 +13,8 @@
     "typecheck": "tsc --noEmit",
     "demo:loopback": "node cli/src/demo-loopback.js",
     "demo:swarm": "node cli/src/demo-swarm.js",
-    "code": "node cli/src/code.js"
+    "code": "node cli/src/code.js",
+    "test:fast": "QUAY_FAST=1 pnpm --filter @quay/cli test"
   },
   "devDependencies": {
     "@types/node": "^26.5.1",

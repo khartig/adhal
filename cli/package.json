@@ -13,7 +13,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test"
+    "test": "node --test",
+    "test:fast": "QUAY_FAST=1 node --test"
   },
   "dependencies": {
     "@quay/engine": "workspace:*",

@@ -25,6 +25,7 @@ const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 
 const { sendFile, receiveFile } = require('@quay/engine')
+const { slow } = require('../test-helpers/tiers')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { createProgressReporter } = require('../src/progress')
 
@@ -168,7 +169,7 @@ test('close() is safe to call twice and on a reporter that never drew', () => {
 
 // --- the two halves together, through the real CLI -----------------------
 
-test('the CLI prints progress and still prints the exact lines the rest of the suite matches on', async (t) => {
+test('the CLI prints progress and still prints the exact lines the rest of the suite matches on', slow, async (t) => {
   const dir = await tmpDir(t, 'progress-cli')
   const sourcePath = path.join(dir, 'source.bin')
   const outputDir = path.join(dir, 'received')
