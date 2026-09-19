@@ -117,10 +117,39 @@ const HANDSHAKE_TIMEOUT_MS = 15000
  * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number }} [options]
  */
 function createSwarm ({ bootstrap, maxParallel = MAX_PARALLEL } = {}) {
-  return new Hyperswarm({
+  const swarm = new Hyperswarm({
     maxParallel,
     ...(bootstrap ? { bootstrap } : {})
   })
+
+  // A no-op 'error' sink on every connection, and it is load-bearing
+  // rather than tidy.
+  //
+  // An 'error' event with no listener is a process-killing uncaught
+  // exception in Node. A Hyperswarm connection can emit one at any time
+  // -- "connection reset by peer" is routine on a flaky punch -- and
+  // there are windows where nothing of ours is listening: before the
+  // application attaches its handler, and after acceptOnce/connectOnce
+  // have removed their 'connection' listener while the swarm goes on
+  // accepting dials until it is destroyed. Sockets from that second
+  // window are the ones that reset during teardown.
+  //
+  // Observed as an intermittent test failure -- "a resource generated
+  // asynchronous activity after the test ended ... connection reset by
+  // peer" -- which reproduces on the pre-Stage-0 tree, so it predates
+  // this work. It matters more now that CI exists: a suite that is
+  // randomly red teaches people to ignore it.
+  //
+  // This hides nothing. Extra 'error' listeners do not displace the
+  // application's own, so anything that wants to report an error still
+  // receives it; both CLIs attach one and both still print what they
+  // get. What it removes is the default behaviour of letting one dead
+  // candidate socket kill the process -- which is the same lesson
+  // acceptOnce/connectOnce already learned about discarding a failed
+  // candidate rather than treating it as fatal.
+  swarm.on('connection', (socket) => { socket.on('error', () => {}) })
+
+  return swarm
 }
 
 // How often we re-run our own DHT lookup while waiting for a peer.
@@ -347,6 +376,20 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
       function onFailed (err) {
         if (settled) return
         detach()
+        // detach() just removed the only 'error' listener, and destroy()
+        // on a NoiseSecretStream can emit one asynchronously -- "connection
+        // reset by peer", arriving after we have stopped listening, which
+        // Node then raises as an uncaughtException and which the test
+        // runner reports as "a resource generated asynchronous activity
+        // after the test ended".
+        //
+        // Mostly latent while onFailed was only reached from 'error' or
+        // 'close' (the socket was already dead, so destroy had nothing to
+        // report). The per-candidate deadline changed that: it fires on a
+        // socket that is alive but slow, and destroying a live stream is
+        // exactly the case that emits. The sink stays for the socket's
+        // remaining life because there is no longer anyone to tell.
+        socket.on('error', () => {})
         socket.destroy()
         if (onCandidateDropped) {
           onCandidateDropped(peerInfo, err ? err.message : 'closed before confirming')
@@ -538,6 +581,20 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
       function onFailed (err) {
         if (settled) return
         detach()
+        // detach() just removed the only 'error' listener, and destroy()
+        // on a NoiseSecretStream can emit one asynchronously -- "connection
+        // reset by peer", arriving after we have stopped listening, which
+        // Node then raises as an uncaughtException and which the test
+        // runner reports as "a resource generated asynchronous activity
+        // after the test ended".
+        //
+        // Mostly latent while onFailed was only reached from 'error' or
+        // 'close' (the socket was already dead, so destroy had nothing to
+        // report). The per-candidate deadline changed that: it fires on a
+        // socket that is alive but slow, and destroying a live stream is
+        // exactly the case that emits. The sink stays for the socket's
+        // remaining life because there is no longer anyone to tell.
+        socket.on('error', () => {})
         socket.destroy()
         if (onCandidateDropped) {
           onCandidateDropped(peerInfo, err ? err.message : 'closed before confirming')
