@@ -16,13 +16,25 @@
 //   ABORT_ERR             we cancelled, locally. Not a failure.
 //   ERR_CANCELLED_PEER    they cancelled. Also not a failure, and above
 //                         all not a network error -- telling those two
-//                         apart is the headline of item 5.
+//                         apart is the headline of the failure-reporting work.
 //   ERR_HASH_MISMATCH     the bytes are wrong. A correctness bug or a
 //                         corrupting path; never retried silently.
 //   ERR_SIZE_MISMATCH     the peer sent more, or fewer, bytes than its own
 //                         manifest declared.
-//   ERR_UNSAFE_NAME       the manifest aimed outside the output directory.
+//   ERR_UNSAFE_NAME       the manifest's name is not one we will write:
+//                         traversal, a control character, a bidi
+//                         override, empty, or too long. `.detail` says
+//                         which -- do not re-guess it downstream.
 //   ERR_MANIFEST_INVALID  a manifest field failed validation.
+//   ERR_STALLED           the peer proved it knows the code and then
+//                         stopped talking. Distinct from ERR_CONNECTION
+//                         on purpose: the socket is fine, the peer is
+//                         not sending. A slow loris looks like this.
+//   ERR_NO_SPACE          the declared size does not fit on the disk.
+//                         Refused before anything is opened, so the
+//                         sender is not made to upload it first.
+//   ERR_EXISTS            the file could not be landed without
+//                         destroying one we did not create.
 //   ERR_PROTOCOL          unknown tag, oversize frame, out-of-order frame.
 //   ERR_CONNECTION        the socket closed before the transfer finished.
 //   ERR_NO_PEER           join timed out having seen nobody.
