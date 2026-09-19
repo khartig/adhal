@@ -3,11 +3,11 @@
 // Minimal length-prefixed framing so a manifest (JSON) and raw file chunks
 // can share one TCP stream without ambiguity. Each frame is:
 //   [4-byte big-endian length][payload bytes]
-// This is intentionally dumb for item 1 (localhost, zero NAT). Item 2+
+// This is intentionally dumb for the loopback milestone (localhost, zero NAT). The Hyperswarm work+
 // swaps the transport for a Hyperswarm/Protomux channel; this module is
 // transport-agnostic so it keeps working either way.
 //
-// WHAT DELIBERATELY DID NOT LAND HERE. Item 5 gives every payload a
+// WHAT DELIBERATELY DID NOT LAND HERE. The failure-reporting work gives every payload a
 // one-byte type tag, so CANCEL is distinguishable from file bytes. That
 // tag lives in ./message.js, not here, because this module's value is that
 // it has no opinion about its contents: it is the piece that stayed

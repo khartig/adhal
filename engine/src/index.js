@@ -4,6 +4,7 @@ module.exports = {
   ...require('./errors'),
   ...require('./frame'),
   ...require('./message'),
+  ...require('./names'),
   ...require('./transfer'),
   ...require('./code'),
   ...require('./topic'),
