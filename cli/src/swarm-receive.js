@@ -1,15 +1,16 @@
 #!/usr/bin/env node
 'use strict'
 
-// Item 2 receiver half: "same CLI over Hyperswarm on one LAN." Reuses the
-// exact manifest/chunk protocol from item 1 (engine/src/transfer.js);
+// Hyperswarm receiver half: "same CLI over Hyperswarm on one LAN." Reuses
+// the exact manifest/chunk protocol from the loopback milestone
+// (engine/src/transfer.js);
 // only the transport changes, from a bare TCP socket to an end-to-end
 // Noise-encrypted Hyperswarm connection.
 //
 // Usage: swarm-receive.js [code] [outputDir]
 //        swarm-receive.js --new [outputDir]
 //
-// With no code, or with --new, one is generated (item 3) and shown as both
+// With no code, or with --new, one is generated and shown as both
 // six words and a QR symbol. An explicit code may be six words in any
 // casing/separator style, or an opaque secret -- see engine/src/resolve-code.js for
 // why both are accepted and how they are told apart.
@@ -20,9 +21,10 @@
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, dropKey } = require('@quay/engine')
+const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, dropKey, displayName } = require('@quay/engine')
 
 const { printQr } = require('./qr')
+const { readCode } = require('./read-code')
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
@@ -49,26 +51,52 @@ function joinTimeout () {
   return parsed
 }
 
+// QUAY_MAX_SIZE overrides the largest transfer this receiver will accept,
+// in bytes. `0` means no limit at all and has to be written down, because
+// with no cap a manifest declaring 9 PB validates cleanly and the only
+// thing standing between the receiver and that number is the free-space
+// check. The engine's own default (8 GiB) applies when this is unset.
+function maxSize () {
+  const raw = process.env.QUAY_MAX_SIZE
+  if (raw === undefined) return undefined
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed < 0) {
+    throw new TypeError(`QUAY_MAX_SIZE must be a non-negative number, got ${raw}`)
+  }
+  return parsed === 0 ? null : parsed
+}
+
 // Splits argv into an optional code and an optional output directory.
 // `--new` is explicit rather than inferred so that the one-positional form
-// stays unambiguously "that's a code", exactly as item 2 defined it: a bare
+// stays unambiguously "that's a code", exactly as the Hyperswarm CLI defined it: a bare
 // path and a bare code are not reliably distinguishable, and guessing wrong
 // would silently save into a directory named after a word.
+const KNOWN_FLAGS = new Set(['--new', '--unsafe-opaque', '--replace', '--code-stdin'])
+
 function parseArgs (argv) {
   const flags = argv.filter((a) => a.startsWith('--'))
   const positional = argv.filter((a) => !a.startsWith('--'))
   const wantsNew = flags.includes('--new')
 
   for (const flag of flags) {
-    if (flag !== '--new') throw new Error(`unknown flag ${flag}`)
+    if (!KNOWN_FLAGS.has(flag)) throw new Error(`unknown flag ${flag}`)
+  }
+
+  const common = {
+    allowOpaque: flags.includes('--unsafe-opaque'),
+    // Opt back in to overwriting an existing file. Off by default: see
+    // `publish` in engine/src/transfer.js for why the old overwrite
+    // default was a security bug rather than a UI question.
+    replace: flags.includes('--replace'),
+    fromStdin: flags.includes('--code-stdin')
   }
 
   if (wantsNew) {
     if (positional.length > 1) throw new Error('too many arguments')
-    return { codeArg: null, outputDirArg: positional[0] }
+    return { codeArg: null, outputDirArg: positional[0], ...common }
   }
   if (positional.length > 2) throw new Error('too many arguments')
-  return { codeArg: positional[0] || null, outputDirArg: positional[1] }
+  return { codeArg: positional[0] || null, outputDirArg: positional[1], ...common }
 }
 
 // QUAY_REFRESH_INTERVAL overrides how often we re-run our own DHT
@@ -99,12 +127,17 @@ async function main () {
     return
   }
 
-  // A generated code is the default: item 3 exists because hand-typing a
-  // code on both machines was the friction worth removing.
-  const generated = parsed.codeArg === null
+  // A generated code is the default: the code generator exists because
+  // hand-typing a code on both machines was the friction worth removing.
+  // `--code-stdin` is the other way in, for a code that must not touch
+  // the shell history or the process table -- see ./read-code.js.
+  const generated = parsed.codeArg === null && !parsed.fromStdin
   let resolved
   try {
-    resolved = resolveCode(generated ? generateCode() : parsed.codeArg)
+    const input = generated
+      ? generateCode()
+      : await readCode({ argvCode: parsed.fromStdin ? '-' : parsed.codeArg, label: 'swarm-receive' })
+    resolved = resolveCode(input, { allowOpaque: parsed.allowOpaque || undefined })
   } catch (err) {
     console.error(`[swarm-receive] ${err.message}`)
     process.exitCode = 1
@@ -132,7 +165,7 @@ async function main () {
       timeout: joinTimeout(),
       refreshInterval: refreshInterval(),
       // Ctrl-C while waiting for a peer -- which, for a receiver showing
-      // a QR code, is almost the whole of its life. Before item 5 this
+      // a QR code, is almost the whole of its life. Before that work, this
       // was the one state with no way out but killing the process, and
       // the sender then saw a reset indistinguishable from a dead punch.
       signal: cancel.signal,
@@ -190,21 +223,36 @@ async function main () {
       pending,
       signal: cancel.signal,
       onProgress: progress.onProgress,
+      // Off unless asked for. The engine now refuses to replace a file it
+      // did not create, and lands `report (1).pdf` beside the original
+      // instead -- so the flag is the only way back to the old behaviour.
+      replace: parsed.replace,
+      // Explicit rather than relying on the engine's default, so the
+      // number a receiver enforces is visible at the call site and one
+      // env var away from being changed for a legitimate large drop.
+      maxSize: maxSize(),
       onManifest: (manifest) => {
-        console.log(`[swarm-receive] manifest: ${manifest.name} (${manifest.size} bytes)`)
+        // THE FIRST PEER-CHOSEN STRING THIS PROCESS PRINTS. Straight to a
+        // terminal, before anything has validated that it is printable.
+        // A name carrying ESC or a bidi override forged whatever it liked
+        // on this line until displayName existed.
+        console.log(`[swarm-receive] manifest: ${displayName(manifest.name)} (${manifest.size} bytes)`)
       }
     })
 
     progress.close()
-    console.log(`[swarm-receive] done: ${result.name}`)
+    console.log(`[swarm-receive] done: ${displayName(result.name)}`)
     console.log(`[swarm-receive] sha256: ${result.sha256}`)
-    // The line that turns plan phase-1 bar item 3 from an eyeball
+    // The line that turns plan phase-1 bar the drop-code work from an eyeball
     // comparison of two hex strings into an assertion the receiver makes
-    // for itself. Until item 5 this comparison happened nowhere that
+    // for itself. Until that work, this comparison happened nowhere that
     // shipped.
     console.log('[swarm-receive] verified: the file matches the sender\'s manifest digest')
     if (result.name !== result.declaredName) {
-      console.log(`[swarm-receive] renamed: the peer asked for ${JSON.stringify(result.declaredName)}`)
+      // Covers both reasons the name can differ -- the write policy
+      // transformed it, or an existing file meant it landed suffixed --
+      // and shows the peer's original so nothing is silently substituted.
+      console.log(`[swarm-receive] renamed: the peer asked for ${JSON.stringify(displayName(result.declaredName))}`)
     }
     console.log(`[swarm-receive] saved to: ${result.path}`)
 

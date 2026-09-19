@@ -1,20 +1,21 @@
 #!/usr/bin/env node
 'use strict'
 
-// Item 2 sender half. Usage: swarm-send.js <code> <filePath>
+// The Hyperswarm work sender half. Usage: swarm-send.js <code> <filePath>
 //
-// The code may be six words (item 3) in any casing or separator style, or
+// The code may be six words (the drop code) in any casing or separator style, or
 // the QR payload pasted verbatim -- 'QUAY1:ACID-ACORN-...' -- since that
 // decodes to the same thing a scanner would hand a UI. See
 // engine/src/resolve-code.js for how that is distinguished from an opaque secret.
 //
 // See swarm-receive.js for the QUAY_BOOTSTRAP override.
 
-const { createSwarm, connectOnce, sendFile, resolveCode, dropKey } = require('@quay/engine')
+const { createSwarm, connectOnce, sendFile, resolveCode, dropKey, displayName } = require('@quay/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
+const { readCode } = require('./read-code')
 
 function parseBootstrap () {
   const raw = process.env.QUAY_BOOTSTRAP
@@ -49,9 +50,26 @@ function refreshInterval () {
 }
 
 async function main () {
-  const [, , codeArg, filePathArg] = process.argv
+  const argv = process.argv.slice(2)
+  // `--unsafe-opaque` opts in to non-word codes; see resolveCode. Pulled
+  // out before the positionals so it can appear anywhere.
+  const allowOpaque = argv.includes('--unsafe-opaque')
+  const positional = argv.filter((a) => !a.startsWith('--') || a === '--code-stdin')
+  const [codeArg, filePathArg] = positional
+
   if (!codeArg || !filePathArg) {
     console.error('Usage: swarm-send.js <code> <filePath>')
+    console.error('       swarm-send.js - <filePath>            read the code from stdin')
+    console.error('       swarm-send.js <code> <filePath> --unsafe-opaque')
+    process.exitCode = 1
+    return
+  }
+
+  let codeInput
+  try {
+    codeInput = await readCode({ argvCode: codeArg, label: 'swarm-send' })
+  } catch (err) {
+    console.error(`[swarm-send] ${err.message}`)
     process.exitCode = 1
     return
   }
@@ -60,7 +78,7 @@ async function main () {
   // surfacing 120 seconds later as a peer-discovery timeout.
   let topic, code
   try {
-    ({ topic, code } = resolveCode(codeArg))
+    ({ topic, code } = resolveCode(codeInput, { allowOpaque: allowOpaque || undefined }))
   } catch (err) {
     console.error(`[swarm-send] ${err.message}`)
     process.exitCode = 1
@@ -69,7 +87,7 @@ async function main () {
   // Echo the canonical form when it differs, so a code that was pasted as
   // a QR payload or with odd separators visibly normalized to the same
   // words the other device is showing.
-  if (code !== codeArg) console.log(`[swarm-send] code: ${code}`)
+  if (code !== codeInput) console.log(`[swarm-send] code: ${code}`)
 
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
   const cancel = installCancelHandler({ label: 'swarm-send' })
@@ -89,7 +107,7 @@ async function main () {
       refreshInterval: refreshInterval(),
       // Ctrl-C while still looking for a peer. This is the likeliest
       // moment for someone to give up -- it is the part of a drop that
-      // can sit for two minutes with nothing to show -- and until item 5
+      // can sit for two minutes with nothing to show -- and until the failure-reporting work
       // there was no way to cancel it.
       signal: cancel.signal,
       // See swarm-receive.js: without these, "connected to several peers
@@ -126,17 +144,20 @@ async function main () {
     const result = await sendFile(socket, filePathArg, {
       // Anything the receiver coalesced after its proof. Ordinarily
       // empty, but a CANCEL could be in there, and dropping it would lose
-      // exactly the message item 5 exists to deliver.
+      // exactly the message the CANCEL frame exists to deliver.
       pending,
       signal: cancel.signal,
       onProgress: progress.onProgress
     })
     progress.close()
-    console.log(`[swarm-send] done: ${result.name}`)
+    // Our own file's name, not a peer-supplied one -- but printed
+    // through the same sanitiser anyway, so there is one rule for names
+    // reaching a terminal rather than one rule and an exception.
+    console.log(`[swarm-send] done: ${displayName(result.name)}`)
     console.log(`[swarm-send] sha256: ${result.sha256}`)
     // Honest about what this number is: bytes handed to the transport,
     // not bytes the receiver has stored and verified. Acknowledgement by
-    // index is item 6.
+    // index is resume (W11).
     console.log(`[swarm-send] sent ${result.size} bytes; the receiver's own "verified" line is the authoritative one`)
 
     // End our write side, then wait for the socket to fully close (i.e.,

@@ -9,11 +9,13 @@
 // mapping pasted into four transport scripts, where the copy that drifts
 // is always the one nobody was looking at.
 //
-// The distinction each line is protecting: before item 5, every one of
-// these arrived as `error: <something>` and several arrived as nothing at
-// all. "The peer cancelled", "the bytes are wrong" and "the punch died"
-// are three different situations with three different responses, and
-// telling them apart is the whole point of the item.
+// The distinction each line is protecting: before the failure-reporting
+// work, every one of these arrived as `error: <something>` and several
+// arrived as nothing at all. "The peer cancelled", "the bytes are wrong"
+// and "the punch died" are three different situations with three
+// different responses, and telling them apart is the whole point.
+
+const { displayName } = require('@quay/engine')
 
 /** @param {any} err */
 function isLocalCancellation (err) {
@@ -62,7 +64,16 @@ function describeError (err) {
       return `FAILED: the transfer did not match the size its manifest declared (${err.bytes} bytes against ${err.size}). Nothing was saved.`
 
     case 'ERR_UNSAFE_NAME':
-      return `FAILED: refused the peer's filename ${JSON.stringify(err.declaredName)} because it points outside the output directory. Nothing was written.`
+      // THE OLD WORDING WAS A GUESS, AND USUALLY THE WRONG ONE. It said
+      // the name "points outside the output directory" for every
+      // refusal, when traversal is only one of the reasons: a NUL byte,
+      // control characters, a bidi override, an over-long name and an
+      // empty one all arrive here too, and telling someone their
+      // 300-character filename escaped the directory sends them looking
+      // for an attack that did not happen. The engine already computes
+      // the specific reason -- printing it is strictly better than
+      // re-deriving a worse one here.
+      return `FAILED: refused the peer's filename ${JSON.stringify(displayName(err.declaredName))}: ${err.detail || 'it is not a name we are willing to write'}. Nothing was written.`
 
     case 'ERR_MANIFEST_INVALID':
       return `FAILED: the peer's manifest is invalid${err.field ? ` (field: ${err.field})` : ''}. ${err.message}`
