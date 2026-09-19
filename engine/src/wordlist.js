@@ -8,12 +8,12 @@
 //   (c) Electronic Frontier Foundation, CC BY 3.0 US
 //   https://creativecommons.org/licenses/by/3.0/us/
 //
-// Chosen over BIP39 (see docs/Refined-Implementation-Plan.md section 9,
-// spike 4) on two grounds. Typing cost: every word here is 3-5 letters,
-// against BIP39's up-to-8, and the whole point of item 3 is to remove the
-// friction of typing a code by hand. Optics: a six-word lowercase phrase
-// drawn from BIP39 reads as a wallet seed phrase, which cuts against
-// section 6's deliberate avoidance of crypto framing and would train users
+// Chosen over BIP39 (see docs/ARCHITECTURE.md, "The drop code") on two
+// grounds. Typing cost: every word here is 3-5 letters, against BIP39's
+// up-to-8, and the whole point of a generated code is to remove the
+// friction of typing one by hand. Optics: a six-word lowercase phrase
+// drawn from BIP39 reads as a wallet seed phrase, which cuts against the
+// deliberate avoidance of crypto framing and would train users
 // toward typing seed-like phrases into whatever asks for one.
 //
 // ONE DEVIATION FROM UPSTREAM: the list's 1286th entry, "yo-yo", is the

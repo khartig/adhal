@@ -14,7 +14,7 @@
 // waiting. It used to satisfy acceptOnce outright and wedge the receiver.
 //
 // It could not satisfy it now even if it tried: answering requires the
-// code proof of item 4 (engine/src/proof.js), and this tool is given only
+// code proof of the code proof (engine/src/proof.js), and this tool is given only
 // a topic.
 
 const Hyperswarm = require('hyperswarm')

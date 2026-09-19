@@ -8,10 +8,10 @@ const crypto = require('hypercore-crypto')
 const APP_SALT = 'quay-v1'
 
 // This function hashes exactly the string it is given; it does no
-// normalization of its own, so that item 2's opaque hex demo codes keep
+// normalization of its own, so that opaque hex demo codes keep
 // working unchanged.
 //
-// That means a six-word code (item 3) MUST be run through
+// That means a six-word code (the drop code) MUST be run through
 // `parseCode` from ./code.js first. A hash has no notion of "nearly the
 // same input": feed it 'ACID-ACORN-...' on one device and 'acid acorn ...'
 // on the other and the two peers land on unrelated topics and simply never

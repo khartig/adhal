@@ -170,7 +170,7 @@ they disagree by much, something is wrong with the run itself.
 | `hash-mismatch` | The engine rejected the file: its bytes do not match the manifest digest | **Correctness bug. Stop feature work.** |
 | `hash-crosscheck-disagreed` | The engine *accepted* a file this harness says is wrong | **Worse. The verification itself is broken** — `finalize()` in `engine/src/transfer.js`. |
 | `size-mismatch` | The peer sent more, or fewer, bytes than its manifest declared | `engine/src/transfer.js` |
-| `connection-lost` | The socket closed before the transfer finished | A punch that died mid-transfer. Before item 5 this hung forever instead of being counted. |
+| `connection-lost` | The socket closed before the transfer finished | A punch that died mid-transfer. Before the failure-reporting work this hung forever instead of being counted. |
 | `unsafe-name` / `manifest-invalid` / `protocol-error` | The peer's manifest or framing was refused | On a private topic, almost always a build-version skew between the two hosts |
 | `cancelled-by-peer` / `cancelled-locally` | Someone stopped the drop deliberately | Not a failure of the path. Should be zero in an unattended run. |
 | `timeout-other` | Timed out without a recognised reason | Read the `error` field in the JSON |
@@ -185,7 +185,7 @@ the DHT was fine. See `timeoutMessage` in `engine/src/swarm.js`.
 else is a delivery failure; this is corruption. It is never folded into
 "failed" and should never be treated as a network statistic.
 
-### How these are classified, and why it changed in item 5
+### How these are classified, and why it changed
 
 Two things moved.
 
@@ -223,7 +223,7 @@ The summary interprets itself against the plan's own thresholds:
 | --- | --- |
 | ≥ 75% | Meets section 8's bar for this path. Relay is not yet on the critical path here. |
 | 50–75% | The path is **flaky, not broken**. Expect single runs to fail; do not read a code bug into them. |
-| < 50% | Below section 8's kill threshold. Relay quality (section 4 item 9) is the product, not an optional extra. |
+| < 50% | Below the kill threshold. Relay quality is the product, not an optional extra. |
 | < 5 trials | Not a rate. Use `--trials 10` or more. |
 
 ## Answering a specific question: does the refresh interval matter?
@@ -259,9 +259,8 @@ change the default in `swarm.js` on anything less than this.
 - **Both sides should report the same successes.** If the sender says `ok`
   and the receiver says `hash-mismatch`, believe the receiver — it is the
   side that verified.
-- The harness measures the **direct** path only. There is no relay yet
-  (section 4 item 9), so a low rate here is exactly the evidence that would
-  justify building one.
+- The harness measures the **direct** path only. There is no relay yet, so
+  a low rate here is exactly the evidence that would justify building one.
 
 ## Recording results
 

@@ -3,7 +3,7 @@
 // The framing and message layers, tested at the seam where an untrusted
 // peer meets our buffers.
 //
-// Framing has been load-bearing since item 1 and never had a test of its
+// Framing has been load-bearing since the loopback milestone and never had a test of its
 // own -- it was covered only transitively, by 10 MB transfers that happen
 // to exercise the happy path. That is enough to catch "it does not work"
 // and nothing else: a decoder that mis-handles a split header, or buffers
@@ -91,7 +91,7 @@ test('an oversize declared length is rejected immediately, not buffered toward i
   // The bug this pins: a length is four bytes from an untrusted peer, so a
   // peer may declare 0xFFFFFFFF. With no bound the decoder accumulates
   // toward 4 GB waiting for a body that never comes. Proving code
-  // knowledge (item 4) does not make a peer well-behaved.
+  // knowledge (the code proof) does not make a peer well-behaved.
   const header = Buffer.alloc(4)
   header.writeUInt32BE(0xffffffff, 0)
 

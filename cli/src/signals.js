@@ -5,7 +5,7 @@
 // THE PROBLEM THIS SOLVES. Without it, Ctrl-C tears the process down and
 // the peer's socket resets. What the peer prints is "connection reset by
 // peer" -- byte for byte what a dead hole punch looks like, which is the
-// exact confusion item 2 spent a week learning to separate (see
+// exact confusion the Hyperswarm work spent a week learning to separate (see
 // engine/src/swarm.js's comment about a half-failed punch that neither
 // side reported honestly). A deliberate cancellation must not be
 // indistinguishable from the failure mode this project has the hardest

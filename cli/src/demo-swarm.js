@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 
-// Human-facing demo of item 2 (docs/Refined-Implementation-Plan.md section 4):
+// Human-facing demo of the Hyperswarm milestone:
 // "Same CLI over Hyperswarm on one LAN." Unlike the automated test, this
 // uses the real public Hyperswarm/hyperdht bootstrap nodes (no
 // QUAY_BOOTSTRAP override), so it needs internet access and demonstrates

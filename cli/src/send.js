@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 
-// Item 1 sender half: "send 10 MB, print SHA-256."
+// Loopback sender half: "send 10 MB, print SHA-256."
 // Usage: send.js <port> <filePath>
 
 const net = require('net')

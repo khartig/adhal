@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 
-// Item 1 receiver half: "two processes on one machine, localhost pipe."
+// The loopback milestone receiver half: "two processes on one machine, localhost pipe."
 // Usage: receive.js <port> [outputDir]
 //   port=0 asks the OS for a free port; the bound port is printed so a
 //   wrapper script/test can pick it up.
@@ -61,7 +61,7 @@ async function main () {
       if (!cancel.cancelled()) process.exitCode = 1
       // Closing on the new terminal errors is what stops a receiver
       // sitting on a bound port after a transfer it has already given up
-      // on -- before item 5 several of these could not happen at all,
+      // on -- before that work, several of these could not happen at all,
       // because the receive simply never settled.
       server.close()
       socket.destroy()

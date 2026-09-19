@@ -1,6 +1,6 @@
 'use strict'
 
-// Terminal QR rendering for item 3. This lives in cli/ rather than engine/
+// Terminal QR rendering for the drop code. This lives in cli/ rather than engine/
 // on purpose: engine/ owns the code as a value (engine/src/code.js), and
 // every surface draws the symbol its own way -- the Phase B desktop UI will
 // hand the same payload to a canvas or an <svg>, not to half-block

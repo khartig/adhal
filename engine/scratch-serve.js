@@ -7,7 +7,7 @@
 //
 // It mimics acceptOnce's handshake (see engine/src/swarm.js) so a real
 // swarm-send.js can also connect to it -- it just won't read the file. That
-// now includes item 4's code proof: what a genuine sender answers with is
+// now includes the code proof's code proof: what a genuine sender answers with is
 // an HMAC over our challenge, so this reports three outcomes rather than
 // two -- a real sender, a peer that answered but could not prove it knows
 // the code, and a raw dial that never answered at all.
@@ -43,7 +43,7 @@ if (!codeArg) {
 
 let code, topic
 try {
-  ({ code, topic } = resolveCode(codeArg))
+  ({ code, topic } = resolveCode(codeArg, { allowOpaque: true }))
 } catch (err) {
   console.error(`scratch-serve: ${err.message}`)
   process.exit(1)

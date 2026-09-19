@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 
-// Item 3's deliverable as a thing you can look at: "6-word code + QR
+// The drop code as a thing you can look at: "6-word code + QR
 // encoding of the same payload. UX object exists; you can screenshot it."
 //
 // Usage: code.js              generate a new drop code and show its QR

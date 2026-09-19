@@ -2,7 +2,7 @@
 
 // Step 6 of the v1 data path -- "receiver verifies the full-file hash;
 // atomic rename into Downloads" -- was written down in docs/ARCHITECTURE.md
-// during item 1 and, until item 5, was not implemented anywhere that
+// during the loopback milestone and, until the failure-reporting work, was not implemented anywhere that
 // shipped.
 //
 // receiveFile computed a SHA-256 and returned it. Nothing compared it to
@@ -12,9 +12,9 @@
 // directory, under its final name, and reported as a success with a
 // hash line that looked authoritative.
 //
-// The other half of this file is the receiver's liveness. Before item 5 the
+// The other half of this file is the receiver's liveness. Before that work the
 // only socket listeners were 'data' and 'error', so a sender that vanished
-// mid-transfer -- the routine outcome of a half-failed punch, which item 2
+// mid-transfer -- the routine outcome of a half-failed punch, which the Hyperswarm work
 // spent a week learning to recognise -- left the receive promise pending
 // forever. No error, no timeout, no exit.
 
@@ -93,7 +93,7 @@ test('a file whose bytes do not match the manifest is refused and left nowhere',
 
   // Both halves matter. The final name must never have existed -- that is
   // what the atomic rename buys -- and the partial must be gone, because
-  // bytes known to be wrong must not be left looking resumable when item 6
+  // bytes known to be wrong must not be left looking resumable when resume (W11)
   // starts keeping partials by default.
   assert.deepEqual(await fs.promises.readdir(outputDir), [])
 })
@@ -115,7 +115,7 @@ test('a partial is visible only under .part, never under the final name, until i
   await waitFor(() => fs.existsSync(partPath), 'the .part file to appear')
   assert.equal(fs.existsSync(finalPath), false, 'an unverified file must not be visible under its real name')
 
-  // `.part` is predictable rather than randomised on purpose: item 6 has
+  // `.part` is predictable rather than randomised on purpose: resume (W11) has
   // to find this exact file again to resume it.
   assert.equal(path.basename(partPath), 'payload.bin.part')
 
@@ -175,7 +175,7 @@ test('a sender that vanishes mid-transfer fails the receive instead of hanging i
   await waitFor(() => fs.existsSync(path.join(outputDir, 'payload.bin.part')), 'the transfer to be under way')
   peer.destroy()
 
-  // The regression this pins: before item 5 this promise never settled at
+  // The regression this pins: before that work, this promise never settled at
   // all. A race against a timer is the only way to assert "it settles",
   // and it is not flaky in the direction that matters -- a correct
   // implementation settles in microseconds, and only the old hanging one
@@ -216,7 +216,7 @@ test('the sender leaves no listeners behind on the socket it was lent', async (t
   // end it and wait for 'close' (see cli/src/swarm-send.js). Every
   // listener it added during the transfer, including the 'drain' handler
   // installed per backpressure pause and the inbound-CANCEL reader, has
-  // to come back off. These leaked per call before item 5.
+  // to come back off. These leaked per call before the failure-reporting work.
   assert.equal(txSocket.listenerCount('error'), before.error)
   assert.equal(txSocket.listenerCount('drain'), before.drain)
   assert.equal(txSocket.listenerCount('data'), before.data)

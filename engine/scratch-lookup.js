@@ -14,7 +14,7 @@
 // swarm-receive.js a socket that never sent a manifest, and wedged it.
 // Since the readiness handshake landed (see engine/src/swarm.js), a dial
 // that never answers the receiver's challenge is logged and discarded, and
-// the receiver stays joined and keeps waiting. Item 4's code proof closes
+// the receiver stays joined and keeps waiting. The code proof's code proof closes
 // the door the rest of the way: a dial armed with nothing but the topic --
 // which is exactly what walking the DHT gives you, and what this tool
 // demonstrates -- can no longer complete the handshake at all.
@@ -92,7 +92,7 @@ async function main () {
         log('   in the hyperswarm/app layer, not the DHT.')
       } else {
         log('>> DIAGNOSIS: announce is visible but the connection failed.')
-        log('   This is a holepunch/NAT problem -- what the relay (item 9) fixes.')
+        log('   This is a holepunch/NAT problem -- what a relay would fix.')
       }
     }
   } else {

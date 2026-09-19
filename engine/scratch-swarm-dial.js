@@ -26,7 +26,7 @@
 //
 // A 64-hex topic is enough for the default mode, which only observes
 // dials. --connect-once needs the CODE, not just the topic: the real
-// connectOnce now has to prove it knows the code (item 4,
+// connectOnce now has to prove it knows the code (the code proof,
 // engine/src/proof.js), and the topic alone -- which is public once the
 // receiver announces -- cannot produce that proof. That is the point of
 // the proof, so this tool is not given a way around it.
@@ -76,8 +76,8 @@ if (isTopicHex && USE_CONNECT_ONCE) {
   process.exit(1)
 }
 
-const topic = isTopicHex ? Buffer.from(target, 'hex') : resolveCode(target).topic
-const key = isTopicHex ? null : dropKey(resolveCode(target).code)
+const topic = isTopicHex ? Buffer.from(target, 'hex') : resolveCode(target, { allowOpaque: true }).topic
+const key = isTopicHex ? null : dropKey(resolveCode(target, { allowOpaque: true }).code)
 const topicHex = topic.toString('hex')
 const t0 = Date.now()
 const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a)

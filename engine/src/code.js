@@ -3,7 +3,7 @@
 const crypto = require('crypto')
 const { WORDS, INDEX } = require('./wordlist')
 
-// Section 4, item 3: "6-word code + QR encoding of the same payload."
+// Section 4, The drop code: six words plus a QR encoding of the same payload.
 //
 // This module owns the drop code as a *value*: how one is generated, how a
 // human-typed or QR-scanned string is turned back into one, and how it is

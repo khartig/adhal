@@ -127,7 +127,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, m
 // engine/src/swarm.js silently re-bucketed results, and nothing would have
 // said so. engine/src/errors.js exists largely for this.
 //
-// Item 5 also changed what this function has to catch. The engine now
+// The failure-reporting work also changed what this function has to catch. The engine now
 // verifies the received file against the manifest itself, so a corrupted
 // transfer arrives here as a REJECTION rather than as a successful receive
 // with a mismatching digest. Without the ERR_HASH_MISMATCH entry below it
@@ -174,7 +174,7 @@ function classify (err) {
 // connect time by ten seconds would corrupt any read against plan section
 // 8's "10 MB median < 30-45s" target.
 async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
-  const { topic, code } = resolveCode(codeForTrial(i))
+  const { topic, code } = resolveCode(codeForTrial(i), { allowOpaque: true })
   const swarm = createSwarm()
   const outDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-trial-'))
   const started = Date.now()
@@ -205,7 +205,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
     //
     // This comparison used to be the only place in the repo that verified
     // a received file against its manifest -- the measurement harness did
-    // it and neither CLI did. Item 5 moved it into receiveFile, where it
+    // it and neither CLI did. The failure-reporting work moved it into receiveFile, where it
     // is unconditional, so reaching this line at all means the engine
     // already compared these two digests and was satisfied.
     //
@@ -241,7 +241,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
 }
 
 async function runSenderTrial (i, budgetMs) {
-  const { topic, code } = resolveCode(codeForTrial(i))
+  const { topic, code } = resolveCode(codeForTrial(i), { allowOpaque: true })
   const swarm = createSwarm()
   const started = Date.now()
   let candidateAt = null
@@ -356,7 +356,7 @@ function summarise (results) {
     log('   single runs to fail and do not read a code bug into them.')
   } else {
     log(`>> ${rate.toFixed(0)}% is below section 8's 50% kill threshold. Per the plan,`)
-    log('   relay quality (section 4 item 9) is the product, not an optional extra.')
+    log('   relay quality is the product, not an optional extra.')
   }
 }
 

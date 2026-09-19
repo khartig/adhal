@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict'
 
-// Human-facing demo of item 1 (docs/Refined-Implementation-Plan.md section 4):
+// Human-facing demo of the loopback milestone:
 // two processes on one machine, localhost pipe, send N MB, print SHA-256
 // on both sides. Run with: npm run demo:loopback [sizeInMb]
 

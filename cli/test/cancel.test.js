@@ -259,6 +259,13 @@ test('acceptOnce aborted while waiting rejects and leaves the swarm as it found 
   const swarm = createSwarm({ bootstrap: testnet.bootstrap })
   t.after(() => swarm.destroy())
 
+  // Captured rather than assumed to be zero. createSwarm attaches a
+  // permanent no-op 'error' sink to every connection, which is itself a
+  // 'connection' listener -- so "no listeners at all" is no longer the
+  // same claim as "ours was removed", and it is the second one this test
+  // is about.
+  const baseline = swarm.listenerCount('connection')
+
   const code = generateCode()
   const controller = new AbortController()
 
@@ -282,7 +289,7 @@ test('acceptOnce aborted while waiting rejects and leaves the swarm as it found 
   // listener. Destroying the caller's swarm here would break every CLI,
   // all of which destroy it themselves in a `finally` after this rejection
   // propagates.
-  assert.equal(swarm.listenerCount('connection'), 0, 'the connection listener must be removed')
+  assert.equal(swarm.listenerCount('connection'), baseline, 'our connection listener must be removed')
   assert.equal(swarm.destroyed, false, 'the swarm belongs to the caller and must survive')
 })
 
@@ -356,6 +363,7 @@ test('an acceptOnce given an already-aborted signal never joins at all', slow, a
 
   const swarm = createSwarm({ bootstrap: testnet.bootstrap })
   t.after(() => swarm.destroy())
+  const baseline = swarm.listenerCount('connection')
 
   const code = generateCode()
   const controller = new AbortController()
@@ -369,7 +377,7 @@ test('an acceptOnce given an already-aborted signal never joins at all', slow, a
 
   assert.equal(outcome.ok, false)
   assert.equal(outcome.error.name, 'AbortError')
-  assert.equal(swarm.listenerCount('connection'), 0)
+  assert.equal(swarm.listenerCount('connection'), baseline)
 })
 
 // --- the sender side ------------------------------------------------------
@@ -400,6 +408,7 @@ test('connectOnce aborted while looking rejects and leaves the swarm as it found
 
   const swarm = createSwarm({ bootstrap: testnet.bootstrap })
   t.after(() => swarm.destroy())
+  const baseline = swarm.listenerCount('connection')
 
   const code = generateCode()
   const controller = new AbortController()
@@ -427,7 +436,7 @@ test('connectOnce aborted while looking rejects and leaves the swarm as it found
 
   // Aborting removes only our own listener; the swarm belongs to the
   // caller, which destroys it in a `finally` after this propagates.
-  assert.equal(swarm.listenerCount('connection'), 0, 'the connection listener must be removed')
+  assert.equal(swarm.listenerCount('connection'), baseline, 'our connection listener must be removed')
   assert.equal(swarm.destroyed, false, 'the swarm belongs to the caller and must survive')
 })
 
@@ -437,6 +446,7 @@ test('a connectOnce given an already-aborted signal never joins at all', slow, a
 
   const swarm = createSwarm({ bootstrap: testnet.bootstrap })
   t.after(() => swarm.destroy())
+  const baseline = swarm.listenerCount('connection')
 
   const code = generateCode()
   const controller = new AbortController()
@@ -450,7 +460,7 @@ test('a connectOnce given an already-aborted signal never joins at all', slow, a
 
   assert.equal(outcome.ok, false)
   assert.equal(outcome.error.name, 'AbortError')
-  assert.equal(swarm.listenerCount('connection'), 0)
+  assert.equal(swarm.listenerCount('connection'), baseline)
 })
 
 test('Ctrl-C while the sender CLI looks for a peer exits promptly, cleanly, and with 130', slow, async (t) => {

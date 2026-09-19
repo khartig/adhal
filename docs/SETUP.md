@@ -32,9 +32,9 @@ locally -- no publishing step needed during development.
 
 - `engine/` -- `@quay/engine`. Pure JS, no UI framework. Owns framing
   (`src/frame.js`), manifest/chunking/hashing (`src/transfer.js`), and will
-  own the Hyperswarm/Hyperdht join logic starting with plan item 2.
+  own the Hyperswarm/Hyperdht join logic.
 - `cli/` -- `@quay/cli`. `src/send.js` / `src/receive.js` are the two CLI
-  halves from plan section 4, item 1; `src/demo-loopback.js` orchestrates
+  halves for the loopback milestone; `src/demo-loopback.js` orchestrates
   both for a manual demo; `test/` holds the automated `node:test` suite.
 - `docs/` -- the product/phasing plan, condensed architecture notes, and
   this setup guide.
@@ -69,7 +69,7 @@ pnpm run typecheck
 ```
 
 `hyperswarm`, `hyperdht`, `hypercore-crypto`, and `protomux` ship no type
-declarations at all (`compact-encoding` and `b4a` do). Once item 2 starts
+declarations at all (`compact-encoding` and `b4a` do). Once the swarm code starts
 importing them, expect a `noImplicitAny`/`TS7016` error per package the
 first time it's required -- add a small ambient `.d.ts` shim (only for the
 functions actually called, not the full API) under a new `types/` directory

@@ -2,7 +2,7 @@
 
 const crypto = require('crypto')
 
-// Item 4, and step 3 of the v1 data path: prove the peer knows the drop
+// The code proof, and step 3 of the v1 data path: prove the peer knows the drop
 // code. This module is the proof itself; ./swarm.js is the exchange.
 //
 // THE THREAT. A topic is hash(code || app-salt), and a receiver has to
@@ -25,7 +25,7 @@ const crypto = require('crypto')
 // codes offline against hash(code || salt) whether or not this handshake
 // exists. Deriving K from the code therefore adds no exposure the topic
 // had not already created -- and equally cannot remove it. Short-lived
-// topics are the answer to grinding, and that is item 7's job, not this
+// topics are the answer to grinding, and that is LAN discovery's job (Stage 3), not this
 // one's.
 const KEY_INFO = 'quay-drop-v1'
 const KEY_SIZE = 32

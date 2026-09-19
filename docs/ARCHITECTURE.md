@@ -1,61 +1,95 @@
 # Architecture
 
-Condensed from [`Refined-Implementation-Plan.md`](Refined-Implementation-Plan.md)
-section 3. Read that document for the full reasoning; this page is a quick
-reference kept in sync with it.
+How the thing is built, and what was learned building it. The plan lives
+in [`IMPLEMENTATION-PLAN.md`](IMPLEMENTATION-PLAN.md), the exposure
+analysis in [`THREAT-MODEL.md`](THREAT-MODEL.md), and the wire format in
+[`PROTOCOL.md`](PROTOCOL.md).
+
+**Numbering.** `D1`-`D7` are the data-path steps below. `W1`-`Wn` are work
+items in the plan. The older docs used "item N" for both, and the
+collision produced at least one documented error, so it is gone.
 
 ## Key hierarchy
 
 ```
-Device Noise keypair          <- identity, persisted locally
-├── Per-peer trust records    <- pk + {stranger | paired | trusted}
-├── Per-drop capability       <- 6-word / QR, time-limited topic
-├── Transfer encryption key   <- one key per drop (core or stream key)
-└── Relay session             <- ciphertext only; no names, no hashes in clear
+Per-drop ephemeral transport keypair   <- ROOT. Never persisted, never reused.
+`-- Drop secret  (nameplate | PAKE secret)
+    `-- PAKE session key (ISK)
+        `-- AEAD channel keys (directional send/recv)
+
+Long-term identity (optional, "Keep this device")
+        ^ presented ONLY inside the authenticated channel.
+          Never the drop swarm keypair. Never visible to the DHT.
 ```
 
-## v1 data path (target, not all implemented yet)
+**This is inverted from what used to be written here.** The old hierarchy
+rooted everything in a *persisted device Noise keypair* with per-peer
+trust records hanging off it. That is structurally incompatible with
+ephemeral-by-construction privacy, which is one of the few properties a
+trusted-device competitor cannot copy without abandoning their own design.
 
-1. Generate code -> topic = hash(code || app-salt) (32 bytes).
-2. Both peers `swarm.join(topic)`.
-3. Challenge-response: prove you know the code (HMAC over nonce). Don't
-   trust a stranger who merely found the topic. (`engine/src/proof.js`,
-   exchanged by the readiness handshake in `engine/src/swarm.js` -- see
-   [The code proof](#the-code-proof-item-4) below.)
-4. Open a Protomux channel; send a manifest (name, size, chunk size,
-   content hash).
-5. Stream chunks; ack by index; persist offset for resume. (Ack-by-index
-   and resume are item 6; the chunk streaming and the type space they will
-   use exist as of item 5.)
-6. Receiver verifies the full-file hash; atomic rename into Downloads.
-   **Implemented in item 5** -- see [Manifest, progress and cancel](#manifest-progress-and-cancel-item-5).
-   It was written down here during item 1 and, until then, existed nowhere
-   that shipped.
-7. Leave the topic. If "Keep" was off, forget the peer.
+The invariant now: **the keypair a drop announces to the DHT is generated
+for that drop and discarded with it.** Today that is true by accident —
+`createSwarm` passes no `keyPair`, so Hyperswarm makes a fresh one per
+process. Promoting the accident to a stated invariant matters because the
+obvious way to build "Keep this device" is to persist that keypair, which
+would silently make every drop by one user linkable by the DHT nodes that
+observe them. A long-term identity, if it is ever added, is presented
+*inside* the authenticated channel — never as the swarm keypair.
+
+See [`THREAT-MODEL.md`](THREAT-MODEL.md) §4.
+
+## Data path
+
+1. **D1** Generate code. v1: `topic = hash(code || app-salt)`. v2: the
+   code splits into nameplate + secret and the topic commits only to the
+   nameplate — see [`PROTOCOL.md`](PROTOCOL.md) §2.
+2. **D2** Both peers `swarm.join(topic)`.
+3. **D3** Prove knowledge of the code before treating the peer as real.
+   v1 is an HMAC challenge-response (`engine/src/proof.js`, exchanged by
+   the readiness handshake in `engine/src/swarm.js` — see
+   [The code proof](#the-code-proof-d3) below); v2 replaces it with a
+   PAKE in the same three-message slot.
+4. **D4** Send a manifest (name, size, chunk size, content hash).
+5. **D5** Stream chunks. **Resume is a durable offset, not a per-chunk
+   ack** — this step used to read "ack by index", which is the wrong
+   primitive: UDX under Noise is already reliable and ordered, so
+   per-chunk acknowledgement re-implements a guarantee the transport
+   gives for free and costs a round trip to do it. v2 uses a periodic
+   post-fsync `CHECKPOINT{offset}`. Neither exists yet (W11).
+6. **D6** Receiver verifies the full-file hash and only then publishes the
+   file under its real name. Implemented. Since Stage 0 it also refuses
+   to replace a file it did not create — see
+   [What the receiver now refuses](#what-the-receiver-now-refuses).
+7. **D7** Leave the topic. If "Keep" was off, forget the peer.
 
 Hyperdrive/Autobase/CRDTs are explicitly out of scope for v1 content -- a
 framed stream plus a small on-disk manifest is enough, and is easier to
 resume and test.
 
-## What's implemented today (items 1-5)
+## What's implemented today
 
-`engine/src/frame.js` and `engine/src/transfer.js` implement steps 4-6 of
-the data path above. Item 1 proves this over a plain localhost TCP socket
-(zero NAT, zero DHT); item 2 (`engine/src/swarm.js`, `engine/src/topic.js`)
-carries the *same* manifest/chunk protocol over an end-to-end
+`engine/src/frame.js` and `engine/src/transfer.js` implement D4-D6 of the
+data path above. The first milestone proved this over a plain localhost
+TCP socket (zero NAT, zero DHT); the Hyperswarm milestone
+(`engine/src/swarm.js`, `engine/src/topic.js`) carries the *same*
+manifest/chunk protocol over an end-to-end
 Noise-encrypted Hyperswarm connection instead, proving topic-join +
 encrypted transport without changing the framing logic at all.
-`cli/src/send.js`/`receive.js` (item 1) and `cli/src/swarm-send.js`/
-`swarm-receive.js` (item 2) are the corresponding CLI pairs. Item 3 then
-replaces the hand-typed code both of those took with a generated one --
-see [The drop code](#the-drop-code-item-3) below. Item 4 makes knowing that
-code a requirement rather than a convention -- see
-[The code proof](#the-code-proof-item-4). Item 5 makes every failure
-path say what it was, and adds the two things a human needs while a
-transfer is running -- see
-[Manifest, progress and cancel](#manifest-progress-and-cancel-item-5).
+`cli/src/send.js`/`receive.js` (loopback) and `cli/src/swarm-send.js`/
+`swarm-receive.js` (Hyperswarm) are the corresponding CLI pairs. The drop
+code then replaces the hand-typed code both of those took with a
+generated one --
+see [The drop code](#the-drop-code-d1) below. The code proof makes knowing
+that code a requirement rather than a convention -- see
+[The code proof](#the-code-proof-d3). The manifest/progress/cancel work
+makes every failure path say what it was, and adds the two things a human
+needs while a transfer is running -- see
+[Manifest, progress and cancel](#manifest-progress-and-cancel). Stage 0
+then hardened all of it against a peer that knows the code and is hostile
+anyway -- see [Stage 0 hardening](#stage-0-hardening).
 
-Item 2 notes, found empirically while building it (see `engine/src/swarm.js`
+Hyperswarm notes, found empirically while building it (see `engine/src/swarm.js`
 comments for detail):
 
 - Both peers must `join()` a topic with the (default) `server: true, client: true`.
@@ -69,7 +103,7 @@ comments for detail):
   readiness handshake: the server writes a marker byte once connected: the
   client waits to receive it before sending anything.
 - `socket.write()`'s backpressure return value must be respected (pause the
-  read stream, resume on `'drain'`) -- a raw TCP socket (item 1) tolerates
+  read stream, resume on `'drain'`) -- a raw TCP socket (the loopback path) tolerates
   ignoring this because of deep OS send buffers; the encrypted Hyperswarm
   duplex does not.
 - **A topic announce is not instantly visible, and Hyperswarm only retries
@@ -122,7 +156,7 @@ comments for detail):
   same path at `refresh=4000`** (below). There was no code defect; the
   refresh-interval hypothesis is dead on a sample of ten rather than on a
   single run, and the default stays at 4000.
-- **Cross-ISP transfer verified (item 2's real exit criterion).** A Mac on
+- **Cross-ISP transfer verified (the Hyperswarm milestone's real exit criterion).** A Mac on
   Starlink (CGNAT, DHT-observed <host A>, firewalled) sent to a Linux
   box on Comcast (<host B> firewalled) in ~9s. Re-verified for item
   3 with the two-way handshake: generated six-word code, QR shown on
@@ -138,11 +172,11 @@ comments for detail):
   | End-to-end 10 MB | median ~12.9s, range 10.6-15.8s |
   | Throughput | ~0.8-1.2 MB/s (6-10 Mbps) |
 
-  Against plan section 8 this clears the >=75% success gate and sits well
+  This clears the >=75% success gate and sits well
   inside the "10 MB median < 30-45s" target. Throughput is consistent with
   Starlink's upstream rather than with any bottleneck in the chunking or
   backpressure code -- worth revisiting before raising the 50 MB cap
-  (section 9 spike 6), not before.
+  (a later spike), not before.
 
   Stated honestly: 10/10 gives a 95% one-sided lower confidence bound of
   **74.1%**, fractionally short of the 75% gate, so the defensible claim is
@@ -151,11 +185,11 @@ comments for detail):
   which is the cross-check that the harness itself was measuring correctly.
   A rate is specific to one network pair at one time of day; re-measure
   rather than assuming this holds. Worth recording
-  against plan section 9 spike 1: the Holepunch punch succeeded on a
-  genuinely hostile path, so the relay (section 4 item 9) is not on the
+  for the relay question: the Holepunch punch succeeded on a
+  genuinely hostile path, so the relay is not on the
   critical path for this network pair. Note that two hosts behind the *same*
   NAT were not proven to work -- that case needs router hairpinning and is
-  the stronger argument for item 7 (mDNS/UDP multicast LAN discovery).
+  the stronger argument for LAN discovery (mDNS/UDP multicast, Stage 3).
 - Diagnostics for re-running these measurements live in `engine/scratch-*.js`.
   `scratch-lookup.js <topic-hex> [--connect]` separates "announce not
   visible" from "visible but unpunchable"; `scratch-serve.js <code>` is a
@@ -192,7 +226,7 @@ comments for detail):
   alongside the ACK as `pending`, which `receiveFile` feeds through its
   decoder first -- otherwise a sender that coalesced its manifest into that
   chunk would lose the first frame. That ACK byte is now the code proof of
-  item 4, below.
+  the code proof, below.
 - **A join timeout now says which of the two failures it was.** Previously
   both reported `timed out looking for a peer`, which was actively
   misleading in the case above: the sender had found several. Zero
@@ -200,7 +234,7 @@ comments for detail):
   has not announced); one or more means the DHT and the punch worked and
   the handshake did not. `onCandidate`/`onCandidateDropped` log each
   candidate and each discard, so "peers keep connecting and vanishing" is
-  visible rather than inferred. Plan section 8's alpha gate requires being
+  visible rather than inferred. The alpha gate requires being
   able to classify every failure; this is the minimum for that.
 - **Hyperswarm discards client dial errors, so a failing sender is
   silent.** In `hyperswarm/index.js` `_connect`, the only `'error'`
@@ -227,10 +261,10 @@ comments for detail):
   This is survivable only because both sides now discard a failed candidate
   and wait for the next one; with the old one-shot `acceptOnce` it was
   another way to wedge the receiver permanently.
-- **Item 4's three-message handshake does not widen that window**, which is
+- **The code proof's three-message handshake does not widen that window**, which is
   worth stating because the warning that used to sit here was "worth
   remembering before any change that makes the handshake longer than one
-  round trip", and item 4 is exactly such a change. The tie-break turns on
+  round trip", and the code proof is exactly such a change. The tie-break turns on
   each side's *first* read and *first* write, and the code proof moves
   neither: the receiver still writes first (`READY`, now carrying a nonce)
   and reads on the sender's answer, and the sender still reads first and
@@ -246,7 +280,7 @@ comments for detail):
   `CONNECTED` result from them therefore no longer implies a drop would
   succeed – it isolates discovery and hole punching from the application
   handshake, which is exactly the distinction that was missing above.
-  Since item 4 they could not complete a drop even if they tried: both are
+  Since the code proof they could not complete a drop even if they tried: both are
   given a topic and no code.
 - Tearing the swarm down immediately after the sender's own `end()`
   callback fires is not safe – that only confirms a *local* flush, not
@@ -254,11 +288,11 @@ comments for detail):
   after it finishes reading, and the sender waits for the socket's
   `'close'` event (both sides ended) before destroying its swarm.
 
-## Manifest, progress and cancel (item 5)
+## Manifest, progress and cancel
 
-Items 1-4 got a drop working. Item 5 is about what happens when it does
-not: before it, every failure path was silent, and four of them were live
-bugs.
+The earlier milestones got a drop working. This work is about what happens
+when it does not: before it, every failure path was silent, and four of
+them were live bugs.
 
 ### The wire format, and the second break
 
@@ -270,14 +304,14 @@ payload = [1-byte type][body]              <- engine/src/message.js
 0x01  MANIFEST  body = JSON {v, type, name, size, chunkSize, sha256}
 0x02  CHUNK     body = raw file bytes
 0x03  CANCEL    body = JSON {reason}
-0x04+ reserved for item 6 (ack-by-index, resume-from)
+0x04+ reserved -- v2 assigns them; see PROTOCOL.md
 ```
 
-**This is the second wire-format change after item 4, and both machines
-must be redeployed together.** It was taken now because item 5 is the last
-cheap moment: before the tag, a frame was "the manifest if it is the first
+**This was the second wire-format change after the code proof, and both
+machines must be redeployed together.** It was taken then because it was
+the last cheap moment: before the tag, a frame was "the manifest if it is the first
 one, file bytes otherwise", so there was no way to say anything at all
-during a transfer – and item 6 needs two more messages. A type space that
+during a transfer -- and resume needs more messages still. A type space that
 does not exist by then costs two breaks instead of one.
 
 `0x00` is reserved and always invalid so that a stream read out of phase
@@ -327,20 +361,27 @@ Local cancellation uses Node's own `AbortError`/`ABORT_ERR` so
   measurement harness verified integrity and neither CLI did. It is now
   compared against the manifest unconditionally, and the file streams into
   `<name>.part` and is renamed into place only after it passes. The `.part`
-  name is predictable because item 6 must find it again.
+  name is predictable because resume (W11) must find it again.
 - **A filename that is not a filename.** `path.join(outputDir,
   manifest.name)` was unvalidated, so a manifest naming `../../.bashrc`
-  wrote there. Item 4 stopped a *stranger* reaching the receiver; it never
+  wrote there. The code proof stopped a *stranger* reaching the receiver; it never
   stopped a peer who knows the code from aiming at any path. Names are now
   refused by shape (empty, >255 bytes, NUL, `/` or `\`, `.`, `..` --
   checked against both separators, since `path.basename` means different
   things on different platforms) and then backstopped by asserting the
   resolved path stays under the output directory. Windows device names
   (`CON`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`, including trailing-dot
-  evasions) are prefixed `_` rather than refused -- Windows ships first and
-  rejecting `aux.txt` outright is hostile. A leading dot is *not* stripped:
-  `.bashrc` is a legitimate filename. `result.name` reports what was
-  written and `result.declaredName` what was asked for.
+  evasions) are prefixed `_` rather than refused, **on Windows only**. The
+  justification used to be "Windows ships first", which was never true of
+  where the work happens and is now explicitly not the plan: macOS and
+  Linux are the primary targets and Windows is third. `_aux.txt` on Linux
+  is pure mangling of a name nothing on Linux objects to. The rename
+  survives on a different argument -- a file received on Linux is often
+  opened on Windows later, and a name unopenable there is worth one prefix
+  character -- but it is gated on the platform, and the platform is
+  injectable so all three legs of CI assert both policies. A leading dot
+  is *not* stripped: `.bashrc` is a legitimate filename. `result.name`
+  reports what was written and `result.declaredName` what was asked for.
 - **More bytes than declared.** Refused rather than truncated: a correct
   sender cannot over-read its own manifest, so trimming would hide a bug
   and accept unbounded bytes from a peer that proved the code but is not
@@ -350,10 +391,30 @@ Local cancellation uses Node's own `AbortError`/`ABORT_ERR` so
   settled -- no error, no timeout, no exit, forever. This was the routine
   outcome of a half-failed punch.
 
-**Filename collisions are deliberately not handled.** `fs.rename`
-overwrites an existing destination, exactly as `createWriteStream` did.
-Overwrite / suffix / prompt is an accept-screen decision, and section 6
-puts the accept screen in Phase B.
+**Filename collisions used to be deliberately not handled, and that was a
+security bug wearing a design decision's clothes.** What stood here was:
+"`fs.rename` overwrites an existing destination, exactly as
+`createWriteStream` did. Overwrite / suffix / prompt is an accept-screen
+decision, and deciding it here would mean deciding it twice."
+
+The reasoning is wrong in a way worth keeping on the page, because it is a
+tempting shape of argument. It treats the choice as *cosmetic* — which of
+several acceptable outcomes should the UI present — when the status quo
+while waiting for that UI was **destroying an existing file**. And the
+output directory defaults to `process.cwd()`, so "inside the output
+directory" was never a synonym for safe: any peer holding the drop code
+could name its file `.zshrc`, `package.json` or `id_rsa` and replace
+whatever sat in the directory the receiver happened to be launched from.
+A future accept screen could not have fixed that for headless or scripted
+callers, who have no screen.
+
+Stage 0 moved the default into the engine: the file is published with
+`link()` + `unlink()` rather than `rename()`, because `link` fails with
+`EEXIST` instead of clobbering, atomically. A taken name lands as
+`report (1).pdf`. `replace: true` opts back in, and an accept screen can
+still offer it.
+
+See [Stage 0 hardening](#stage-0-hardening).
 
 The sender was hardened for the same reason: `stat`, `hashFile` and
 `createReadStream` are three separate reads of a file that can change
@@ -374,7 +435,7 @@ not load-sensitive and tests asserting on it are not flaky).
 
 **The sender's number is what it handed to the transport, not what the
 receiver stored.** A sender's bar can legitimately read 100% while the
-receiver is at 90%. Closing that gap is ack-by-index, which is item 6; the
+receiver is at 90%. Closing that gap is the v2 `RESULT` message (W11); the
 receiver's `verified:` line is the authoritative one.
 
 ### Cancel
@@ -413,20 +474,104 @@ likeliest moment a human cancels, and previously the one state with no way
 out but killing the process. Aborting removes only our own listener and
 timer; the swarm belongs to the caller.
 
-## The drop code (item 3)
+**That sentence was half false until Stage 0, and this page was one of the
+places asserting it.** `connectOnce` accepted a `signal`, documented it,
+and defined an `onAbort` that `finish()` removed -- but never registered
+the listener, so on the *sender* the signal was inert. Measured with a
+500ms abort against a 5000ms budget: `acceptOnce` rejected at 502ms,
+`connectOnce` ran the full 5001ms and then reported `ERR_NO_PEER`. On a
+real sender that is up to two minutes of Ctrl-C doing nothing.
 
-Step 1 of the data path. `engine/src/code.js` owns the code as a value,
+It survived four milestones because the receiver's half worked, so the
+feature looked shipped from every angle anyone checked -- and because
+there was **no sender-side cancel test at all**. The asymmetry in the
+tests was the same shape as the asymmetry in the bug. Both halves are now
+registered and both are tested (`cli/test/cancel.test.js`).
+
+## Stage 0 hardening
+
+The code proof answers exactly one question: *is this the peer the human
+meant?* Everything here is about a peer for which the answer is **yes**
+and which is hostile anyway — a code can be shoulder-surfed,
+screenshotted, forwarded to the wrong chat, or given to someone for a
+different file than the one they send. "They know the code" is the
+beginning of the threat model, not the end.
+
+Each row was reachable by a proven peer before Stage 0, and each is
+covered by `cli/test/hardening.test.js`.
+
+| Attack | Now |
+| --- | --- |
+| Replace `~/.zshrc`, `package.json`, `id_rsa` in the launch directory | Publish via `link()`+`unlink()`, which fails `EEXIST` rather than clobbering; lands `name (1)`. `replace: true` opts back in |
+| Redirect the write with a planted `<name>.part` symlink | Partial opened `O_CREAT\|O_EXCL`, which refuses to follow a symlink |
+| Forge a log line, clear the terminal, spoof a name with RLO | Control and bidi characters refused; everything printed through `displayName()` |
+| NTFS alternate data stream (`foo:stream`) | `<>:"\|?*` transformed on every platform |
+| Invisible trailing dot or space (`a.exe. `) | Stripped |
+| Declare 9 PB | 8 GiB default cap (`null` to opt out) plus a free-space check before anything opens |
+| Outrun the disk and grow memory without bound | `writeStream.write()`'s return value honoured; the socket pauses |
+| Prove, then send nothing, forever | `ERR_STALLED` on a manifest deadline and a no-progress deadline |
+| Hold a connection slot without handshaking | 15s per-candidate handshake deadline |
+
+Two pieces of the split are worth naming, because they are the design
+rather than the list:
+
+- **`engine/src/names.js` owns both sinks.** A peer-supplied name reaches
+  a terminal and a filesystem, and those had separate, unequal defences
+  until the moment a name was *refused* — at which point the refusal
+  message printed the hostile name raw. Display sanitises and never
+  throws; writing refuses or transforms and says which. A display path
+  that can throw turns one error into two, and the moment we most need to
+  print a name is when we are rejecting it.
+- **Escaping, not stripping.** `displayName` renders control and bidi
+  characters as `\uXXXX` rather than removing them. Stripping produces a
+  clean-looking string and destroys the evidence: `evil\nverified: ok`
+  would print as `evilverified: ok`, which looks fine and tells the reader
+  nothing.
+
+Still true and not fixable here: **a peer who knows the code can send you
+any file.** The displayed SHA-256 proves the bytes arrived intact; it
+proves nothing about the sender's honesty. Integrity is not authenticity
+of intent.
+
+### A defect class worth remembering: unreadable source
+
+Three files in this repo contained **literal NUL and ESC bytes** in string
+literals and character classes. `file(1)` reported them as `data`, and
+`grep` treats a binary file as unmatchable:
+
+```
+$ grep -n 'safeOutputName' engine/src/transfer.js
+$ echo $?
+1                      # ... for a string that occurs three times
+```
+
+So a repo-wide `grep` for `ERR_HASH_MISMATCH` silently omitted the file
+that throws it, and the two largest security-critical modules returned
+false negatives to any auditor's search. That is a correctness hazard, not
+a style preference. All three now use `\x00` / `\x1b` escapes, and the
+check is one command:
+
+```
+find . -name '*.js' -not -path './node_modules/*' -exec file {} + | grep -v text
+```
+
+The third file was found only by running that over the whole repo — it was
+not in the list of known cases.
+
+## The drop code (D1)
+
+Step D1 of the data path. `engine/src/code.js` owns the code as a value,
 `engine/src/wordlist.js` holds the words, and `cli/src/qr.js` draws the
 symbol; `engine/src/resolve-code.js` is the only place that turns
 user input into a topic.
 
 **Word list: EFF short list #1**, vendored (1295 of its 1296 words, all
-3-5 letters, ~62 bits over six words). Resolves plan section 9 spike 4.
+3-5 letters, ~62 bits over six words).
 Chosen over BIP39 on two grounds. Typing cost: EFF's words are 3-5 letters
-against BIP39's up-to-8, and item 3 exists precisely to remove the friction
+against BIP39's up-to-8, and a generated code exists precisely to remove the friction
 of typing a code by hand on two machines. Optics: a six-word lowercase
 phrase drawn from BIP39 reads as a wallet seed phrase, which cuts against
-section 6's deliberate avoidance of crypto framing and would train users
+the deliberate avoidance of crypto framing and would train users
 toward typing seed-like phrases into whatever asks for one. The list's one
 hyphenated entry, `yo-yo`, is dropped, because a hyphen separates words in
 a code and `yo-yo-acid` would otherwise be ambiguous; the count only needs
@@ -435,7 +580,6 @@ to be a power of six if you are rolling physical dice, and these come from
 plain modulo would skew draws toward the front of the list).
 
 **QR payload: the typed code and nothing else**, as a versioned URI.
-Resolves plan section 9 spike 5.
 
 ```
 QUAY1:ACID-ACORN-ACRE-ACTS-AFAR-AGENT      <- in the QR, at most 41 chars
@@ -445,7 +589,7 @@ acid-acorn-acre-acts-afar-agent            <- shown to a human
 Scanning and typing are therefore provably the same code path rather than
 two paths to test. Embedding the sender's public key would let a scanner
 `joinPeer()` directly and skip the topic lookup entirely -- attractive
-given the announce-propagation race below -- but that is item 7 work, and
+given the announce-propagation race below -- but that is LAN-discovery work (Stage 3), and
 the `QUAY1` version prefix is what buys the room to add it without a format
 break. An unknown scheme (`QUAY2:`) is reported as "newer version" rather
 than misread as words.
@@ -472,7 +616,7 @@ Input is normalized hard, because a code is read off another device's
 screen: case, and any run of `-`, `_`, `.` or whitespace as a separator, all
 collapse to one canonical lowercase hyphenated form, which is the only
 thing that reaches `topicFromCode`. `topicFromCode` itself hashes exactly
-what it is given and normalizes nothing, so that item 2's opaque hex codes
+what it is given and normalizes nothing, so that opaque hex codes
 keep working -- which makes feeding it an unnormalized word code a real
 footgun, since the result is a valid but wrong topic and presents as a
 discovery timeout. `resolveCode` exists to close that hole: an input
@@ -480,27 +624,27 @@ discovery timeout. `resolveCode` exists to close that hole: an input
 word is wrong, rather than being waved through as an opaque secret.
 
 `cli/src/code.js` (`quay-code`) prints a code, its payload, its topic and
-the symbol -- item 3's screenshottable artifact, and the quickest way to
+the symbol -- the drop code's screenshottable artifact, and the quickest way to
 get a topic argument for `engine/scratch-lookup.js`.
 
 Verified by `cli/test/code.test.js`, which decodes the printed matrix with
 a real QR decoder (`jsqr`, test-only) and confirms the scan lands on the
 same topic the receiver joined.
 
-Step 7 of the data path above, resume (step 5's offset persistence), and
-Protomux-based channel multiplexing all belong to later items in section 4
-and are not yet built.
+Step D7 of the data path above, resume (D5's offset persistence), and
+Protomux-based channel multiplexing all belong to later stages and are not
+yet built.
 
-## The code proof (item 4)
+## The code proof (D3)
 
-Data path step 3. `engine/src/proof.js` holds the construction and the
+Data path step D3. `engine/src/proof.js` holds the construction and the
 reasoning; this is the summary.
 
 **The hole it closes.** A topic is `hash(code || app-salt)`, and a receiver
 must *announce* that topic to be findable at all -- so the topic is public
 from the moment a drop starts, readable by anyone walking the DHT.
 `engine/scratch-lookup.js` is that walk, written as a diagnostic. The code
-is not public. Until item 4 the answer to `READY` was the constant byte
+is not public. Until the code proof landed, the answer to `READY` was the constant byte
 `0x02`, which proves nothing, so a stranger who scraped a topic could
 complete the handshake and be treated as the intended peer.
 
@@ -541,7 +685,8 @@ so without one a peer could stop the process by answering with the wrong
 number of bytes.
 
 **A peer that fails the proof is discarded like any other bad candidate**
-and both sides keep waiting, reusing the resilience item 2 already had. An
+and both sides keep waiting, reusing the resilience the Hyperswarm
+milestone already had. An
 attacker must not be able to end a drop just by connecting to it and
 failing. It is reported with its own reason string, though, because it is
 the one discard that is not a network problem: `cli/test/code-proof.test.js`
@@ -565,18 +710,23 @@ Two consequences to know:
 holding a topic can grind candidate codes offline against
 `hash(code || salt)` whether or not this handshake exists. Deriving `K`
 from the code adds no exposure the topic had not already created, and
-cannot remove it. Short-lived topics are the answer to grinding, and that
-is item 7.
+cannot remove it.
+
+**The answer to grinding is the v2 code split**, not a shorter topic
+lifetime: the topic comes to commit only to a public *nameplate*, and the
+secret is fed to a PAKE and never hashed into anything an observer can
+obtain. That removes the offline target entirely rather than shrinking the
+window on it. See [`PROTOCOL.md`](PROTOCOL.md) §2.
 
 ## Relay threat boundary
 
-Documented here ahead of writing any relay code (plan section 3):
+Moved to [`THREAT-MODEL.md`](THREAT-MODEL.md) §8, which is the document
+that has to stay correct about it.
 
-- Sees: two connection times, approximate bytes, IPs.
-- Does not see: filenames, plaintext, long-term identity (per-drop tokens only).
-- Cannot join a drop without the code.
-- Caps: per-token bandwidth and duration.
-- Default: a hosted relay; user can paste another URL.
-
-This is also the basis for the project's "we are not a host of user
-content" App Review / DSA argument: a relay is a pipe, not storage.
+One constraint changed in the move and is worth naming here, because it
+contradicts what this section used to say. It read **"Default: a hosted
+relay; user can paste another URL."** That erodes the one structural
+difference this project has from an Iroh-based competitor — serverless by
+default — and turns it into the same product with a smaller relay fleet.
+The relay is now **optional, self-hostable, and never in the default path
+when a direct connection works**.

@@ -3,7 +3,7 @@
 // Two duplex streams cross-wired to each other: what one writes, the other
 // reads. Stands in for a socket in the transfer tests.
 //
-// WHY NOT A REAL SOCKET. Everything item 5 added -- hash verification,
+// WHY NOT A REAL SOCKET. Everything the failure-reporting work added -- hash verification,
 // name safety, over-read, early close, cancel -- is decided entirely by
 // what arrives on the stream, so a real transport would add a DHT, a
 // hole punch and a Noise session to tests whose subject is none of those.
