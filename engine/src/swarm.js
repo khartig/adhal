@@ -13,7 +13,7 @@ const {
   PROOF_FAILED
 } = require('./proof')
 
-// The readiness handshake, which is also the code-proof exchange (item 4,
+// The readiness handshake, which is also the code-proof exchange (the code proof,
 // data path step 3). The receiver writes READY once its connection is
 // confirmed stable; three messages later both sides have proven to each
 // other that they know the drop code, and only then does either treat the
@@ -87,6 +87,23 @@ const SENDER_PROOF_SIZE = PROOF_SIZE + NONCE_SIZE
 // Raising this does not make the dead dials any faster; it just stops them
 // from crowding out the live peer.
 const MAX_PARALLEL = 16
+
+// How long a single candidate may take to finish the readiness handshake
+// before we give up on it and wait for the next one.
+//
+// Without this, every candidate socket lived until the swarm itself was
+// destroyed. The join timeout covers the drop as a whole, so nothing
+// hung -- but a peer that connects and then simply stops talking held a
+// connection slot, and its socket, for the entire remaining budget. With
+// MAX_PARALLEL at 16 and a topic that routinely accumulates stale
+// announces (see above), that is a cheap way for one misbehaving peer to
+// occupy the slots a live one needs.
+//
+// 15s is well above the worst handshake latency measured on a real
+// cross-ISP path (connect median 3.0s, p90 4.3s) and well below the 30s
+// receiver / 120s sender join budgets, so a dropped candidate still
+// leaves room for several more.
+const HANDSHAKE_TIMEOUT_MS = 15000
 
 // engine owns all Holepunch join logic (see engine/package.json); cli/
 // only ever imports from @quay/engine, never hyperswarm/hyperdht directly.
@@ -209,7 +226,7 @@ function timeoutError (phase, timeout, candidates) {
 }
 
 // Joins `topic` and resolves with the first peer to complete the readiness
-// handshake *and* prove it knows the code. One drop, one peer -- item 2
+// handshake *and* prove it knows the code. One drop, one peer -- the Hyperswarm work
 // doesn't need to handle multiple simultaneous peers, but it does need to
 // survive peers that connect and then vanish, and peers that connect
 // without any right to, which is what the exchange above is for.
@@ -233,6 +250,7 @@ function timeoutError (phase, timeout, candidates) {
  *   key: Buffer,
  *   timeout?: number,
  *   refreshInterval?: number,
+ *   handshakeTimeout?: number,
  *   signal?: AbortSignal,
  *   onAnnounced?: () => void,
  *   onCandidate?: (peerInfo: any) => void,
@@ -241,9 +259,9 @@ function timeoutError (phase, timeout, candidates) {
  *   `key` is the drop key from dropKey(code) -- see ./proof.js
  * @returns {Promise<{ socket: any, peerInfo: any, pending: Buffer | null }>}
  */
-function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, signal, onAnnounced, onCandidate, onCandidateDropped }) {
+function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, signal, onAnnounced, onCandidate, onCandidateDropped }) {
   // Required, not defaulted. A missing key can only mean a caller that was
-  // not updated for item 4, and the failure mode of quietly carrying on
+  // not updated for the code proof, and the failure mode of quietly carrying on
   // without one is the exact hole this function exists to close: it would
   // accept any stranger who found the topic, silently and forever.
   if (!Buffer.isBuffer(key)) {
@@ -264,7 +282,7 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
 
     // Waiting for a peer is the likeliest moment for a human to give up --
     // it is the only part of a drop that can take 30 seconds with nothing
-    // to show -- and until item 5 there was no path to cancel it at all.
+    // to show -- and until that work there was no path to cancel it at all.
     //
     // CAREFUL: this removes OUR listener, stops OUR timer, and rejects. It
     // must not destroy the swarm. The swarm belongs to the caller, which
@@ -301,7 +319,16 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
       /** @type {{ receiver: Buffer, sender: Buffer }} */
       let peers
 
+      // See HANDSHAKE_TIMEOUT_MS: a candidate that goes quiet mid-
+      // handshake is dropped on its own schedule rather than holding a
+      // connection slot until the whole drop times out.
+      const deadline = handshakeTimeout
+        ? setTimeout(() => onFailed(new Error(`did not complete the handshake within ${handshakeTimeout}ms`)), handshakeTimeout)
+        : null
+      if (deadline && typeof deadline.unref === 'function') deadline.unref()
+
       const detach = () => {
+        if (deadline) clearTimeout(deadline)
         socket.removeListener('error', onFailed)
         socket.removeListener('close', onFailed)
         socket.removeListener('data', onData)
@@ -387,6 +414,11 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
     if (signal) {
       if (signal.aborted) {
         swarm.removeListener('connection', onConnection)
+        // finish() as well as removing the listener: without it the join
+        // timer stayed armed after an already-aborted signal short-
+        // circuited the join, holding the event loop open for the full
+        // budget on a drop that had already been abandoned.
+        finish()
         reject(abortError(0, signal.reason))
         return
       }
@@ -422,6 +454,7 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
  *   key: Buffer,
  *   timeout?: number,
  *   refreshInterval?: number,
+ *   handshakeTimeout?: number,
  *   signal?: AbortSignal,
  *   onCandidate?: (peerInfo: any) => void,
  *   onCandidateDropped?: (peerInfo: any, reason: string) => void
@@ -429,7 +462,7 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
  *   `key` is the drop key from dropKey(code) -- see ./proof.js
  * @returns {Promise<{ socket: any, peerInfo: any, pending: Buffer | null }>}
  */
-function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, signal, onCandidate, onCandidateDropped }) {
+function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, signal, onCandidate, onCandidateDropped }) {
   // See acceptOnce: required rather than defaulted, because carrying on
   // without a key would silently hand a file to whoever answered.
   if (!Buffer.isBuffer(key)) {
@@ -489,7 +522,14 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
       /** @type {Buffer | null} */
       let nonceS = null
 
+      // See HANDSHAKE_TIMEOUT_MS, and acceptOnce's copy of this.
+      const deadline = handshakeTimeout
+        ? setTimeout(() => onFailed(new Error(`did not complete the handshake within ${handshakeTimeout}ms`)), handshakeTimeout)
+        : null
+      if (deadline && typeof deadline.unref === 'function') deadline.unref()
+
       const detach = () => {
+        if (deadline) clearTimeout(deadline)
         socket.removeListener('error', onFailed)
         socket.removeListener('close', onFailed)
         socket.removeListener('data', onData)
@@ -545,7 +585,7 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
         // Leftovers are handed back, exactly as acceptOnce does.
         //
         // This used to read "sendFile never reads, so leftover bytes would
-        // mean a peer that talked out of turn". Item 5 made that false:
+        // mean a peer that talked out of turn". The failure-reporting work made that false:
         // the sender now runs a decoder of its own so that a receiver's
         // CANCEL is distinguishable from the socket dying. The receiver
         // still writes nothing in the ordinary case, so `pending` is
@@ -569,6 +609,32 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
     }
 
     swarm.on('connection', onConnection)
+
+    // THIS REGISTRATION WAS MISSING, and nothing caught it for four
+    // items. `onAbort` was written, `finish()` removed it, the `signal`
+    // option was documented in the JSDoc, and swarm-send.js passed one in
+    // with a comment explaining why cancelling here matters -- but no
+    // line ever attached it, so the signal was inert. acceptOnce (above)
+    // had the equivalent line all along, which is exactly why the gap was
+    // invisible: the receiver's Ctrl-C worked, so the feature looked
+    // shipped.
+    //
+    // Measured before the fix, with a 500ms abort against a 5000ms
+    // budget: acceptOnce rejected at 502ms, connectOnce ran the full
+    // 5001ms and then reported ERR_NO_PEER. For a sender that is up to
+    // two minutes of a Ctrl-C doing nothing at all -- and README.md,
+    // ARCHITECTURE.md and swarm-send.js all described the opposite as
+    // working. There is now a test on the sender side (cancel.test.js),
+    // which is the thing whose absence let this survive.
+    if (signal) {
+      if (signal.aborted) {
+        swarm.removeListener('connection', onConnection)
+        finish()
+        reject(abortError(0, signal.reason))
+        return
+      }
+      signal.addEventListener('abort', onAbort, { once: true })
+    }
 
     const discovery = swarm.join(topic)
     stopRefreshing = keepRefreshing(discovery, () => settled, refreshInterval)
