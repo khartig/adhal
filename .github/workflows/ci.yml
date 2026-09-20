@@ -17,8 +17,7 @@
 #                                is the third platform, not the first, and
 #                                real failures are expected there right
 #                                now -- `fs.rename`/`link` semantics over
-#                                an open file, SIGTERM having no real
-#                                equivalent, `:` being illegal in a name,
+#                                an open file, `:` being illegal in a name,
 #                                MAX_PATH, and native prebuilds for the
 #                                Holepunch stack. Making it required today
 #                                would mean either a permanently red board
@@ -26,6 +25,17 @@
 #                                the least evidence about. It runs so the
 #                                gap is measured instead of guessed, and it
 #                                becomes required when Stage 3 reaches it.
+#
+#                                Signals are no longer on that list.
+#                                Console Ctrl+C arrives as SIGINT on
+#                                Windows and always did; SIGBREAK is
+#                                handled now; SIGTERM cannot fire there
+#                                and is inert rather than broken. The one
+#                                thing still unproven is whether this
+#                                runner has a console for the two
+#                                end-to-end cancel tests to send a real
+#                                CTRL_BREAK_EVENT through -- if not they
+#                                skip, with the reason, instead of failing.
 #
 # The failure this file is most likely to catch is not a logic bug. It is
 # a platform assumption written on a Mac -- which is exactly the class of

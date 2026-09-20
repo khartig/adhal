@@ -465,11 +465,23 @@ Consequence worth noting: **`sendFile` now reads**, for inbound CANCEL. So
 comment claiming leftover bytes there could only mean a peer talking out of
 turn is no longer true.
 
-`cli/src/signals.js` turns SIGINT/SIGTERM into that signal: the first
-aborts and lets the normal catch/finally run (CANCEL written, socket ended,
-swarm destroyed) before exiting 130/143; the second exits immediately,
-because `swarm.destroy()` can take seconds and a Ctrl-C that appears to do
-nothing is one people follow with `kill -9`. `acceptOnce`/`connectOnce`
+`cli/src/signals.js` turns SIGINT/SIGTERM/SIGBREAK into that signal: the
+first aborts and lets the normal catch/finally run (CANCEL written, socket
+ended, swarm destroyed) before exiting 130/143/149; the second exits
+immediately, because `swarm.destroy()` can take seconds and a Ctrl-C that
+appears to do nothing is one people follow with `kill -9`.
+
+On Windows the table reads differently than it looks. **Ctrl-C works**:
+Node delivers the console Ctrl+C event as SIGINT there, so the clean path
+above is what a human already gets. **Ctrl+Break now works too** -- SIGBREAK
+was unhandled, so Ctrl+Break tore the process down and the peer saw the
+socket reset this whole design exists to avoid. **SIGTERM can never fire
+there** (Node: "`SIGTERM` is not supported on Windows, it can be listened
+on"); it stays in the table as harmless dead weight rather than a platform
+branch. What does *not* work on Windows is `child.kill('SIGINT')`, which is
+documented as unconditional termination -- a testing problem, not a product
+one, and `cli/test-helpers/interrupt.js` explains how the end-to-end tests
+send a real console control event instead. `acceptOnce`/`connectOnce`
 take the same signal, so Ctrl-C works *while waiting for a peer* -- the
 likeliest moment a human cancels, and previously the one state with no way
 out but killing the process. Aborting removes only our own listener and
