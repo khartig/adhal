@@ -55,7 +55,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # The repo is JSDoc-typechecked rather than TypeScript-authored, so
@@ -83,9 +83,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+      # Node 24, not 22. On 22.x the six stall-timer and size-cap tests in
+      # cli/test/hardening.test.js are reported cancelled -- "Promise
+      # resolution is still pending but the event loop has already
+      # resolved" -- on every run, here and locally on 22.23.2. They pass
+      # on 24.21.0 on every run. 24 is also the version the protocol was
+      # written against (docs/PROTOCOL.md), so it is what should be under
+      # test rather than a version nothing is developed on.
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
 
@@ -121,7 +128,7 @@ jobs:
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm audit --audit-level moderate

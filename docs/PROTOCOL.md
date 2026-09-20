@@ -562,9 +562,15 @@ the Elligator2 map at all**, so staying on v1 would mean reaching into
 internals or hand-rolling the map — the thing this decision exists to
 avoid. So `engines.node` moves from `>=18` to `>=20.19` in all three
 `package.json` files. Node 18 went end-of-life in April 2025 and CI
-already runs Node 22 on all three legs
-(`.github/workflows/ci.yml:58,88,124`), so the declared `>=18` was
+already runs Node 22 on all three legs, so the declared `>=18` was
 untested anyway.
+
+> **Superseded.** The floor is now `>=24` and CI runs Node 24
+> (`.github/workflows/ci.yml:58,95,131`). Not for `require(esm)` —
+> 20.19/22.12 are enough for that — but because on 22.x the six
+> stall-timer and size-cap tests in `cli/test/hardening.test.js` are
+> reported cancelled rather than run, reproducibly on 22.23.2 and clean
+> on 24.21.0.
 
 Also confirmed, so that neither forces a further dependency:
 

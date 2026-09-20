@@ -125,7 +125,10 @@ hypercore-crypto, compact-encoding, b4a) are already installed in
 Node `net`/`fs`/`crypto`. `protomux` was installed alongside them and never
 used; W10 decided against it and removed it (`docs/PROTOCOL.md` §8.2).
 `@noble/curves` and `@noble/hashes` carry the v2 PAKE (`engine/src/cpace.js`),
-and they are why the workspace requires Node >= 20.19. The word list is vendored into
+and their ESM-only packaging is why the workspace needs `require(esm)` at all.
+The floor is Node >= 24, though, and for a separate reason: on 22.x the
+stall-timer tests are canceled rather than run (`.github/workflows/ci.yml`).
+The word list is vendored into
 `engine/src/wordlist.js` so a drop code never depends on a network fetch;
 `cli/` adds the zero-dependency `qrcode-generator` to draw the symbol, and
 `jsqr` as a test-only decoder that proves the printed symbol really scans.

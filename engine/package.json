@@ -6,7 +6,7 @@
   "license": "MIT",
   "main": "src/index.js",
   "engines": {
-    "node": ">=20.19"
+    "node": ">=24"
   },
   "dependencies": {
     "@noble/curves": "2.4.0",
