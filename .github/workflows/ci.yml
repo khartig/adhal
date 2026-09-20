@@ -8,10 +8,28 @@
 #
 # THE MATRIX IS DELIBERATELY ASYMMETRIC.
 #
-#   macos-latest, ubuntu-latest  REQUIRED. These are the primary targets
+#   macos-latest, ubuntu-24.04   REQUIRED. These are the primary targets
 #                                (docs/IMPLEMENTATION-PLAN.md, Stage 3):
 #                                they are where development happens and
-#                                where the first release ships.
+#                                where the first release ships. Linux is
+#                                pinned rather than `-latest` for the
+#                                reason under ubuntu-26.04 below.
+#
+#   ubuntu-26.04                 ADVISORY, and temporary. The `ubuntu-latest`
+#                                label starts migrating to Ubuntu 26 on
+#                                2026-10-19 and finishes around 2026-11-19
+#                                (actions/runner-images#14748), so the
+#                                required Linux leg is pinned to 24.04
+#                                rather than being moved underneath us
+#                                mid-sprint -- this repo ships native
+#                                prebuilds for the Holepunch stack, which
+#                                is exactly the kind of dependency an OS
+#                                and glibc bump disturbs. This leg runs the
+#                                new image early so the breakage, if any,
+#                                is known before the migration rather than
+#                                during it. Once it has been green for a
+#                                while, promote 26.04 to the required leg
+#                                and delete this one.
 #
 #   windows-latest               ADVISORY, via continue-on-error. Windows
 #                                is the third platform, not the first, and
@@ -38,6 +56,17 @@
 #                                measure that and skip with the reason
 #                                when it does not hold, rather than fail.
 #
+# ACTION VERSIONS ARE PINNED TO MAJORS THAT RUN ON NODE 24. The v4 line of
+# checkout/setup-node/pnpm-action-setup targets the Node 20 runtime, which
+# the runner now force-upgrades while printing a deprecation warning on
+# every job. checkout v5, setup-node v5 and pnpm/action-setup v5 are the
+# first majors on node24, so anything older warns. Two behavior changes
+# came along for the ride and neither affects this workflow: setup-node v5
+# started caching automatically when package.json has a `packageManager`
+# field and v6 narrowed that to npm only -- `cache: pnpm` below is explicit
+# either way -- and checkout v7 refuses to check out fork PRs for
+# `pull_request_target`/`workflow_run`, neither of which triggers this file.
+#
 # The failure this file is most likely to catch is not a logic bug. It is
 # a platform assumption written on a Mac -- which is exactly the class of
 # bug the name-policy and publish() work in Stage 0 is full of.
@@ -60,11 +89,11 @@ jobs:
   # minute instead of waiting on the full network suite everywhere.
   lint-and-types:
     name: types
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -77,7 +106,8 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    # Windows is allowed to fail; the two primary platforms are not.
+    # Windows and the next Ubuntu image are allowed to fail; the two
+    # primary platforms are not.
     continue-on-error: ${{ matrix.advisory }}
     strategy:
       # Do not let one OS failing hide the result on the others -- the
@@ -85,15 +115,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             advisory: false
           - os: macos-latest
             advisory: false
           - os: windows-latest
             advisory: true
+          - os: ubuntu-26.04
+            advisory: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
       # Node 24, not 22. On 22.x the six stall-timer and size-cap tests in
       # cli/test/hardening.test.js are reported cancelled -- "Promise
       # resolution is still pending but the event loop has already
@@ -101,7 +133,7 @@ jobs:
       # on 24.21.0 on every run. 24 is also the version the protocol was
       # written against (docs/PROTOCOL.md), so it is what should be under
       # test rather than a version nothing is developed on.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
@@ -132,12 +164,12 @@ jobs:
   # and tightened once there is a baseline.
   audit:
     name: audit (advisory)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
