@@ -658,6 +658,11 @@ function receiveFile (socket, outputDir, {
     // sitting in the decoder's buffer -- during that window are held here
     // rather than hitting a null writeStream.
     let opening = false
+    // The same window, as something cleanup can wait on. `opening` is a
+    // flag for the frame decoder; this is the promise, and discardPartial
+    // needs it -- see the comment there.
+    /** @type {Promise<void> | null} */
+    let openingPromise = null
     /** @type {Buffer[]} */
     const deferred = []
     /** @type {{ emit: (n: number) => void, final: () => void }} */
@@ -709,6 +714,20 @@ function receiveFile (socket, outputDir, {
     // but a hash mismatch will delete even then, because bytes known to
     // be wrong must never be left looking resumable.
     const discardPartial = async () => {
+      // An abort can land while the partial is still being opened, and
+      // `partPath` is only assigned once the open has won. Checking it
+      // first meant cleanup looked at a null, decided there was nothing
+      // to delete, and returned -- and then the open completed and
+      // created the file, after the promise had already rejected. The
+      // receiver was left with a `.part` on disk that nothing owned.
+      //
+      // That is the intermittent failure in cli/test/cancel.test.js's
+      // simultaneous-cancel case: not a slow filesystem, and not the test
+      // reading the directory too early (the file is still there a
+      // hundred milliseconds later), but cleanup racing an open it did
+      // not know was in flight. Waiting for the open to settle is what
+      // makes `partPath` trustworthy.
+      if (openingPromise) await openingPromise.catch(() => {})
       if (!partPath) return
       // Wait for the stream to be genuinely closed before unlinking. A
       // failure arriving in the same tick as the open -- an over-read on
@@ -823,7 +842,8 @@ function receiveFile (socket, outputDir, {
         if (typeof socket.pause === 'function') socket.pause()
         armStall(progressTimeout, 'sent nothing further')
 
-        beginFile(parsed, safe).then(
+        openingPromise = beginFile(parsed, safe)
+        openingPromise.then(
           () => {
             if (settled) return
             opening = false

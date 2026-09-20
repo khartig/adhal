@@ -33,7 +33,9 @@ const {
   connectOnce,
   topicFromCode,
   generateCode,
-  dropKey
+  dropKey,
+  encodeMessage,
+  TYPE_MANIFEST
 } = require('@quay/engine')
 const { slow } = require('../test-helpers/tiers')
 const { duplexPair } = require('../test-helpers/duplex-pair')
@@ -208,6 +210,61 @@ test('a simultaneous cancel settles both sides, each reporting its own', async (
   // actually produces by pressing Ctrl-C, are covered above and do pin
   // down exactly who reports what.
   assert.deepEqual(await fs.promises.readdir(outputDir), [])
+})
+
+// The above is the test that kept going red in CI, and the cause was not
+// the race its own comment describes. A cancel can land while the
+// partial is still being *opened*: `discardPartial` read `partPath`,
+// found the null it still held because the open had not assigned it yet,
+// concluded there was nothing to delete and returned -- and then the
+// open completed and created the file, after the receive had already
+// rejected. A `.part` nothing owned, left in the output directory.
+//
+// Why a loop rather than one attempt. The window is narrow but not rare:
+// measured on this machine at 21 leaks in 100 attempts before the fix
+// and 0 in 100 after. A single attempt would miss a regression four
+// times in five, which is how the original arrived as "flaky" rather
+// than as a bug. Forty attempts catch it with ~99.99% probability.
+//
+// Why setImmediate and not a sleep. The leaked file appears when the
+// open's threadpool work finishes, which is after the promise rejects --
+// reading the directory at settle sees only 15 of the 21. One turn of
+// the loop sees all 21, and 100ms sees no more than that, so the sleep
+// this test does not have would buy nothing but wall-clock.
+test('a cancel landing while the partial is still opening leaves nothing behind', async (t) => {
+  const { outputDir } = await fixture(t, 'cancel-opening', 0)
+  const manifest = Buffer.from(JSON.stringify({
+    type: 'manifest',
+    v: 1,
+    name: 'source.bin',
+    size: 1024,
+    chunkSize: 64 * 1024,
+    sha256: 'a'.repeat(64)
+  }), 'utf8')
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    const [txSocket, rxSocket] = duplexPair()
+    const controller = new AbortController()
+    const received = settle(receiveFile(rxSocket, outputDir, { signal: controller.signal }))
+
+    // Accepting the manifest is what starts the asynchronous open, and
+    // the abort is queued for the next macrotask -- which is inside it.
+    txSocket.write(encodeMessage(TYPE_MANIFEST, manifest))
+    setTimeout(() => controller.abort('receiver quit'), 0)
+
+    const outcome = await received
+    assert.equal(outcome.ok, false, `attempt ${attempt}: a cancelled receive must not resolve`)
+    assert.ok(
+      outcome.error.name === 'AbortError' || outcome.error.code === 'ERR_CANCELLED_PEER',
+      `attempt ${attempt}: expected a cancellation, got ${outcome.error.code}: ${outcome.error.message}`
+    )
+
+    await new Promise((resolve) => setImmediate(resolve))
+    assert.deepEqual(
+      await fs.promises.readdir(outputDir), [],
+      `attempt ${attempt}: a partial outlived the receive that opened it`
+    )
+  }
 })
 
 test('a cancel reason chosen by the peer cannot smuggle escape sequences into a terminal', async (t) => {
