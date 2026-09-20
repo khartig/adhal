@@ -38,7 +38,7 @@ const {
   TYPE_MANIFEST
 } = require('@quay/engine')
 const { slow } = require('../test-helpers/tiers')
-const { INTERRUPT, interrupt, interruptibleSpawn } = require('../test-helpers/interrupt')
+const { interrupt } = require('../test-helpers/interrupt')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
@@ -351,7 +351,7 @@ test('acceptOnce aborted while waiting rejects and leaves the swarm as it found 
   assert.equal(swarm.destroyed, false, 'the swarm belongs to the caller and must survive')
 })
 
-test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, and with the right code', slow, async (t) => {
+test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, and with 130', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -375,10 +375,12 @@ test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, an
     NO_COLOR: '1'
   }
 
-  // `interruptibleSpawn` is empty on POSIX and `{ detached: true }` on
-  // Windows, where a new process group is the only thing a console
-  // control event can be aimed at. See test-helpers/interrupt.js.
-  const receiveProc = spawn(process.execPath, [SWARM_RECEIVE, '--new', tmp], { env, ...interruptibleSpawn })
+  // A plain spawn on every platform. `detached: true` looks tempting on
+  // Windows -- it is the only way to get CREATE_NEW_PROCESS_GROUP -- but
+  // libuv bundles that with DETACHED_PROCESS, which leaves the child with
+  // no console, and a console control event cannot reach a process that
+  // has no console. See test-helpers/interrupt.js.
+  const receiveProc = spawn(process.execPath, [SWARM_RECEIVE, '--new', tmp], { env })
   const out = { stdout: '', stderr: '' }
   receiveProc.stdout.on('data', (c) => { out.stdout += c.toString('utf8') })
   receiveProc.stderr.on('data', (c) => { out.stderr += c.toString('utf8') })
@@ -395,10 +397,13 @@ test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, an
   })
 
   const interruptedAt = Date.now()
-  // Real SIGINT on POSIX; a real CTRL_BREAK_EVENT to the child's process
-  // group on Windows. If the OS refuses to generate the event -- the
-  // console-attachment limit, a property of the runner -- skip with that
-  // reason rather than assert something Windows was never asked to do.
+  // A real SIGINT on POSIX; a real CTRL_C_EVENT in the child's console on
+  // Windows, which arrives there as SIGINT too -- so both platforms
+  // assert the same thing below. `child.kill('SIGINT')` is not usable on
+  // Windows: libuv implements it as TerminateProcess, which kills the
+  // child before any handler runs. If the event cannot be generated --
+  // a property of the runner's console, not of the code under test --
+  // skip with that reason rather than assert something never attempted.
   const sent = await interrupt(receiveProc)
   if (!sent.ok) {
     t.skip(`could not deliver a real interrupt: ${sent.reason}`)
@@ -406,19 +411,18 @@ test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, an
   }
 
   const exitCode = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`did not exit after ${INTERRUPT.name}\n${out.stdout}\n${out.stderr}`)), 20000)
+    const timer = setTimeout(() => reject(new Error(`did not exit after SIGINT\n${out.stdout}\n${out.stderr}`)), 20000)
     receiveProc.on('exit', (code) => { clearTimeout(timer); resolve(code) })
   })
   const took = Date.now() - interruptedAt
 
-  // 128 + the signal number, the shell convention -- 130 for SIGINT, 149
-  // for SIGBREAK -- and specifically not 1, so a script can tell "the
-  // human stopped this" from "it failed".
-  assert.equal(exitCode, INTERRUPT.code, `expected ${INTERRUPT.code}, got ${exitCode}\n${out.stdout}\n${out.stderr}`)
+  // 130 is 128 + SIGINT, the shell convention -- and specifically not 1,
+  // so a script can tell "the human stopped this" from "it failed".
+  assert.equal(exitCode, 130, `expected 130, got ${exitCode}\n${out.stdout}\n${out.stderr}`)
 
   // It must say it is cancelling, rather than dying silently or, worse,
   // reporting the DHT timeout it never reached.
-  assert.match(out.stdout, new RegExp(`\\[swarm-receive\\] cancelled \\(${INTERRUPT.name}\\)`))
+  assert.match(out.stdout, /\[swarm-receive\] cancelled \(SIGINT\)/)
   assert.doesNotMatch(out.stdout + out.stderr, /no peer ever connected/, 'this was a cancellation, not a timeout')
 
   // The point of not just calling process.exit(): teardown runs. But it
@@ -533,7 +537,7 @@ test('a connectOnce given an already-aborted signal never joins at all', slow, a
   assert.equal(swarm.listenerCount('connection'), baseline)
 })
 
-test('Ctrl-C while the sender CLI looks for a peer exits promptly, cleanly, and with the right code', slow, async (t) => {
+test('Ctrl-C while the sender CLI looks for a peer exits promptly, cleanly, and with 130', slow, async (t) => {
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
@@ -554,7 +558,7 @@ test('Ctrl-C while the sender CLI looks for a peer exits promptly, cleanly, and 
   }
 
   // A code nobody is listening on, so the sender stays in the join.
-  const sendProc = spawn(process.execPath, [SWARM_SEND, generateCode(), sourcePath], { env, ...interruptibleSpawn })
+  const sendProc = spawn(process.execPath, [SWARM_SEND, generateCode(), sourcePath], { env })
   const out = { stdout: '', stderr: '' }
   sendProc.stdout.on('data', (c) => { out.stdout += c.toString('utf8') })
   sendProc.stderr.on('data', (c) => { out.stderr += c.toString('utf8') })
@@ -578,13 +582,13 @@ test('Ctrl-C while the sender CLI looks for a peer exits promptly, cleanly, and 
   }
 
   const exitCode = await new Promise((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`did not exit after ${INTERRUPT.name}\n${out.stdout}\n${out.stderr}`)), 20000)
+    const timer = setTimeout(() => reject(new Error(`did not exit after SIGINT\n${out.stdout}\n${out.stderr}`)), 20000)
     sendProc.on('exit', (code) => { clearTimeout(timer); resolve(code) })
   })
   const took = Date.now() - interruptedAt
 
-  assert.equal(exitCode, INTERRUPT.code, `expected ${INTERRUPT.code}, got ${exitCode}\n${out.stdout}\n${out.stderr}`)
-  assert.match(out.stdout, new RegExp(`\\[swarm-send\\] cancelled \\(${INTERRUPT.name}\\)`))
+  assert.equal(exitCode, 130, `expected 130, got ${exitCode}\n${out.stdout}\n${out.stderr}`)
+  assert.match(out.stdout, /\[swarm-send\] cancelled \(SIGINT\)/)
   assert.doesNotMatch(out.stdout + out.stderr, /no peer ever connected/, 'this was a cancellation, not a timeout')
   assert.ok(took < 15000, `teardown took ${took}ms, which is long enough to look like a hang`)
 })

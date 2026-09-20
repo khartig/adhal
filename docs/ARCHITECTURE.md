@@ -478,10 +478,13 @@ was unhandled, so Ctrl+Break tore the process down and the peer saw the
 socket reset this whole design exists to avoid. **SIGTERM can never fire
 there** (Node: "`SIGTERM` is not supported on Windows, it can be listened
 on"); it stays in the table as harmless dead weight rather than a platform
-branch. What does *not* work on Windows is `child.kill('SIGINT')`, which is
-documented as unconditional termination -- a testing problem, not a product
-one, and `cli/test-helpers/interrupt.js` explains how the end-to-end tests
-send a real console control event instead. `acceptOnce`/`connectOnce`
+branch. What does *not* work on Windows is `child.kill('SIGINT')`: libuv implements
+it as `TerminateProcess`, so the child dies before a handler runs. That is a
+testing problem, not a product one. `cli/test-helpers/interrupt.js` raises a
+real `CTRL_C_EVENT` in the child's console instead, which arrives as SIGINT
+just as a keypress would -- and because a control event reaches every process
+sharing that console, it first checks the child is alone in one and skips
+rather than signal the test runner along with it. `acceptOnce`/`connectOnce`
 take the same signal, so Ctrl-C works *while waiting for a peer* -- the
 likeliest moment a human cancels, and previously the one state with no way
 out but killing the process. Aborting removes only our own listener and

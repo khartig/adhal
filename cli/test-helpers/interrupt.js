@@ -1,71 +1,155 @@
 'use strict'
 
-// Interrupting a spawned CLI the way a human would, on each platform.
+// Pressing Ctrl-C at a spawned CLI, for real, on each platform.
 //
-// THE POSIX CASE IS THE EASY ONE. `child.kill('SIGINT')` delivers a real
-// SIGINT, the handler in cli/src/signals.js runs, and the process exits
-// 130. That is what the two end-to-end tests in cancel.test.js have
-// always done and it is unchanged here.
+// POSIX IS THE EASY CASE. `child.kill('SIGINT')` delivers a real SIGINT,
+// the handler in cli/src/signals.js runs, and the process exits 130. That
+// is what the end-to-end tests in cancel.test.js have always done and it
+// is untouched here.
 //
-// WINDOWS IS WHY THIS FILE EXISTS. Those two tests failed on the Windows
-// leg with exit code `null`, and the obvious reading -- "Ctrl-C is broken
-// on Windows" -- is wrong. Node documents 'SIGINT' from the terminal as
-// supported on every platform; Windows delivers the console Ctrl+C event
-// as SIGINT and the handler takes it. What does not work is the *test's*
-// way of faking it: `child.kill('SIGINT')` on Windows is documented as
-// unconditional termination, which destroys the child before any handler
-// runs. Hence `null` and no `cancelled (...)` line. The product was fine;
-// the probe was not.
+// WINDOWS IS WHY THIS FILE EXISTS, and the reasoning is written down
+// because three plausible-looking approaches are provably wrong.
 //
-// So the Windows path sends a genuine console control event instead:
+// 1. `child.kill('SIGINT')` cannot work. libuv's uv__kill maps SIGINT,
+//    SIGTERM, SIGKILL and SIGQUIT alike onto TerminateProcess and returns
+//    ENOSYS for anything else; it never generates a console control
+//    event. The child dies before a handler runs, which is why these
+//    tests saw exit code `null`. That is the probe failing, not the
+//    product: Windows delivers a console Ctrl+C to a real SIGINT handler.
 //
-//   * `detached: true` maps, in libuv, to DETACHED_PROCESS |
-//     CREATE_NEW_PROCESS_GROUP. The second half is what we are after --
-//     it makes `child.pid` a process *group* id, which is the only thing
-//     GenerateConsoleCtrlEvent can be aimed at.
-//   * CTRL_BREAK_EVENT, not CTRL_C_EVENT. Microsoft documents that
-//     CTRL_C_EVENT cannot be targeted at a specific process group, while
-//     CTRL+BREAK can. That is why cli/src/signals.js now handles
-//     SIGBREAK: this test can only ask the OS for the thing the OS is
-//     willing to aim.
-//   * The call itself goes through a short PowerShell Add-Type P/Invoke,
-//     because Node exposes no binding for it and a native addon for one
-//     test is not worth the build.
+// 2. `detached: true` plus GenerateConsoleCtrlEvent aimed at `child.pid`
+//    cannot work either, and this one cost a CI round. libuv turns
+//    UV_PROCESS_DETACHED into `DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP`,
+//    and DETACHED_PROCESS leaves the child with no console at all ("The
+//    new process can call the AllocConsole function at a later time").
+//    Console control events only reach processes attached to a console,
+//    so there was nobody to receive one -- yet the call returned TRUE,
+//    which is the trap. A TRUE return means the call was well formed, not
+//    that anything got the signal. Node offers no way out of this bind:
+//    CREATE_NEW_PROCESS_GROUP, the flag that would make `child.pid` a
+//    targetable group id while keeping a console, is only reachable
+//    bundled with DETACHED_PROCESS (nodejs/node#21825). Hence a plain
+//    spawn, and an event aimed at a console rather than a process group.
 //
-// THIS COULD NOT BE VERIFIED ON A DEVELOPER MACHINE -- there is no
-// Windows here, and only CI can say whether it works. The known failure
-// mode is console attachment: GenerateConsoleCtrlEvent only reaches
-// processes sharing the *caller's* console, and DETACHED_PROCESS (the
-// other half of `detached: true`, which Node gives no way to opt out of)
-// may leave the child with no console to share. So failure is reported
-// rather than thrown, the caller skips with the reason, and the Windows
-// leg stays advisory instead of asserting something that was never true.
+// 3. CTRL_BREAK_EVENT is the wrong event to send from here, even though
+//    it is the one that can be aimed at a specific group. Microsoft:
+//    "CTRL+BREAK is always treated as a signal", and the only documented
+//    way for the sender to spare itself -- SetConsoleCtrlHandler(NULL,
+//    TRUE) -- "causes the calling process to ignore CTRL+C signals", C
+//    only. Sending a break into a console we are attached to would run
+//    our own default handler, i.e. ExitProcess, and a signaller killed by
+//    its own signal reports failure for a delivery that worked. So
+//    CTRL_C_EVENT it is, which is what a human presses anyway, arrives as
+//    SIGINT, and makes the Windows expectations identical to POSIX.
+//
+// What remains is a property of the machine, not of this code: does the
+// child land in a console of its own, or in the one the test runner is
+// sitting in? A console process whose parent has no console gets a fresh
+// console; otherwise it inherits its parent's. Firing into a shared
+// console would hit the runner, pnpm and the shell as well and take the
+// suite down, so this helper *measures* instead of assuming -- it borrows
+// the child's console, enumerates it with GetConsoleProcessList, and only
+// fires when nothing but the child is in there.
+//
+// HOW MUCH OF THIS IS ACTUALLY TESTED, given there is no Windows here.
+// The script below was run in a Linux PowerShell container with the five
+// kernel32 entry points replaced by a mock: its syntax parses, the
+// DllImport block really compiles under Add-Type, and each branch was
+// exercised -- no console, shared console, unreadable list, buffer too
+// small, generate failed, and the happy path. The one that matters most
+// is the negative: in every case except an isolated console the mock
+// recorded no event generated at all, so the refusal to signal a console
+// we share is a measured property rather than an intention.
+//
+// What that cannot cover is Win32 itself: whether the child lands in its
+// own console, whether the event is delivered, and whether Windows
+// PowerShell 5.1 (`powershell.exe`, what the runner has) behaves like the
+// 7.4 used for the mock run. Only CI can say. So an undeliverable event
+// is reported, never thrown, and the reason carries the console's process
+// list -- which turns a skip into a measurement of which world we are in.
 
 const { execFile } = require('node:child_process')
 
 const IS_WINDOWS = process.platform === 'win32'
 
-// The signal a real keyboard interrupt produces here, and the exit code
-// the handler is expected to leave behind: 128 + the signal number.
-const INTERRUPT = IS_WINDOWS
-  ? { name: /** @type {const} */ ('SIGBREAK'), code: 149 }
-  : { name: /** @type {const} */ ('SIGINT'), code: 130 }
-
-// Spread into the spawn options of any child this module will interrupt.
-// Empty on POSIX, so nothing about the existing tests changes there.
-const interruptibleSpawn = IS_WINDOWS ? { detached: true } : {}
-
-const CTRL_BREAK_EVENT = 1
+// CTRL_C_EVENT. The only group id it accepts is 0 ("the signal is
+// generated in all processes that share the console of the calling
+// process"), which is exactly the scope the check below establishes.
+const CTRL_C_EVENT = 0
+const ALL_IN_THIS_CONSOLE = 0
 
 /**
- * Deliver a real keyboard-style interrupt to an already-running child.
+ * Borrow the child's console, refuse to fire unless the child is alone in
+ * it, and otherwise raise a genuine Ctrl+C there.
+ *
+ * Here-strings are column-sensitive -- `'@` has to begin its own line at
+ * column zero -- so this block cannot be indented to match its context.
+ *
+ * `$PID` below is PowerShell's own process id; the child's is
+ * interpolated by JavaScript before PowerShell ever sees the script.
+ *
+ * @param {number} childPid
+ */
+function ctrlCScript (childPid) {
+  return `
+$ErrorActionPreference = 'Stop'
+$signature = @'
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool FreeConsole();
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool AttachConsole(uint dwProcessId);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool SetConsoleCtrlHandler(IntPtr handlerRoutine, bool add);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
+[DllImport("kernel32.dll", SetLastError = true)] public static extern uint GetConsoleProcessList(uint[] lpdwProcessList, uint dwProcessCount);
+'@
+$k32 = Add-Type -MemberDefinition $signature -Name 'QuayCtrl' -Namespace 'Quay' -PassThru
+
+# A process can be attached to at most one console, so drop whatever we
+# inherited before borrowing the child's.
+$null = $k32::FreeConsole()
+if (-not $k32::AttachConsole(${childPid})) {
+  # 6 = ERROR_INVALID_HANDLE, documented as "the specified process does
+  # not have a console", so no console event could ever reach it.
+  Write-Output ('no-console ' + [Runtime.InteropServices.Marshal]::GetLastWin32Error())
+  exit 0
+}
+
+# THE SAFETY CHECK. Group 0 means every process sharing this console, so
+# firing into a console we share with the test runner would take the whole
+# suite down with it. GetConsoleProcessList includes the caller, so the
+# child and this PowerShell are the only two pids allowed to be here.
+$buffer = [uint32[]]::new(64)
+$count = $k32::GetConsoleProcessList($buffer, 64)
+if ($count -eq 0 -or $count -gt 64) {
+  Write-Output ('unreadable-console ' + $count)
+  exit 0
+}
+$attached = @($buffer[0..($count - 1)])
+$strangers = @($attached | Where-Object { $_ -ne ${childPid} -and $_ -ne $PID })
+if ($strangers.Count -gt 0) {
+  Write-Output ('shared-console ' + ($attached -join ','))
+  exit 0
+}
+
+# Ignore the Ctrl+C we are about to raise, since we are in this console
+# too. This must come after AttachConsole: attaching "will reset the table
+# of control handlers in the client process to its initial state".
+$null = $k32::SetConsoleCtrlHandler([IntPtr]::Zero, $true)
+if ($k32::GenerateConsoleCtrlEvent(${CTRL_C_EVENT}, ${ALL_IN_THIS_CONSOLE})) {
+  Write-Output 'sent'
+} else {
+  Write-Output ('failed ' + [Runtime.InteropServices.Marshal]::GetLastWin32Error())
+}
+`
+}
+
+/**
+ * Deliver a real Ctrl-C to an already-running child.
  *
  * @param {import('node:child_process').ChildProcess} child
  * @returns {Promise<{ ok: true, reason?: undefined } | { ok: false, reason: string }>}
- *   `ok: false` means the OS would not let us generate the event at all,
- *   which is a property of the runner rather than of the code under test.
+ *   `ok: false` means the OS would not let us generate the event, which is
+ *   a property of the runner rather than of the code under test.
  *   (`reason?: undefined` on the success arm is not decoration: this repo
- *   typechecks with `strict: false`, and without `strictNullChecks` a
+ *   typechecks with `strict: false`, and without `strictNullChecks` an
  *   `if (!result.ok)` does not narrow a discriminated union. Declaring the
  *   property on both arms keeps the natural call site typechecking.)
  */
@@ -77,30 +161,14 @@ async function interrupt (child) {
 
   if (child.pid === undefined) return { ok: false, reason: 'the child has no pid to aim at' }
 
-  // Here-strings are column-sensitive: `'@` has to start its own line at
-  // column zero, so this block cannot be indented to match its context.
-  const script = `
-$ErrorActionPreference = 'Stop'
-$signature = @'
-[DllImport("kernel32.dll", SetLastError = true)]
-public static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
-'@
-$kernel32 = Add-Type -MemberDefinition $signature -Name 'QuayCtrl' -Namespace 'Quay' -PassThru
-if ($kernel32::GenerateConsoleCtrlEvent(${CTRL_BREAK_EVENT}, ${child.pid})) {
-  Write-Output 'sent'
-} else {
-  Write-Output ('failed ' + [Runtime.InteropServices.Marshal]::GetLastWin32Error())
-}
-`
-
   /** @type {{ stdout: string, stderr: string } | { failed: string }} */
   const result = await new Promise((resolve) => {
     execFile(
       'powershell.exe',
-      ['-NoProfile', '-NonInteractive', '-Command', script],
+      ['-NoProfile', '-NonInteractive', '-Command', ctrlCScript(child.pid)],
       { timeout: 20000 },
       (error, stdout, stderr) => {
-        if (error) resolve({ failed: `powershell could not run it: ${error.message}` })
+        if (error) resolve({ failed: `powershell could not run it: ${error.message}${stderr.trim() ? ` -- ${stderr.trim()}` : ''}` })
         else resolve({ stdout, stderr })
       }
     )
@@ -111,14 +179,20 @@ if ($kernel32::GenerateConsoleCtrlEvent(${CTRL_BREAK_EVENT}, ${child.pid})) {
   const output = result.stdout.trim()
   if (output === 'sent') return { ok: true }
 
-  // The interesting one. Error 6 (ERROR_INVALID_HANDLE) here means the
-  // runner has no console for the event to travel through, which is the
-  // anticipated skip rather than a bug in the handler.
+  // Every other branch is a measurement of this runner, so it is worth
+  // saying which one happened rather than just "could not send".
+  const [outcome, detail] = output.split(' ')
+  const explained = /** @type {Record<string, string>} */ ({
+    'no-console': `the child has no console, so no control event can reach it (AttachConsole error ${detail})`,
+    'shared-console': `the child shares a console with the test runner (pids ${detail}), and firing into it would have killed the suite`,
+    'unreadable-console': `GetConsoleProcessList returned ${detail}`,
+    failed: `GenerateConsoleCtrlEvent failed with Win32 error ${detail}`
+  })[outcome]
+
   return {
     ok: false,
-    reason: `GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, ${child.pid}) did not fire -- ${output || result.stderr.trim() || 'no output'}. ` +
-      'This is the console-attachment limit, not a cancellation failure: the event can only reach processes sharing the caller\'s console.'
+    reason: explained ?? `unexpected helper output ${JSON.stringify(output)}${result.stderr.trim() ? ` (stderr: ${result.stderr.trim()})` : ''}`
   }
 }
 
-module.exports = { INTERRUPT, interrupt, interruptibleSpawn, IS_WINDOWS }
+module.exports = { interrupt, IS_WINDOWS }

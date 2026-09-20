@@ -31,11 +31,12 @@
 #                                Windows and always did; SIGBREAK is
 #                                handled now; SIGTERM cannot fire there
 #                                and is inert rather than broken. The one
-#                                thing still unproven is whether this
-#                                runner has a console for the two
-#                                end-to-end cancel tests to send a real
-#                                CTRL_BREAK_EVENT through -- if not they
-#                                skip, with the reason, instead of failing.
+#                                thing still unproven is whether the two
+#                                end-to-end cancel tests can reach the CLI
+#                                with a real CTRL_C_EVENT, which needs the
+#                                child to be alone in its console. They
+#                                measure that and skip with the reason
+#                                when it does not hold, rather than fail.
 #
 # The failure this file is most likely to catch is not a logic bug. It is
 # a platform assumption written on a Mac -- which is exactly the class of
