@@ -80,7 +80,7 @@ a fact.
 | | MeshDrop | DashBeam | Quay today |
 |---|---|---|---|
 | Stack | Hyperswarm + Hyperbee, Noise | Iroh (QUIC/TLS 1.3, BLAKE3 blobs) | Hyperswarm, Noise |
-| Codes | `MD-` pair codes, single-use `DROP-` codes, HMAC challenge-response | tickets, links, QR, pairing + verification codes | 6-word code + QR, HMAC proof |
+| Codes | `MD-` pair codes, single-use `DROP-` codes, HMAC challenge-response | tickets, links, QR, pairing + verification codes | 5-word code (public nameplate + secret) + QR, CPace PAKE, attempt cap |
 | Discovery | mDNS + DHT + TCP relay | mDNS, relays (self-hostable) | DHT only |
 | Resume | yes | yes (BLAKE3) | no (W11) |
 | Approval gate | yes | yes, plus trusted auto-accept | no |
