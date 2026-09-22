@@ -202,6 +202,10 @@ class Channel {
     this._maxFrameSize = maxFrameSize
     this._out = new Nonces()
     this._in = new Nonces()
+    // Set by any failure to open, and never cleared. See _open: without
+    // this latch "a failed open is terminal" is a claim a comment makes
+    // and the code does not keep.
+    this._failed = false
     this.maxChunk = maxChunkSize(maxFrameSize)
 
     // Reuses ./frame.js unchanged, which is the point of that module
@@ -259,11 +263,13 @@ class Channel {
    * order, possibly several times for one chunk and possibly not at all.
    *
    * Throws rather than reporting: a frame that will not open is not a
-   * recoverable condition. See _open.
+   * recoverable condition, and once one has failed this channel refuses
+   * everything after it. See _open.
    *
    * @param {Buffer} chunk
    */
   push (chunk) {
+    if (this._failed) throw this._deadError()
     this._decoder.push(chunk)
   }
 
@@ -273,11 +279,24 @@ class Channel {
   }
 
   /**
+   * @returns {InstanceType<typeof TransferError>}
+   */
+  _deadError () {
+    return protocolError(
+      'this channel already failed to open a frame and refuses to carry on: ' +
+      'continuing past an authentication failure would silently skip the frame ' +
+      'that failed',
+      { framesReceived: this._in.count }
+    )
+  }
+
+  /**
    * @param {Buffer} sealed
    * @returns {{ type: number, body: Buffer }}
    */
   _open (sealed) {
     if (sealed.length < MIN_SEALED_SIZE) {
+      this._failed = true
       throw protocolError(
         `a ${sealed.length}-byte frame is too short to be sealed ` +
         `(at least ${MIN_SEALED_SIZE}: a type tag and a ${AEAD_TAG_SIZE}-byte authenticator)`
@@ -297,6 +316,7 @@ class Channel {
         decipher.final()
       ])
     } catch (err) {
+      this._failed = true
       // EVERY WAY THIS FAILS LOOKS THE SAME FROM HERE, AND THAT IS
       // CORRECT. A flipped bit, a truncated frame, a frame replayed or
       // reordered (the counter no longer matches), a frame sealed in the
@@ -313,12 +333,31 @@ class Channel {
       // 0x00 ever did. 0x00 stays reserved for the case where a frame does
       // open and still carries it.
       //
-      // AND IT IS TERMINAL. The receive counter has already advanced past
-      // this frame, so there is no way back to the stream's position even
-      // if a caller wanted to continue -- which it must not. Offering a
-      // resynchronisation window would mean holding state an attacker can
-      // aim at, and under UDX/Noise (reliable and ordered) there is no
-      // benign reason to need one.
+      // AND IT IS TERMINAL, which is what `_failed` above enforces. The
+      // counter advancing does NOT make it terminal -- that was the
+      // mistake this latch fixes. It makes it *recoverable*: the counter
+      // and the decoder's buffer are both left correctly positioned for
+      // the peer's next frame, so a caller that caught this error and
+      // carried on would silently SKIP the frame that failed and keep
+      // going. Against a forged or corrupted CHUNK that is a hole in the
+      // output file, caught later by the SHA-256 -- integrity by
+      // accident, reported as a hash mismatch rather than as tampering.
+      // Against a forged CANCEL or CHECKPOINT it is a no-op.
+      //
+      // Both current FrameDecoder callers do treat a throw as fatal, so
+      // the latch changes nothing today. It exists because that is a
+      // caller convention and this is a security boundary: the natural
+      // next edit -- a per-frame try/catch added to tolerate an
+      // unexpected-but-benign message type, of which v2 has just added
+      // five -- would turn the convention into a silent truncation. The
+      // rest of this module holds itself to making the dangerous thing
+      // inexpressible rather than merely discouraged (see Nonces), and
+      // this is the same standard applied to the same class of mistake.
+      //
+      // Offering a resynchronisation window would be the other way to go
+      // and is worse: it means holding state an attacker can aim at, and
+      // under UDX/Noise (reliable and ordered) there is no benign reason
+      // to need one.
       throw protocolError(
         'a frame failed to authenticate: it was altered, truncated, replayed, ' +
         'reordered, or sealed for the other direction. The channel is keyed by ' +

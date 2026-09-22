@@ -238,6 +238,59 @@ test('a reordered frame is refused, and so is a skipped one', () => {
   assert.throws(() => fresh.push(first), /failed to authenticate/)
 })
 
+test('a channel that failed to open a frame refuses everything after it', () => {
+  // THE TEST THAT SHOULD HAVE EXISTED WITH THE CLAIM. This module's
+  // comment asserted that a failed open is terminal, and it was not: the
+  // receive counter and the decoder's buffer are both left correctly
+  // positioned for the peer's NEXT frame, so a caller that caught the
+  // error and carried on would silently skip the frame that failed.
+  //
+  // Against a forged or corrupted CHUNK that is a hole in the output file,
+  // caught later by the SHA-256 -- integrity by accident, reported as a
+  // hash mismatch rather than as tampering. Against a forged CANCEL it is
+  // a no-op. Both current callers do treat a throw as fatal, so this was
+  // latent; it is a caller convention guarding a security boundary, and
+  // v2 has just added five message types whose handling is the natural
+  // place for someone to add a per-frame try/catch.
+  const { receiver, sender, atReceiver } = pair()
+  const first = sender.seal(TYPE_CHUNK, Buffer.from('one', 'utf8'))
+  const tampered = sender.seal(TYPE_CHUNK, Buffer.from('two', 'utf8'))
+  const third = sender.seal(TYPE_CHUNK, Buffer.from('three', 'utf8'))
+
+  receiver.push(first)
+  assert.equal(atReceiver.length, 1)
+
+  tampered[HEADER_SIZE + 2] ^= 0xff
+  assert.throws(() => receiver.push(tampered), /failed to authenticate/)
+
+  // The frame after the failure must NOT be delivered. Without the latch
+  // this push succeeds and atReceiver grows to 2 -- the whole defect.
+  assert.throws(() => receiver.push(third), /** @param {any} err */ (err) => {
+    assert.equal(err.code, 'ERR_PROTOCOL')
+    assert.match(err.message, /already failed to open a frame/)
+    return true
+  })
+  assert.equal(atReceiver.length, 1, 'no frame after a failed open may be delivered')
+
+  // And it stays refused, rather than the latch being a one-shot.
+  assert.throws(() => receiver.push(Buffer.alloc(0)), /already failed/)
+})
+
+test('the short-frame rejection is terminal too, not just the tag failure', () => {
+  // The two failure paths used to leave the counter in DIFFERENT states --
+  // the short-frame check throws before the counter advances, the tag
+  // failure after. That asymmetry meant "is the counter where it should
+  // be?" was not a usable proxy for "did this channel fail?", so the latch
+  // has to be set on both paths rather than inferred from the counter.
+  const { receiver, sender, atReceiver } = pair()
+  const runt = Buffer.alloc(HEADER_SIZE + MIN_SEALED_SIZE - 1)
+  runt.writeUInt32BE(MIN_SEALED_SIZE - 1, 0)
+
+  assert.throws(() => receiver.push(runt), /too short to be sealed/)
+  assert.throws(() => receiver.push(sender.seal(TYPE_CHUNK, Buffer.from('after', 'utf8'))), /already failed/)
+  assert.equal(atReceiver.length, 0)
+})
+
 test('a frame sealed under k_r2s does not open under k_s2r', () => {
   // Separate keys per direction, so a frame cannot be reflected back at
   // the peer that sent it. With one shared key this would open cleanly,

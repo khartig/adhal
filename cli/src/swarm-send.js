@@ -84,10 +84,20 @@ async function main () {
     process.exitCode = 1
     return
   }
-  // Echo the canonical form when it differs, so a code that was pasted as
-  // a QR payload or with odd separators visibly normalized to the same
-  // words the other device is showing.
-  if (code !== codeInput) console.log(`[swarm-send] code: ${code}`)
+  // Echo only the NAMEPLATE when the input needed normalizing, so a code
+  // pasted as a QR payload or with odd separators visibly resolved to the
+  // same rendezvous the other device is showing.
+  //
+  // THE SECRET IS NOT PRINTED, and that is the whole point of this line
+  // having been rewritten. It used to echo the full canonical code, which
+  // meant the three secret words went to stdout on exactly the inputs
+  // ./read-code.js exists to protect: a pasted QR payload and a code
+  // pasted out of a chat client both differ from canonical form, so
+  // `swarm-send - file` -- the mode whose entire purpose is that the
+  // secret never lands anywhere persistent -- wrote it into scrollback,
+  // tmux and script logs, and CI output. A sender has no reason to
+  // display the code at all: it is not showing it to anybody.
+  if (code !== codeInput) console.log(`[swarm-send] code resolved to nameplate ${nameplate} (secret not shown)`)
 
   const swarm = createSwarm({ bootstrap: parseBootstrap() })
   const cancel = installCancelHandler({ label: 'swarm-send' })

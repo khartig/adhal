@@ -439,6 +439,84 @@ test('a v1 six-word code is named as a version skew, not waved through as opaque
   assert.equal(resolveCode('one-two-three-four-five-zzzzz', { allowOpaque: true }).kind, 'opaque')
 })
 
+test('no refusal echoes the drop secret back to the terminal', () => {
+  // cli/src/read-code.js exists to keep a code off the screen, out of
+  // shell history and out of `ps` -- it reads from a TTY with echo off and
+  // warns when a code arrives in argv. Three error messages undid that by
+  // echoing the input verbatim, and they fired on exactly the shapes that
+  // mode is for: a stray separator, a pasted QR payload, a code pasted out
+  // of a chat client.
+  //
+  // The count and the position of a bad word are the diagnostics. The
+  // words are not, because three of them are the secret.
+  const code = generateCode()
+  const secret = splitCode(code).secret
+
+  /** @param {() => unknown} fn */
+  const messageFrom = (fn) => {
+    try { fn(); return null } catch (err) { return /** @type {Error} */ (err).message }
+  }
+
+  const messages = [
+    // A stray separator: 6 tokens, so this misses the word-code shape and
+    // lands in resolveCode's opaque refusal.
+    messageFrom(() => resolveCode(code.replace('-', '-x-'))),
+    // A dropped word: the wrong count, from parseCode.
+    messageFrom(() => parseCode(code.split('-').slice(0, 4).join('-'))),
+    // An extra word.
+    messageFrom(() => parseCode(code + '-agent')),
+    // A v1 six-word code.
+    messageFrom(() => resolveCode('acid-acorn-acre-acts-afar-agent'))
+  ]
+
+  for (const message of messages) {
+    assert.ok(message, 'each of these must actually throw')
+    assert.doesNotMatch(message, new RegExp(secret), `a refusal leaked the secret: ${message}`)
+    // And not the whole code either, which contains it.
+    assert.doesNotMatch(message, new RegExp(code))
+  }
+
+  // The diagnostics that remain must still be useful, or this is a
+  // regression dressed up as a fix.
+  assert.match(messages[1], /expected 5 words, got 4/)
+  assert.match(messages[2], /expected 5 words, got 6/)
+  assert.match(messages[0], /not a 5-word drop code/)
+
+  // The one place a word IS named stays: that word is by definition wrong,
+  // and naming it is the difference between a one-character fix and
+  // retyping the whole code off another device's screen.
+  const badWord = messageFrom(() => parseCode(code.split('-').map((w, i) => (i === 2 ? 'zzzzz' : w)).join('-')))
+  assert.match(badWord, /word 3 of 5, "zzzzz", is not in the word list/)
+})
+
+test('an opaque code is canonicalised, so the PAKE can actually use it', () => {
+  // A real bug, not tidying. The opaque code becomes the PAKE password and
+  // engine/src/handshake.js requires a canonical secret -- so a mixed-case
+  // opaque code resolved cleanly here and then threw a bare TypeError out
+  // of the join, advising the caller about "canonical form, as splitCode
+  // produces it" and naming a function that never runs on this path. A
+  // documented, deliberately-supported diagnostic input was unusable.
+  const lower = resolveCode('quay-test-3', { allowOpaque: true })
+  for (const variant of ['Quay-Test-3', 'QUAY-TEST-3', '  quay-TEST-3  ']) {
+    const resolved = resolveCode(variant, { allowOpaque: true })
+    assert.equal(resolved.kind, 'opaque')
+    assert.equal(resolved.secret, 'quay-test-3', `${variant} must canonicalise`)
+    // Same topic, which also removes v1's footgun here: v1 hashed exactly
+    // what it was given, so two machines disagreeing on case landed on
+    // unrelated topics and presented as a discovery timeout.
+    assert.equal(resolved.topic.toString('hex'), lower.topic.toString('hex'))
+  }
+
+  // Whitespace is REFUSED rather than collapsed, and the distinction is
+  // deliberate: an opaque code is an arbitrary string, so collapsing its
+  // separators would make two distinct diagnostic topics the same without
+  // saying so.
+  assert.throws(
+    () => resolveCode('quay test 3', { allowOpaque: true }),
+    /may not contain whitespace/
+  )
+})
+
 test('code generation draws on the whole word list without favoring its start', (t) => {
   // A smoke test for sampling bias, not a proof of uniformity. It exists
   // because 1295 is not a power of two: reducing random bytes modulo 1295

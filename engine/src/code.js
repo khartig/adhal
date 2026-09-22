@@ -142,10 +142,17 @@ function parseCode (input) {
   const words = rest.toLowerCase().split(/[\s\-_.]+/).filter((w) => w.length > 0)
 
   if (words.length !== WORD_COUNT) {
-    throw new Error(
-      `expected ${WORD_COUNT} words, got ${words.length}` +
-      (words.length > 0 ? ` (${words.join(SEPARATOR)})` : '')
-    )
+    // The count is the diagnostic. The words are NOT echoed: three of
+    // them are the drop secret, this message reaches stderr, and
+    // cli/src/read-code.js goes to real lengths to keep the code off the
+    // screen and out of shell history. Echoing it on a typo would undo
+    // that for the one input shape most likely to contain a typo.
+    //
+    // The sibling message below names the one word that is not in the
+    // list, which is different: that word is by definition wrong, and
+    // naming it is the difference between a one-character fix and
+    // retyping the whole code off another device's screen.
+    throw new Error(`expected ${WORD_COUNT} words, got ${words.length}`)
   }
 
   // Name the offending word and its position. This code was typed by hand

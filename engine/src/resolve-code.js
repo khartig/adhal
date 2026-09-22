@@ -104,7 +104,28 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
     return { code, nameplate, secret, topic: topicFromNameplate(nameplate), kind: 'words' }
   }
 
-  const code = input.trim()
+  // Lowercased, not merely trimmed, and this was a real bug rather than
+  // tidying. The opaque code becomes the PAKE password, and
+  // ./handshake.js requires a canonical secret -- so 'Quay-Test-3'
+  // resolved fine here and then threw a bare TypeError out of the join
+  // advising the caller about "canonical form, as splitCode produces it",
+  // naming a function that never runs on this path. A documented,
+  // deliberately-supported diagnostic input was unusable, in a confusing
+  // way.
+  //
+  // Lowercasing also removes the footgun v1 had here: v1's topicFromCode
+  // hashed exactly what it was given, so 'Quay-Test-3' on one machine and
+  // 'quay-test-3' on the other produced unrelated topics and a discovery
+  // timeout -- which resolve-code.js's own header calls the most
+  // expensive class of bug to misattribute in this codebase. Nothing
+  // regresses: every opaque code that worked before was already
+  // lowercase, and the ones that change were the ones that failed.
+  //
+  // Whitespace is NOT collapsed, deliberately: an opaque code is an
+  // arbitrary string and collapsing separators is what would make two
+  // distinct diagnostic topics silently the same. It is refused below
+  // instead, where the message can say so.
+  const code = input.trim().toLowerCase()
   if (code.length === 0) throw new Error('code is empty')
 
   // Reported before the opaque gate, and refused even when opaque codes
@@ -115,7 +136,7 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
   const tokens = code.toLowerCase().split(/[\s\-_.]+/).filter(Boolean)
   if (looksLikeV1Code(tokens)) {
     throw new Error(
-      `${JSON.stringify(code)} is a ${V1_WORD_COUNT}-word code from before the v2 wire ` +
+      `that is a ${V1_WORD_COUNT}-word code from before the v2 wire ` +
       `change; this build uses ${WORD_COUNT} words. It cannot be converted, because v2 ` +
       'derives its topic from only the first two words and feeds the rest to a PAKE. ' +
       'Redeploy both sides and generate a new code. Do NOT pass --unsafe-opaque to ' +
@@ -125,12 +146,31 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
   }
 
   if (!allowOpaque) {
+    // THE INPUT IS NOT ECHOED, and it used to be. A stray separator turns
+    // a valid code into a 6-token string that lands here, so this message
+    // put all five words -- secret included -- on stderr, undoing
+    // cli/src/read-code.js's whole reason for existing. The token count
+    // is the diagnostic; the words are not.
     throw new Error(
-      `${JSON.stringify(code)} is not a ${WORD_COUNT}-word drop code. Codes are generated, not ` +
+      `that is not a ${WORD_COUNT}-word drop code (it has ${tokens.length} ` +
+      'words or word-like parts). Codes are generated, not ' +
       'chosen: run the receiver with no argument and it will print one. ' +
       'If you meant to use an arbitrary string as a topic -- which is ' +
       'dictionary-attackable and only appropriate for diagnostics -- pass ' +
       '--unsafe-opaque or set QUAY_UNSAFE_OPAQUE=1.'
+    )
+  }
+
+  // Refused rather than silently mangled, for the reason the lowercasing
+  // above does not extend to whitespace: an opaque code is an arbitrary
+  // string, and collapsing its separators would make two distinct
+  // diagnostic topics the same without saying so. The PAKE needs a
+  // canonical secret, so this is the one shape that cannot be accepted.
+  if (/\s/.test(code)) {
+    throw new Error(
+      'an opaque code may not contain whitespace: it is used directly as the ' +
+      'PAKE secret, which must be canonical. Use hyphens instead ' +
+      '(e.g. quay-test-3).'
     )
   }
 
