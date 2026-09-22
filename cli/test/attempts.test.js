@@ -302,6 +302,73 @@ test('failed confirmations are counted, and the drop is burned with ERR_ATTEMPT_
   assert.equal(codes.filter((c) => c === ERR_CONFIRMATION).length, 2)
 })
 
+test('the backoff actually delays the receiver\'s HELLO, measured', slow, async (t) => {
+  // THE SCHEDULE IS UNIT-TESTED ABOVE; THIS TESTS THE WIRING, which is a
+  // different claim and was the one security behaviour here that would
+  // otherwise rest on reading the code. `delayMs()` returning 1500 proves
+  // nothing if swarm.js never consults it.
+  //
+  // Measured from the PEER's own 'connection' event rather than from the
+  // join, so DHT discovery and hole punching fall outside the interval --
+  // they take seconds and would swamp the signal. A naive
+  // measure-from-join version of this test passes whether or not the
+  // backoff exists, which is worse than no test.
+  const testnet = await createTestnet(3)
+  t.after(() => testnet.destroy())
+
+  const DELAY = 1500
+
+  /** @param {number} failures */
+  async function timeToHello (failures) {
+    const { nameplate, secret } = splitCode(generateCode())
+    const topic = topicFromNameplate(nameplate)
+    const rxSwarm = createSwarm({ bootstrap: testnet.bootstrap })
+    t.after(() => rxSwarm.destroy())
+
+    const cap = new AttemptCap({ baseDelayMs: DELAY, maxDelayMs: DELAY })
+    for (let i = 0; i < failures; i++) cap.fail()
+    assert.equal(cap.delayMs(), failures === 0 ? 0 : DELAY)
+
+    let announce
+    const announced = new Promise((resolve) => { announce = resolve })
+    acceptOnce(rxSwarm, topic, {
+      nameplate,
+      secret,
+      attemptCap: cap,
+      timeout: 30000,
+      onAnnounced: () => announce()
+    }).catch(() => {})
+    await announced
+
+    const peer = createSwarm({ bootstrap: testnet.bootstrap })
+    t.after(() => peer.destroy())
+    return new Promise((resolve) => {
+      peer.on('connection', (socket) => {
+        const connectedAt = Date.now()
+        socket.on('error', () => {})
+        socket.once('data', () => resolve(Date.now() - connectedAt))
+      })
+      peer.join(topic).flushed()
+    })
+  }
+
+  const clean = await timeToHello(0)
+  const delayed = await timeToHello(1)
+  t.diagnostic(`connection -> HELLO: ${clean}ms clean, ${delayed}ms after one failure`)
+
+  // Nothing has failed, so a legitimate peer is answered at once. This is
+  // the half that matters most: the defence must be invisible until there
+  // is something to defend against.
+  assert.ok(clean < 500, `an unpenalised peer waited ${clean}ms for HELLO`)
+
+  // And after one failure it waits, by about the configured amount. The
+  // band is generous on the upper side (timers overshoot under load) and
+  // tight on the lower, because the lower bound is the assertion: a
+  // backoff that is not applied shows up as a value near `clean`.
+  assert.ok(delayed >= DELAY - 100, `expected roughly ${DELAY}ms of backoff, waited ${delayed}ms`)
+  assert.ok(delayed - clean > DELAY / 2, `the delta was only ${delayed - clean}ms, so the backoff is not what caused it`)
+})
+
 test('a sender treats a reused sid as a failed attempt', slow, async (t) => {
   // Section 3.2's mitigation for a receiver-chosen sid, and the reason that
   // departure from the draft is acceptable: the receiver must compute the
