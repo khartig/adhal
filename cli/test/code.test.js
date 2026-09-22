@@ -398,6 +398,47 @@ test('resolveCode holds a five-word-shaped input to the strict parse', () => {
   )
 })
 
+test('a v1 six-word code is named as a version skew, not waved through as opaque', () => {
+  // THE MESSAGE HERE WAS A REAL DEFECT, not a nicety. A six-word code
+  // falls through resolveCode's word-code test (wrong count) and lands in
+  // the opaque branch, whose refusal ends by suggesting --unsafe-opaque.
+  // Following that suggestion makes the WHOLE code both nameplate and
+  // secret, publishing the secret inside the announced topic -- so the
+  // error was recommending the one action that voids v2's central
+  // property, to the one person most likely to take it: someone
+  // mid-upgrade with an old code still in their shell history.
+  const v1 = 'acid-acorn-acre-acts-afar-agent'
+
+  for (const opts of [{}, { allowOpaque: true }]) {
+    assert.throws(() => resolveCode(v1, opts), (err) => {
+      const message = /** @type {Error} */ (err).message
+      assert.match(message, /6-word code from before the v2 wire change/)
+      assert.match(message, /[Rr]edeploy both sides/)
+      // And it must actively warn AGAINST the workaround, not offer it.
+      assert.doesNotMatch(message, /pass --unsafe-opaque or set/)
+      assert.match(message, /Do NOT pass --unsafe-opaque/)
+      return true
+    }, `a v1 code must be refused with opts ${JSON.stringify(opts)}`)
+  }
+
+  // Refused even with opaque codes allowed, which is the part that
+  // matters: a v1 code is not a topic somebody chose, it is a code from a
+  // build that no longer interoperates.
+  assert.throws(() => resolveCode(v1.toUpperCase().replace(/-/g, ' '), { allowOpaque: true }), /before the v2 wire change/)
+
+  // NARROW, though: the hand-typed diagnostic secrets this repo's history
+  // actually contains must still work, or the check has broken the
+  // engine/scratch-*.js tools it was written to protect.
+  for (const diagnostic of ['quay-test-3', 'a3f9c2b18d7e4056', 'acid-acorn', 'trial-deadbeefdeadbeef']) {
+    assert.equal(resolveCode(diagnostic, { allowOpaque: true }).kind, 'opaque', diagnostic)
+  }
+
+  // Six tokens that are NOT all in the word list are an opaque secret,
+  // not a v1 code -- the check is on word-list membership precisely so it
+  // cannot swallow a six-part diagnostic string.
+  assert.equal(resolveCode('one-two-three-four-five-zzzzz', { allowOpaque: true }).kind, 'opaque')
+})
+
 test('code generation draws on the whole word list without favoring its start', (t) => {
   // A smoke test for sampling bias, not a proof of uniformity. It exists
   // because 1295 is not a power of two: reducing random bytes modulo 1295
