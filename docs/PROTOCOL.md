@@ -108,11 +108,46 @@ sides are already established.
 **One framing consequence, stated here because W11 will otherwise trip
 over it.** v1's three messages are all fixed sizes — 33, 64, 32 — which
 is why `engine/src/swarm.js:66-67` can hold them as compile-time
-constants and call `MessageReader.take(n)` with a literal. `REPLY`
-(32+32) and `CONFIRM` (32) stay fixed under v2. `HELLO` does not: `caps`
-is variable-length, so **`HELLO` carries its own length prefix** and the
-reader takes the prefix first. `MessageReader` already reads by byte
-count and needs no change; the constants do.
+constants and call `MessageReader.take(n)` with a literal. `CONFIRM` (32)
+stays fixed under v2. `HELLO` and `REPLY` do not: `caps` is
+variable-length, so **both carry their own length prefix** and the reader
+takes the prefix first. `MessageReader` already reads by byte count and
+needs no change; the constants do.
+
+> **Amended in W11, and the reason is a defect in this section.** As
+> frozen by W10, §3.1 fixed `REPLY` at 64 bytes — `{Yb 32, confirmS 32}`,
+> with no `caps_s` field. But §3.2 puts `ADb = lv_cat(version, caps_s)`
+> inside `transcript_ir`, derives `ISK` from that transcript, and MACs
+> `confirmS` under a key derived from `ISK`. So the receiver needs
+> `caps_s` in order to verify the confirmation that arrives *in* `REPLY`
+> — and `caps_s` was transmitted nowhere in the three-message handshake.
+> **§3.2's handshake was not implementable as §3.1 framed it.**
+>
+> The fix is to length-prefix `REPLY` as well, so it carries `caps_s`:
+>
+> ```
+> HELLO   = [2-byte BE len][version 1][sid 16][Ya 32][caps_r ...]   R -> S
+> REPLY   = [2-byte BE len][Yb 32][confirmS 32][caps_s ...]         S -> R
+> CONFIRM = [confirmR 32]                                           R -> S
+> ```
+>
+> `version = 0x02`; `caps` is capped at 128 bytes, so both bodies are
+> bounded and a peer cannot make us buffer.
+>
+> This preserves the property §3.1 actually calls load-bearing: the
+> receiver still writes first, the sender still reads first and writes on
+> answering. Checked against Hyperswarm's source rather than this
+> section's paraphrase of it — `hyperswarm/index.js:359` computes
+> `existingIsOutdated = existing.rawBytesRead > 0 && existing.rawBytesWritten > 0`
+> and line 361 falls back to an initiator comparison, so the tie-break
+> turns on *whether* bytes have moved, never on how many. A longer
+> `REPLY` cannot affect it.
+>
+> So "REPLY stays fixed" was a note about holding sizes as compile-time
+> constants (`swarm.js:66-67`), not a security claim. Recorded here
+> rather than edited away, for the same reason §8.2's wrong latency
+> estimate and the Node-version floor are: a spec that quietly rewrites
+> its own mistakes teaches a second implementer nothing.
 
 ### 3.2 Parameter mapping, transcript, and downgrade resistance
 

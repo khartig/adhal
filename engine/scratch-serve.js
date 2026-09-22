@@ -7,33 +7,37 @@
 //
 // It mimics acceptOnce's handshake (see engine/src/swarm.js) so a real
 // swarm-send.js can also connect to it -- it just won't read the file. That
-// now includes the code proof's code proof: what a genuine sender answers with is
-// an HMAC over our challenge, so this reports three outcomes rather than
-// two -- a real sender, a peer that answered but could not prove it knows
-// the code, and a raw dial that never answered at all.
+// includes v2's PAKE: what a genuine sender answers with is a REPLY
+// carrying Yb and a confirmation over the whole transcript, so this reports
+// three outcomes rather than two -- a real sender, a peer that answered but
+// could not confirm the secret, and a raw dial that never answered at all.
 //
 // Usage: node scratch-serve.js <code>
 //
-// <code> is a six-word drop code in any casing or separator style, or the
-// QR payload verbatim, or an opaque secret -- the same inputs swarm-send.js
-// accepts, normalized the same way. That matters: this used to hash the
-// argument literally, so an uppercased or space-separated code produced a
-// valid but different topic and this process would sit announcing on a
-// topic no sender was looking at, with nothing on screen to say so.
+// <code> is a five-word drop code in any casing or separator style, or the
+// QR payload verbatim, or an opaque secret -- the same inputs
+// swarm-send.js accepts, normalized the same way. That matters: this used
+// to hash the argument literally, so an uppercased or space-separated code
+// produced a valid but different topic and this process would sit
+// announcing on a topic no sender was looking at, with nothing on screen to
+// say so.
+//
+// WHY THIS FILE HAD TO CHANGE FOR v2, correcting a claim in
+// docs/ARCHITECTURE.md. That document said this tool needs no change across
+// wire breaks "because it never reads a frame". True for the type-tag
+// break, and FALSE for v2: this tool does not read frames, but it does
+// implement the handshake by hand, and v2 replaced all three of its
+// messages. It is now built on the same Initiator class swarm.js uses,
+// which is the only way to keep "a real sender can connect to this" true
+// without maintaining a second copy of the parameter mapping -- and a
+// second copy is exactly how a diagnostic starts lying about what the
+// product does.
 
 const Hyperswarm = require('hyperswarm')
 const os = require('node:os')
 const { resolveCode } = require('./src/resolve-code')
-const {
-  dropKey,
-  makeNonce,
-  bindPeers,
-  proveRole,
-  proofMatches,
-  MessageReader,
-  PROOF_SIZE,
-  NONCE_SIZE
-} = require('./src/proof')
+const { MessageReader } = require('./src/reader')
+const { Initiator, ERR_CONFIRMATION } = require('./src/handshake')
 
 const codeArg = process.argv[2]
 if (!codeArg) {
@@ -41,16 +45,14 @@ if (!codeArg) {
   process.exit(1)
 }
 
-let code, topic
+let code, topic, nameplate, secret
 try {
-  ({ code, topic } = resolveCode(codeArg, { allowOpaque: true }))
+  ({ code, topic, nameplate, secret } = resolveCode(codeArg, { allowOpaque: true }))
 } catch (err) {
   console.error(`scratch-serve: ${err.message}`)
   process.exit(1)
 }
 
-const READY = Buffer.from([0x01])
-const key = dropKey(code)
 const t0 = Date.now()
 const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a)
 
@@ -66,6 +68,8 @@ async function main () {
   // difference between the two machines is visible here rather than
   // showing up only as a topic that no sender is looking at.
   log(`code: ${code}`)
+  // Printed split, because under v2 only the first half is in the topic.
+  log(`nameplate: ${nameplate} (public)   secret: ${secret.length} chars (not shown)`)
   log(`topic: ${topic.toString('hex')}`)
 
   let n = 0
@@ -74,36 +78,53 @@ async function main () {
     log(`*** CONNECTION #${id} from ${peerInfo.publicKey.toString('hex').slice(0, 12)} ***`)
     socket.on('error', (err) => log(`  #${id} socket error: ${err.message}`))
     socket.on('close', () => log(`  #${id} closed`))
+
     // Distinguishing a real sender from a raw dial is the whole point of
     // running this: a raw dial (scratch-lookup.js --connect,
-    // scratch-hs-dial.js) proves the punch worked, while a valid proof
-    // shows the application handshake worked too. Read by byte count, not
-    // by chunk, for the reason engine/src/proof.js gives.
-    const nonceR = makeNonce()
-    const peers = bindPeers(socket, 'receiver')
+    // scratch-hs-dial.js) proves the punch worked, while a valid
+    // confirmation shows the application handshake worked too.
+    //
+    // Per connection, never hoisted out of this handler -- the same rule
+    // swarm.js follows, and for the same reason (PROTOCOL.md section 3.2
+    // trap #1). A long-lived diagnostic is the likeliest place to be
+    // tempted into caching a scalar, and it is the worst place to do it:
+    // this process may see dozens of connections.
+    const handshake = new Initiator({ secret, nameplate })
     const reader = new MessageReader()
     let answered = false
+
     socket.on('data', (chunk) => {
       if (answered) return
       reader.push(chunk)
-      const message = reader.take(PROOF_SIZE + NONCE_SIZE)
-      if (!message) return
-      answered = true
-      const theirProof = message.subarray(0, PROOF_SIZE)
-      const nonceS = message.subarray(PROOF_SIZE)
-      if (proofMatches(proveRole(key, 'sender', nonceR, peers), theirProof)) {
-        log(`  #${id} VALID PROOF -- a real sender completed the handshake`)
-        // Answer, so the sender's own connectOnce resolves and it reports
-        // success too. Without this the far side would discard us and keep
-        // looking, which looks identical to a failure on its screen.
-        socket.write(proveRole(key, 'receiver', nonceS, peers))
-      } else {
-        log(`  #${id} BAD PROOF -- answered the challenge but does not know the code`)
-        log('       (or is running a build from before the proof landed)')
+      let confirmed
+      try {
+        confirmed = handshake.readReply(reader)
+      } catch (err) {
+        answered = true
+        if (err.code === ERR_CONFIRMATION) {
+          log(`  #${id} BAD CONFIRMATION -- answered, but does not know the secret`)
+          log('       (or is running a build from before the v2 wire change)')
+        } else {
+          log(`  #${id} REPLY REJECTED -- ${err.message}`)
+        }
+        return
       }
+      if (!confirmed) return // still arriving; read by byte count, not by chunk
+
+      answered = true
+      log(`  #${id} VALID CONFIRMATION -- a real sender completed the handshake`)
+      log(`       caps in common: ${confirmed.caps.length ? confirmed.caps.join(',') : '(none)'}`)
+      // Answer, so the sender's own connectOnce resolves and it reports
+      // success too. Without this the far side would discard us and keep
+      // looking, which looks identical to a failure on its screen.
+      socket.write(confirmed.confirm)
+      // The channel keys are derived and deliberately unused: this tool
+      // never reads a frame, and under v2 it could not read a sealed one
+      // without becoming a second implementation of the transfer path.
     })
-    socket.write(Buffer.concat([READY, nonceR]))
-    log(`  #${id} wrote READY + challenge, staying open`)
+
+    socket.write(handshake.hello())
+    log(`  #${id} wrote HELLO (sid ${handshake.sid.toString('hex').slice(0, 8)}...), staying open`)
   })
 
   const discovery = swarm.join(topic)

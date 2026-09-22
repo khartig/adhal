@@ -3,14 +3,14 @@
 
 // The Hyperswarm work sender half. Usage: swarm-send.js <code> <filePath>
 //
-// The code may be six words (the drop code) in any casing or separator style, or
-// the QR payload pasted verbatim -- 'QUAY1:ACID-ACORN-...' -- since that
-// decodes to the same thing a scanner would hand a UI. See
+// The code may be five words (the drop code) in any casing or separator
+// style, or the QR payload pasted verbatim -- 'QUAY2:ACID-ACORN-...' --
+// since that decodes to the same thing a scanner would hand a UI. See
 // engine/src/resolve-code.js for how that is distinguished from an opaque secret.
 //
 // See swarm-receive.js for the QUAY_BOOTSTRAP override.
 
-const { createSwarm, connectOnce, sendFile, resolveCode, dropKey, displayName } = require('@quay/engine')
+const { createSwarm, connectOnce, sendFile, resolveCode, displayName } = require('@quay/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
@@ -76,9 +76,9 @@ async function main () {
 
   // A mistyped word is reported here, before any network work, rather than
   // surfacing 120 seconds later as a peer-discovery timeout.
-  let topic, code
+  let topic, code, nameplate, secret
   try {
-    ({ topic, code } = resolveCode(codeInput, { allowOpaque: allowOpaque || undefined }))
+    ({ topic, code, nameplate, secret } = resolveCode(codeInput, { allowOpaque: allowOpaque || undefined }))
   } catch (err) {
     console.error(`[swarm-send] ${err.message}`)
     process.exitCode = 1
@@ -98,11 +98,13 @@ async function main () {
 
   try {
     const { socket, peerInfo, pending } = await connectOnce(swarm, topic, {
-      // Proves the peer knows the code before we transmit a byte of the
-      // file to it. The topic alone is public once the receiver announces,
-      // so without this we would hand the file to whoever answered first.
-      // See engine/src/proof.js.
-      key: dropKey(code),
+      // Proves the peer knows the drop secret before we transmit a byte of
+      // the file to it. The topic alone is public once the receiver
+      // announces -- it commits to the nameplate, which is a rendezvous
+      // label and not a secret -- so without this we would hand the file to
+      // whoever answered first. See engine/src/handshake.js.
+      nameplate,
+      secret,
       timeout: joinTimeout(),
       refreshInterval: refreshInterval(),
       // Ctrl-C while still looking for a peer. This is the likeliest
@@ -114,7 +116,7 @@ async function main () {
       // that all died before confirming" is indistinguishable from
       // "never found anyone".
       onCandidate: (info) => {
-        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., awaiting READY + challenge`)
+        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., awaiting HELLO`)
       },
       onCandidateDropped: (info, reason) => {
         console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before proving (${reason}); still looking`)

@@ -332,6 +332,20 @@ toward 4 GB.
 redeployed peer: it only speaks the handshake and never reads a frame.
 That makes it the right tool to reach for during a skewed rollout.
 
+> **Corrected in W11.** That was true for the type-tag break and is
+> **false for v2.** The claim conflates two things: `scratch-serve.js`
+> indeed never reads a frame, but it *hand-implements the handshake*, and
+> v2 replaced all three of its messages. It had to be rewritten.
+>
+> It is now built on the same `Initiator` class `swarm.js` uses, rather
+> than on its own copy of the parameter mapping — which is the only way
+> "a real `swarm-send.js` can connect to this" stays true across the next
+> break as well. A second copy of a handshake is how a diagnostic starts
+> quietly lying about what the product does.
+>
+> The generalisation worth keeping: a tool is insulated from a wire break
+> by not implementing the wire, not by not reading frames.
+
 ### Error codes
 
 `engine/src/errors.js` defines one `TransferError` with a machine-readable

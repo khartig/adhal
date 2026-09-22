@@ -26,17 +26,18 @@
 //
 // A 64-hex topic is enough for the default mode, which only observes
 // dials. --connect-once needs the CODE, not just the topic: the real
-// connectOnce now has to prove it knows the code (the code proof,
-// engine/src/proof.js), and the topic alone -- which is public once the
-// receiver announces -- cannot produce that proof. That is the point of
-// the proof, so this tool is not given a way around it.
+// connectOnce runs v2's PAKE (engine/src/handshake.js), whose password is
+// the SECRET half of the code. The topic commits only to the nameplate and
+// is public once the receiver announces, so it cannot produce a
+// confirmation. That is the point of the handshake, so this tool is not
+// given a way around it.
 //
 // --connect-once replaces this tool's own bare 'connection' listener with
 // the REAL connectOnce() from engine/src/swarm.js, wired to the same
 // logging. That is the apples-to-apples comparison: without the flag, a
 // success proves only that Hyperswarm can reach the peer; with it, a
 // success means the engine's own code path completed the readiness
-// handshake and the code proof. If the plain run connects and the
+// handshake and the PAKE confirmation. If the plain run connects and the
 // --connect-once run does not, the fault is in our code, and this narrows
 // it to connectOnce without needing another cross-network round trip.
 //
@@ -51,7 +52,6 @@ const DHT = require('hyperdht')
 const os = require('node:os')
 const { createSwarm, connectOnce } = require('./src/swarm')
 const { resolveCode } = require('./src/resolve-code')
-const { dropKey } = require('./src/proof')
 
 const target = process.argv[2]
 const secondsFlag = process.argv.indexOf('--seconds')
@@ -60,24 +60,25 @@ const USE_CONNECT_ONCE = process.argv.includes('--connect-once')
 
 if (!target) {
   console.error('Usage: scratch-swarm-dial.js <topic-hex | code> [--seconds 60] [--connect-once]')
-  console.error('Get the topic from: node cli/src/code.js <six-word-code>')
+  console.error('Get the topic from: node cli/src/code.js <five-word-code>')
   process.exit(1)
 }
 
-// Either input works for observing dials; only a code can produce the
-// proof --connect-once needs. Told apart by shape, for the reason
+// Either input works for observing dials; only a code carries the secret
+// --connect-once needs. Told apart by shape, for the reason
 // engine/src/resolve-code.js gives: guessing would hash a mistyped code
 // into a valid-but-wrong topic and present as a discovery failure.
 const isTopicHex = /^[0-9a-f]{64}$/i.test(target)
 if (isTopicHex && USE_CONNECT_ONCE) {
   console.error('--connect-once needs the code, not a topic hex: the real')
-  console.error('connectOnce must prove it knows the code (engine/src/proof.js),')
-  console.error('and the topic is public once the receiver announces it.')
+  console.error('connectOnce runs the PAKE in engine/src/handshake.js, whose')
+  console.error('password is the secret half of the code. The topic commits only')
+  console.error('to the nameplate and is public once the receiver announces it.')
   process.exit(1)
 }
 
-const topic = isTopicHex ? Buffer.from(target, 'hex') : resolveCode(target, { allowOpaque: true }).topic
-const key = isTopicHex ? null : dropKey(resolveCode(target, { allowOpaque: true }).code)
+const resolved = isTopicHex ? null : resolveCode(target, { allowOpaque: true })
+const topic = resolved ? resolved.topic : Buffer.from(target, 'hex')
 const topicHex = topic.toString('hex')
 const t0 = Date.now()
 const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a)
@@ -117,17 +118,18 @@ async function main () {
     // handshake, so a failure here is a failure of the real sender.
     log('MODE: using the REAL connectOnce() from engine/src/swarm.js')
     connectOnce(swarm, topic, {
-      key,
+      nameplate: resolved.nameplate,
+      secret: resolved.secret,
       timeout: RUN_SECONDS * 1000,
-      onCandidate: (info) => log(`   connectOnce candidate ${short(info.publicKey)}, awaiting READY + challenge`),
-      onCandidateDropped: (info, reason) => log(`   connectOnce dropped ${short(info.publicKey)} before proving (${reason})`)
+      onCandidate: (info) => log(`   connectOnce candidate ${short(info.publicKey)}, awaiting HELLO`),
+      onCandidateDropped: (info, reason, code) => log(`   connectOnce dropped ${short(info.publicKey)} before confirming (${code || 'no code'}: ${reason})`)
     }).then(
       ({ socket, peerInfo }) => {
         handshakeOutcome = 'RESOLVED'
         log(`*** connectOnce RESOLVED with ${short(peerInfo.publicKey)} ***`)
-        log('    the engine completed the handshake and the code proof')
+        log('    the engine completed the handshake and the PAKE confirmation')
         socket.on('error', () => {})
-        // end(), not destroy(). connectOnce writes its proof immediately
+        // end(), not destroy(). connectOnce writes its REPLY immediately
         // before resolving, and destroy() discards unflushed bytes -- which
         // threw that write away and made the far side report "connection
         // reset by peer" instead of confirming the handshake, defeating the
@@ -142,7 +144,7 @@ async function main () {
   } else {
     swarm.on('connection', (socket, peerInfo) => {
       log(`*** CONNECTION from ${short(peerInfo.publicKey)} (client=${peerInfo.client}) ***`)
-      log('    a real drop would now exchange the code proof; this tool deliberately does not')
+      log('    a real drop would now run the PAKE; this tool deliberately does not')
       socket.on('error', () => {})
       // Report what the receiver sends us, which should be READY (0x01).
       socket.once('data', (chunk) => {

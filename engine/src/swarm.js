@@ -2,38 +2,42 @@
 
 const Hyperswarm = require('hyperswarm')
 const { TransferError, abortError } = require('./errors')
-const {
-  makeNonce,
-  bindPeers,
-  proveRole,
-  proofMatches,
-  MessageReader,
-  NONCE_SIZE,
-  PROOF_SIZE,
-  PROOF_FAILED
-} = require('./proof')
+const { MessageReader } = require('./reader')
+const { Initiator, Responder, assertHandshakeInputs } = require('./handshake')
 
-// The readiness handshake, which is also the code-proof exchange (the code proof,
-// data path step 3). The receiver writes READY once its connection is
-// confirmed stable; three messages later both sides have proven to each
-// other that they know the drop code, and only then does either treat the
-// peer as real.
+// The readiness handshake, which is also v2's PAKE exchange. The receiver
+// writes HELLO once its connection is confirmed stable; three messages
+// later both sides have proven to each other that they know the drop
+// secret, and only then does either treat the peer as real.
 //
-//   receiver -> sender:  READY || nonceR                    (1 + 32 bytes)
-//   sender   -> receiver: proof("s", nonceR) || nonceS      (32 + 32 bytes)
-//   receiver -> sender:  proof("r", nonceS)                 (32 bytes)
+//   receiver -> sender:  HELLO   [len][version][sid][Ya][caps_r]
+//   sender   -> receiver: REPLY  [len][Yb][confirmS][caps_s]
+//   receiver -> sender:  CONFIRM [confirmR]                    (32 bytes)
 //
-// where proof() is HMAC under a key derived from the code and bound to
-// this Noise session -- see ./proof.js, which carries the reasoning for
-// every part of that construction, including why it is mutual and what it
-// deliberately does not defend against.
+// where the derivation is CPACE-X25519-SHA512 under the Quay parameter
+// mapping in ./handshake.js, which carries the reasoning for every part of
+// that construction -- including the four things PROTOCOL.md section 3.2
+// says an implementation must get right, and which of them this file is
+// responsible for (trap #1: the per-connection scalars below).
 //
-// This replaces a constant ACK byte that proved nothing, and it keeps that
-// byte's structure exactly: same round trips, same "this candidate
-// confirmed" state, same discard-and-keep-waiting response when a
-// candidate fails. A peer that fails the proof is discarded by the identical
-// path as a peer whose punch died, so the resilience below is reused rather
-// than duplicated -- it is only the reason string that differs.
+// WHAT THIS REPLACED, AND WHY. v1 exchanged HMACs over nonces, keyed by
+// the whole code and bound to the Noise session. Both halves of that were
+// wrong for v2. Keying on the whole code was useless as a defence, because
+// v1's topic was hash(code || salt) and a receiver must announce it --
+// so an attacker could grind candidate codes offline and never touch a
+// peer. Binding to the Noise session made security depend on which
+// transport carried the bytes, which a relay or a browser would have to
+// reinvent (section 3.3).
+//
+// WHAT IS UNCHANGED, AND IT IS THE POINT. Same three messages, same
+// first-read and first-write points, same "this candidate confirmed"
+// state, same discard-and-keep-waiting response when a candidate fails. A
+// peer that fails its confirmation is discarded by the identical path as a
+// peer whose punch died, so the resilience below is reused rather than
+// duplicated -- it is only the reason string and the countability (W11d)
+// that differ. Section 3.1 explains why not moving those points matters:
+// Hyperswarm's duplicate tie-break destroys a connection that has written
+// but not yet read.
 //
 // The ACK half was added after a cross-ISP failure that neither side
 // reported honestly. The receiver used to resolve on its *first*
@@ -56,15 +60,13 @@ const {
 // With a confirming answer, "this candidate confirmed" is a state both
 // sides agree on, so both can discard a candidate that fails and wait for
 // the next one.
-const READY = Buffer.from([0x01])
-
-// Exact sizes of the three messages. The old handshake could read each of
-// its messages out of a single `socket.once('data')`, because a one-byte
-// message cannot arrive split. These can -- and can arrive coalesced with
-// what follows -- so both sides read by byte count via MessageReader
-// instead of assuming one chunk is one message.
-const HELLO_SIZE = 1 + NONCE_SIZE
-const SENDER_PROOF_SIZE = PROOF_SIZE + NONCE_SIZE
+//
+// The message sizes are no longer compile-time constants here: HELLO and
+// REPLY are length-prefixed because `caps` is variable-length, so
+// ./handshake.js reads the prefix and bounds the body itself. Both sides
+// still read by byte count via MessageReader rather than assuming one
+// chunk is one message -- nothing in v2's handshake is one byte, so every
+// message can arrive split or coalesced with what follows.
 
 // How many connection attempts Hyperswarm may have in flight at once.
 //
@@ -231,7 +233,7 @@ function timeoutMessage (phase, timeout, candidates) {
   return `timed out after ${timeout}ms ${phase}: ${candidates} peer(s) connected ` +
     'but none completed the readiness handshake -- discovery and hole punching ' +
     'worked, so this is a handshake or application-layer failure, not a DHT one ' +
-    '(the per-candidate lines say which of them failed the code proof)'
+    '(the per-candidate lines say which of them failed the PAKE confirmation)'
 }
 
 // The same distinction, carried as a code rather than as prose.
@@ -276,26 +278,40 @@ function timeoutError (phase, timeout, candidates) {
  * @param {InstanceType<typeof Hyperswarm>} swarm
  * @param {Buffer} topic
  * @param {{
- *   key: Buffer,
+ *   secret: string,
+ *   nameplate: string,
  *   timeout?: number,
  *   refreshInterval?: number,
  *   handshakeTimeout?: number,
  *   signal?: AbortSignal,
  *   onAnnounced?: () => void,
  *   onCandidate?: (peerInfo: any) => void,
- *   onCandidateDropped?: (peerInfo: any, reason: string) => void
- * }} options not optional, because `key` is not: see below
- *   `key` is the drop key from dropKey(code) -- see ./proof.js
- * @returns {Promise<{ socket: any, peerInfo: any, pending: Buffer | null }>}
+ *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void
+ * }} options not optional, because `secret` and `nameplate` are not
+ *   `secret` and `nameplate` are the two halves of the drop code -- see
+ *   splitCode in ./code.js and resolveCode in ./resolve-code.js. The
+ *   secret is the PAKE password and must be the canonical form.
+ * @returns {Promise<{
+ *   socket: any, peerInfo: any, pending: Buffer | null,
+ *   sendKey: Buffer, receiveKey: Buffer, caps: string[]
+ * }>}
+ *   `sendKey`/`receiveKey` are this side's directional channel keys
+ *   (k_r2s and k_s2r respectively for a receiver). NOTHING IS SEALED WITH
+ *   THEM YET -- see the note where they are resolved.
  */
-function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, signal, onAnnounced, onCandidate, onCandidateDropped }) {
-  // Required, not defaulted. A missing key can only mean a caller that was
-  // not updated for the code proof, and the failure mode of quietly carrying on
-  // without one is the exact hole this function exists to close: it would
-  // accept any stranger who found the topic, silently and forever.
-  if (!Buffer.isBuffer(key)) {
-    throw new TypeError('acceptOnce requires a drop key (see dropKey in ./proof.js)')
-  }
+function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, signal, onAnnounced, onCandidate, onCandidateDropped }) {
+  // Validated up front rather than per connection, and required rather
+  // than defaulted. A missing secret can only mean a caller that was not
+  // updated for v2, and the failure mode of quietly carrying on without
+  // one is the exact hole this function exists to close: it would accept
+  // any stranger who found the topic, silently and forever.
+  //
+  // Up front matters as much as strict: the per-connection construction
+  // below would throw identically for every candidate, so a bad secret
+  // would present as "every peer failed the handshake" -- the most
+  // expensive misdiagnosis available, because it looks like a network
+  // problem.
+  assertHandshakeInputs(secret, nameplate)
   return new Promise((resolve, reject) => {
     let settled = false
     let candidates = 0
@@ -338,15 +354,19 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
       candidates++
       if (onCandidate) onCandidate(peerInfo)
 
-      // Fresh per candidate, so a proof harvested from one attempt is
-      // worthless against the next. That matters here more than it might
-      // look: a topic routinely accumulates several dials (see
-      // MAX_PARALLEL), so "the same challenge twice" would otherwise be a
-      // normal occurrence rather than an exotic one.
-      const nonceR = makeNonce()
+      // SECTION 3.2 TRAP #1, AND THE LINE THAT SATISFIES IT. Constructing
+      // the Initiator here -- inside the per-connection handler -- is what
+      // makes `ya` and `sid` per connection rather than per drop. Draft
+      // section 9.9 makes scalar reuse a MUST NOT, and this engine is
+      // unusually exposed to it: a topic routinely accumulates several
+      // dials (see MAX_PARALLEL) and Hyperswarm produces two connections
+      // per peer, so hoisting this out of the handler to save 2 ms would
+      // not be an exotic slip -- reuse would be the ordinary case.
+      //
+      // It is also why ./handshake.js offers no way to inject a scalar or
+      // a sid: there is no correct caller for one.
+      const handshake = new Initiator({ secret, nameplate })
       const reader = new MessageReader()
-      /** @type {{ receiver: Buffer, sender: Buffer }} */
-      let peers
 
       // See HANDSHAKE_TIMEOUT_MS: a candidate that goes quiet mid-
       // handshake is dropped on its own schedule rather than holding a
@@ -369,10 +389,12 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
       // goes away never raises an error at all, and treating that as
       // success is precisely the bug this function used to have.
       //
-      // A candidate that fails the proof takes this same path, deliberately:
-      // an attacker must not be able to end a drop just by connecting to it
-      // and failing. It is reported with PROOF_FAILED so it is
-      // distinguishable in the log from a dead punch.
+      // A candidate that fails its confirmation takes this same path. It is
+      // reported with CONFIRMATION_FAILED, and with a code, so that it is
+      // distinguishable in the log from a dead punch -- and so that W11d
+      // can count the one without counting the other. Counting dropped
+      // candidates would let the DHT's own stale announces burn a
+      // legitimate drop (section 6).
       function onFailed (err) {
         if (settled) return
         detach()
@@ -392,22 +414,32 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
         socket.on('error', () => {})
         socket.destroy()
         if (onCandidateDropped) {
-          onCandidateDropped(peerInfo, err ? err.message : 'closed before confirming')
+          onCandidateDropped(
+            peerInfo,
+            err ? err.message : 'closed before confirming',
+            err ? err.code : undefined
+          )
         }
+
       }
 
       function onData (chunk) {
         if (settled) return
         reader.push(chunk)
-        const message = reader.take(SENDER_PROOF_SIZE)
-        if (!message) return // still arriving; wait for the rest
 
-        const theirProof = message.subarray(0, PROOF_SIZE)
-        const nonceS = message.subarray(PROOF_SIZE)
-        if (!proofMatches(proveRole(key, 'sender', nonceR, peers), theirProof)) {
-          onFailed(new Error(PROOF_FAILED))
+        /** @type {ReturnType<InstanceType<typeof Initiator>['readReply']>} */
+        let confirmed
+        try {
+          confirmed = handshake.readReply(reader)
+        } catch (err) {
+          // Covers a failed confirmation, a malformed or non-canonical
+          // caps field, a REPLY whose declared length is out of range, and
+          // the draft's neutral-element abort. All of them mean "this
+          // candidate is not the peer", and all take the discard path.
+          onFailed(err)
           return
         }
+        if (!confirmed) return // still arriving; wait for the rest
 
         detach()
         // Stop the flow until the caller has attached its own reader.
@@ -417,29 +449,36 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
         socket.pause()
         finish()
         swarm.removeListener('connection', onConnection)
-        // Answer the sender's challenge. Written before resolving so the
-        // sender is released into sendFile only after we are on our way
-        // into receiveFile.
-        socket.write(proveRole(key, 'receiver', nonceS, peers))
-        // Anything the sender coalesced after its proof. It cannot be
+        // CONFIRM. Written before resolving so the sender is released into
+        // sendFile only after we are on our way into receiveFile.
+        socket.write(confirmed.confirm)
+        // Anything the sender coalesced after its REPLY. It cannot be
         // manifest bytes in a correct exchange -- the sender does not write
-        // those until our answer arrives -- but handing leftovers back
+        // those until our CONFIRM arrives -- but handing leftovers back
         // rather than swallowing them is the contract receiveFile's
         // `pending` was built on, and it stays honest if that order ever
         // changes.
-        resolve({ socket, peerInfo, pending: reader.rest() })
+        //
+        // THE CHANNEL IS NOT SEALED YET, and the keys below must not be
+        // read as saying otherwise. This commit puts v2's handshake on the
+        // wire; ./transfer.js still writes cleartext frames over Noise, so
+        // the posture is v1's channel under strictly stronger
+        // authentication. sendKey/receiveKey are derived, returned, and
+        // unused until ./channel.js is wired into transfer.js in W11's
+        // second pass. Nothing is released between commits, so this costs
+        // no compatibility.
+        resolve({
+          socket,
+          peerInfo,
+          pending: reader.rest(),
+          sendKey: confirmed.sendKey,
+          receiveKey: confirmed.receiveKey,
+          caps: confirmed.caps
+        })
       }
 
       socket.once('error', onFailed)
       socket.once('close', onFailed)
-
-      try {
-        peers = bindPeers(socket, 'receiver')
-      } catch (err) {
-        onFailed(err)
-        return
-      }
-
       socket.on('data', onData)
 
       // The server side's 'connection' event only fires once the
@@ -448,8 +487,8 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
       // client starts writing before the server-side confirmation is
       // truly done, the server never sees the connection at all). Signal
       // readiness so connectOnce's sender knows it's now safe to write,
-      // and carry our challenge in the same message.
-      socket.write(Buffer.concat([READY, nonceR]))
+      // and carry Ya, the sid and our capabilities in the same message.
+      socket.write(handshake.hello())
     }
 
     swarm.on('connection', onConnection)
@@ -494,23 +533,27 @@ function acceptOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REF
  * @param {InstanceType<typeof Hyperswarm>} swarm
  * @param {Buffer} topic
  * @param {{
- *   key: Buffer,
+ *   secret: string,
+ *   nameplate: string,
  *   timeout?: number,
  *   refreshInterval?: number,
  *   handshakeTimeout?: number,
  *   signal?: AbortSignal,
  *   onCandidate?: (peerInfo: any) => void,
- *   onCandidateDropped?: (peerInfo: any, reason: string) => void
- * }} options not optional, because `key` is not: see below
- *   `key` is the drop key from dropKey(code) -- see ./proof.js
- * @returns {Promise<{ socket: any, peerInfo: any, pending: Buffer | null }>}
+ *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void
+ * }} options not optional, because `secret` and `nameplate` are not
+ * @returns {Promise<{
+ *   socket: any, peerInfo: any, pending: Buffer | null,
+ *   sendKey: Buffer, receiveKey: Buffer, caps: string[]
+ * }>}
+ *   For a sender, `sendKey` is k_s2r and `receiveKey` is k_r2s -- the
+ *   mirror of acceptOnce's view. Nothing is sealed with them yet.
  */
-function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, signal, onCandidate, onCandidateDropped }) {
-  // See acceptOnce: required rather than defaulted, because carrying on
-  // without a key would silently hand a file to whoever answered.
-  if (!Buffer.isBuffer(key)) {
-    throw new TypeError('connectOnce requires a drop key (see dropKey in ./proof.js)')
-  }
+function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, signal, onCandidate, onCandidateDropped }) {
+  // See acceptOnce: required rather than defaulted, and validated up
+  // front, because carrying on without a secret would silently hand a file
+  // to whoever answered.
+  assertHandshakeInputs(secret, nameplate)
   return new Promise((resolve, reject) => {
     let settled = false
     let candidates = 0
@@ -559,11 +602,12 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
       // Treat it as "this candidate didn't work out", not as a fatal drop
       // failure: drop the dead socket, stay joined, and keep waiting for
       // the next candidate until the timeout fires.
+      // Per connection, for the reason acceptOnce's copy of this spells
+      // out: `yb` must not be reused across candidates, and a sender dials
+      // every candidate it discovers.
+      const handshake = new Responder({ secret, nameplate })
       const reader = new MessageReader()
-      /** @type {{ receiver: Buffer, sender: Buffer }} */
-      let peers
-      /** @type {Buffer | null} */
-      let nonceS = null
+      let replied = false
 
       // See HANDSHAKE_TIMEOUT_MS, and acceptOnce's copy of this.
       const deadline = handshakeTimeout
@@ -597,44 +641,47 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
         socket.on('error', () => {})
         socket.destroy()
         if (onCandidateDropped) {
-          onCandidateDropped(peerInfo, err ? err.message : 'closed before confirming')
+          onCandidateDropped(
+            peerInfo,
+            err ? err.message : 'closed before confirming',
+            err ? err.code : undefined
+          )
         }
       }
 
-      // Two reads, in order, off one listener: the receiver's READY and
-      // challenge, then its answer to ours. Waiting for READY before
-      // writing anything is load-bearing beyond the proof -- writing
-      // immediately after the 'connection' event can prevent the server
-      // from ever confirming the connection (see acceptOnce).
+      // Two reads, in order, off one listener: the receiver's HELLO, then
+      // its CONFIRM. Waiting for HELLO before writing anything is
+      // load-bearing beyond the handshake -- writing immediately after the
+      // 'connection' event can prevent the server from ever confirming the
+      // connection (see acceptOnce).
       function onData (chunk) {
         if (settled) return
         reader.push(chunk)
 
-        if (nonceS === null) {
-          const hello = reader.take(HELLO_SIZE)
-          if (!hello) return
-          if (hello[0] !== READY[0]) {
-            onFailed(new Error(`expected READY, got 0x${hello[0].toString(16)}`))
-            return
+        /** @type {ReturnType<InstanceType<typeof Responder>['readConfirm']>} */
+        let confirmed
+        try {
+          if (!replied) {
+            const answer = handshake.readHello(reader)
+            if (!answer) return
+            replied = true
+            // REPLY carries Yb, our confirmation and our capabilities in
+            // one message, so this stays the same number of round trips as
+            // the v1 handshake it replaces.
+            socket.write(answer.reply)
           }
-          // Answer their challenge and issue ours in one message, so this
-          // stays the same number of round trips as the constant-byte
-          // handshake it replaces.
-          nonceS = makeNonce()
-          socket.write(Buffer.concat([
-            proveRole(key, 'sender', hello.subarray(1), peers),
-            nonceS
-          ]))
-        }
 
-        // Falls through in the same tick when both messages arrived
-        // coalesced; otherwise returns and waits.
-        const theirProof = reader.take(PROOF_SIZE)
-        if (!theirProof) return
-        if (!proofMatches(proveRole(key, 'receiver', nonceS, peers), theirProof)) {
-          onFailed(new Error(PROOF_FAILED))
+          // Falls through in the same tick when both messages arrived
+          // coalesced; otherwise returns and waits.
+          confirmed = handshake.readConfirm(reader)
+        } catch (err) {
+          // A version skew, a malformed or non-canonical caps field, an
+          // out-of-range length, the neutral-element abort, or a failed
+          // confirmation. Every one means this candidate is not the peer.
+          onFailed(err)
           return
         }
+        if (!confirmed) return
 
         detach()
         finish()
@@ -649,19 +696,21 @@ function connectOnce (swarm, topic, { key, timeout = 30000, refreshInterval = RE
         // almost always empty -- but "almost always" is not a contract,
         // and swallowing a coalesced CANCEL would lose precisely the
         // message this item exists to deliver.
-        resolve({ socket, peerInfo, pending: reader.rest() })
+        //
+        // See acceptOnce: the keys are derived and returned, and nothing is
+        // sealed with them until ./channel.js is wired into transfer.js.
+        resolve({
+          socket,
+          peerInfo,
+          pending: reader.rest(),
+          sendKey: confirmed.sendKey,
+          receiveKey: confirmed.receiveKey,
+          caps: confirmed.caps
+        })
       }
 
       socket.once('error', onFailed)
       socket.once('close', onFailed)
-
-      try {
-        peers = bindPeers(socket, 'sender')
-      } catch (err) {
-        onFailed(err)
-        return
-      }
-
       socket.on('data', onData)
     }
 

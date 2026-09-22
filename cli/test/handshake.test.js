@@ -15,13 +15,13 @@
 //
 // The peer these tests use to reproduce that is a real Hyperswarm node
 // that joins the topic and then declines to finish the handshake: it takes
-// the receiver's READY and challenge and drops the connection. That is
-// what a half-failed punch, and equally a scratch-lookup.js --connect
-// probe, looks like from the receiver's side.
+// the receiver's HELLO and drops the connection. That is what a
+// half-failed punch, and equally a scratch-lookup.js --connect probe,
+// looks like from the receiver's side.
 //
-// Peers that answer the challenge *wrongly* -- the code-proof threat model --
-// are covered in code-proof.test.js. This file stays about candidates that
-// die rather than candidates that lie.
+// Peers that answer *wrongly* -- the PAKE threat model -- are covered in
+// pake-handshake.test.js. This file stays about candidates that die rather
+// than candidates that lie.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -42,38 +42,37 @@ const {
   generateCode,
   sendFile,
   receiveFile,
-  dropKey
 } = require('@quay/engine')
 const { slow } = require('../test-helpers/tiers')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
 
-// Joins `topic`, waits for the receiver's READY, then drops the connection
-// without answering the challenge -- a peer that punches through and then
-// vanishes mid-handshake.
+// Joins `topic`, waits for the receiver's HELLO, then drops the connection
+// without answering -- a peer that punches through and then vanishes
+// mid-handshake.
 //
-// Waiting for READY before destroying is what makes this deterministic:
+// Waiting for HELLO before destroying is what makes this deterministic:
 // the receiver is guaranteed to have reached the candidate stage, so the
 // test exercises "candidate discarded" rather than racing the connection
 // against the receiver's own bookkeeping.
 async function joinAsBadPeer (bootstrap, topic) {
   const swarm = createSwarm({ bootstrap })
   /** @type {(value?: any) => void} */
-  let sawReady = () => {}
-  const readySeen = new Promise((resolve) => { sawReady = resolve })
+  let sawHello = () => {}
+  const helloSeen = new Promise((resolve) => { sawHello = resolve })
 
   swarm.on('connection', (socket) => {
     socket.on('error', () => {})
     socket.once('data', () => {
-      sawReady()
+      sawHello()
       socket.destroy()
     })
   })
 
   const discovery = swarm.join(topic)
   await discovery.flushed()
-  return { swarm, readySeen }
+  return { swarm, helloSeen }
 }
 
 function captureOutput (child) {
@@ -112,7 +111,6 @@ test('a peer that connects and vanishes without proving itself does not consume 
 
   const code = generateCode()
   const topic = topicFromNameplate(splitCode(code).nameplate)
-  const key = dropKey(code)
   const receiveSwarm = createSwarm({ bootstrap: testnet.bootstrap })
   t.after(() => receiveSwarm.destroy())
 
@@ -121,16 +119,16 @@ test('a peer that connects and vanishes without proving itself does not consume 
   const announced = new Promise((resolve) => { announce = resolve })
 
   const accepted = acceptOnce(receiveSwarm, topic, {
-    key,
+    ...splitCode(code),
     timeout: 60000,
     onAnnounced: () => announce(),
     onCandidateDropped: (info, reason) => dropped.push(reason)
   })
   await announced
 
-  // Burn a candidate: connect, take the READY, then disappear.
+  // Burn a candidate: connect, take the HELLO, then disappear.
   const bad = await joinAsBadPeer(testnet.bootstrap, topic)
-  await bad.readySeen
+  await bad.helloSeen
   await bad.swarm.destroy()
 
   // The bug was that the receiver was now permanently committed to that
@@ -141,7 +139,7 @@ test('a peer that connects and vanishes without proving itself does not consume 
 
   const [{ socket: rxSocket, pending }, { socket: txSocket }] = await Promise.all([
     accepted,
-    connectOnce(sendSwarm, topic, { key, timeout: 60000 })
+    connectOnce(sendSwarm, topic, { ...splitCode(code), timeout: 60000 })
   ])
 
   rxSocket.on('error', () => {})
@@ -188,7 +186,7 @@ test('a join that finds nobody says so', slow, async (t) => {
   t.after(() => lonely.destroy())
 
   await assert.rejects(
-    () => connectOnce(lonely, topicFromNameplate(splitCode(generateCode()).nameplate), { key: dropKey(generateCode()), timeout: 1500 }),
+    () => connectOnce(lonely, topicFromNameplate(splitCode(generateCode()).nameplate), { ...splitCode(generateCode()), timeout: 1500 }),
     /no peer ever connected/
   )
 })
@@ -216,10 +214,10 @@ test('the receiver CLI reports a dropped candidate and keeps waiting', slow, asy
 
   const bad = await joinAsBadPeer(testnet.bootstrap, topic)
   t.after(() => bad.swarm.destroy())
-  await bad.readySeen
+  await bad.helloSeen
 
   // The two lines that turn this failure from invisible into obvious.
-  await waitForPattern(output, /candidate \w+\.\.\., sent READY \+ challenge, awaiting proof/)
+  await waitForPattern(output, /candidate \w+\.\.\., sent HELLO, awaiting REPLY/)
   await waitForPattern(output, /dropped before proving \(.*\); still waiting/)
   assert.equal(receiveProc.exitCode, null, 'the receiver must still be running')
 })

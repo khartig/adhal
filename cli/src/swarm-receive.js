@@ -10,10 +10,11 @@
 // Usage: swarm-receive.js [code] [outputDir]
 //        swarm-receive.js --new [outputDir]
 //
-// With no code, or with --new, one is generated and shown as both
-// six words and a QR symbol. An explicit code may be six words in any
-// casing/separator style, or an opaque secret -- see engine/src/resolve-code.js for
-// why both are accepted and how they are told apart.
+// With no code, or with --new, one is generated and shown as both five
+// words and a QR symbol. An explicit code may be five words in any
+// casing/separator style, or an opaque secret -- see
+// engine/src/resolve-code.js for why both are accepted, how they are told
+// apart, and why an opaque one voids v2's central property.
 //
 // QUAY_BOOTSTRAP=<json bootstrap array> overrides the DHT bootstrap nodes
 // -- used by the automated test to run against an isolated local testnet
@@ -21,7 +22,7 @@
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, dropKey, displayName } = require('@quay/engine')
+const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, displayName } = require('@quay/engine')
 
 const { printQr } = require('./qr')
 const { readCode } = require('./read-code')
@@ -143,7 +144,7 @@ async function main () {
     process.exitCode = 1
     return
   }
-  const { code, topic } = resolved
+  const { code, topic, nameplate, secret } = resolved
 
   const outputDir = parsed.outputDirArg ? path.resolve(parsed.outputDirArg) : process.cwd()
   await fs.promises.mkdir(outputDir, { recursive: true })
@@ -157,11 +158,17 @@ async function main () {
 
   try {
     const { socket, peerInfo, pending } = await acceptOnce(swarm, topic, {
-      // Announcing the topic makes it public; the code stays private, so
-      // it is what proves a peer is the intended one rather than a
-      // stranger who walked the DHT. Without this we would accept a file
-      // from anyone and write it into `outputDir`. See engine/src/proof.js.
-      key: dropKey(code),
+      // Announcing the topic makes the NAMEPLATE public; the secret stays
+      // private, and it is what proves a peer is the intended one rather
+      // than a stranger who walked the DHT. Without it we would accept a
+      // file from anyone and write it into `outputDir`.
+      //
+      // Under v2 the topic commits only to the nameplate, so the secret is
+      // not recoverable from anything an observer can obtain -- a guess
+      // costs a live protocol run against this process, which counts them
+      // (PROTOCOL.md section 6). See engine/src/handshake.js.
+      nameplate,
+      secret,
       timeout: joinTimeout(),
       refreshInterval: refreshInterval(),
       // Ctrl-C while waiting for a peer -- which, for a receiver showing
@@ -173,7 +180,7 @@ async function main () {
       // because peers connect and then vanish looks identical to one that
       // found nobody unless these lines are visible.
       onCandidate: (info) => {
-        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., sent READY + challenge, awaiting proof`)
+        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., sent HELLO, awaiting REPLY`)
       },
       onCandidateDropped: (info, reason) => {
         console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before proving (${reason}); still waiting`)

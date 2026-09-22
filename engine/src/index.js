@@ -10,6 +10,8 @@ module.exports = {
   ...require('./code'),
   ...require('./topic'),
   ...require('./resolve-code'),
-  ...require('./proof'),
+  ...require('./reader'),
+  ...require('./cpace'),
+  ...require('./handshake'),
   ...require('./swarm')
 }

@@ -28,10 +28,18 @@
 // TWO DESIGN CONSTRAINTS, because the two ends cannot talk to each other:
 //
 // 1. Codes are derived from (seed, trial index), so both sides agree on
-//    every topic without exchanging anything. They are deliberately opaque
-//    secrets rather than six-word codes: a topic is a 32-byte hash either
-//    way, resolveCode handles both, and word parsing is already covered by
-//    cli/test/code.test.js. Nothing about the measurement changes.
+//    every topic without exchanging anything.
+//
+//    UNDER v2 THEY ARE REAL FIVE-WORD CODES, and that is a correctness fix
+//    rather than tidying. They used to be opaque `trial-<hex>` secrets, on
+//    the reasoning that "a topic is a 32-byte hash either way". That
+//    stopped being true: an opaque code is its own nameplate AND its own
+//    secret (see engine/src/resolve-code.js), so every trial would have
+//    run down the --unsafe-opaque path -- publishing its secret in the
+//    announced topic and measuring a configuration no user can reach. The
+//    instrument would have been measuring something other than the
+//    product. Deriving a word code from the same seed keeps the "neither
+//    side has to be told the codes" property and measures the real path.
 //
 // 2. Trials are pinned to absolute wall-clock slots, NOT to each other's
 //    progress. If each side simply advanced when its own trial ended, a
@@ -49,10 +57,12 @@ const {
   acceptOnce,
   connectOnce,
   resolveCode,
-  dropKey,
   sendFile,
-  receiveFile
+  receiveFile,
+  WORD_COUNT,
+  ERR_CONFIRMATION
 } = require('./src')
+const { WORDS } = require('./src/wordlist')
 
 function flag (name, fallback = undefined) {
   const i = process.argv.indexOf(`--${name}`)
@@ -110,11 +120,29 @@ const startMs = startEpoch
 const t0 = Date.now()
 const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a)
 
-// Deterministic per-trial secret. Both roles compute the same string, so
-// neither has to be told the codes.
+// Deterministic per-trial code: a real five-word drop code, derived from
+// (seed, trial index) so that both roles compute the same one without
+// exchanging anything.
+//
+// Rejection sampled rather than plain modulo, for the same reason
+// generateCode uses crypto.randomInt: 1295 is not a power of two, so
+// reducing a 16-bit window modulo 1295 would favour the front of the list.
+// It does not matter much for a rendezvous label on a private topic, but a
+// harness that quietly draws from a skewed distribution is not the thing to
+// leave lying around in a repo whose codes are its security argument.
+const SAMPLE_LIMIT = 65536 - (65536 % WORDS.length)
+
 function codeForTrial (i) {
-  const digest = crypto.createHash('sha256').update(`quay-trial:${seed}:${i}`).digest('hex')
-  return `trial-${digest.slice(0, 16)}`
+  const words = []
+  for (let counter = 0; words.length < WORD_COUNT; counter++) {
+    const digest = crypto.createHash('sha256').update(`quay-trial:${seed}:${i}:${counter}`).digest()
+    for (let off = 0; off + 2 <= digest.length && words.length < WORD_COUNT; off += 2) {
+      const n = digest.readUInt16BE(off)
+      if (n >= SAMPLE_LIMIT) continue
+      words.push(WORDS[n % WORDS.length])
+    }
+  }
+  return words.join('-')
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
@@ -155,13 +183,17 @@ function classify (err) {
   // socket error, or something thrown by a dependency. If a *quay* error
   // starts landing here, the fix is to give it a code, not to add a
   // pattern.
+  //
+  // ONE PATTERN WAS REMOVED IN W11, and it is worth saying why rather than
+  // just deleting it. It matched /failed the code proof/ to produce a
+  // 'bad-proof' bucket -- which is exactly the prose coupling the rest of
+  // this comment warns against, and it was already dead: a drop that ends
+  // with peers having failed their handshake reports ERR_NO_HANDSHAKE,
+  // which the table above catches first. Failed confirmations are
+  // per-candidate events, not drop outcomes, so they are now counted
+  // where they happen, off the code ERR_PAKE_CONFIRMATION -- see
+  // `badConfirmations` below.
   const message = (err && err.message) || String(err)
-  // Peers connected and were rejected for not knowing the code. On a
-  // private topic that should be zero, so a non-zero count means either a
-  // build-version skew between the two hosts or someone else on the
-  // topic -- both of which would otherwise hide inside the
-  // handshake-failure bucket and be read as a NAT problem.
-  if (/failed the code proof/.test(message)) return 'bad-proof'
   if (/timed out/.test(message)) return 'timeout-other'
   return 'transfer-error'
 }
@@ -174,7 +206,7 @@ function classify (err) {
 // connect time by ten seconds would corrupt any read against plan section
 // 8's "10 MB median < 30-45s" target.
 async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
-  const { topic, code } = resolveCode(codeForTrial(i), { allowOpaque: true })
+  const { topic, nameplate, secret } = resolveCode(codeForTrial(i))
   const swarm = createSwarm()
   const outDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-trial-'))
   const started = Date.now()
@@ -183,14 +215,24 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
   let manifest = null
   let announcedAt = null
   let candidateAt = null
+  let badConfirmations = 0
 
   try {
     const { socket, pending } = await acceptOnce(swarm, topic, {
-      key: dropKey(code),
+      nameplate,
+      secret,
       timeout: budgetMs,
       refreshInterval: refreshMs,
       onAnnounced: () => { announcedAt = Date.now() - started },
-      onCandidate: () => { if (candidateAt === null) candidateAt = sinceDial() }
+      onCandidate: () => { if (candidateAt === null) candidateAt = sinceDial() },
+      // Counted off the CODE, never off the message. On a private topic
+      // this should be zero, so a non-zero count means either a
+      // build-version skew between the two hosts or someone else on the
+      // topic -- both of which would otherwise hide inside the
+      // handshake-failure bucket and be read as a NAT problem.
+      onCandidateDropped: (info, reason, code) => {
+        if (code === ERR_CONFIRMATION) badConfirmations++
+      }
     })
     socket.on('error', () => {})
     const connectedAt = sinceDial()
@@ -223,6 +265,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       candidateMs: candidateAt,
       connectedMs: connectedAt,
       completedMs: sinceDial(),
+      badConfirmations,
       bytes: result.size,
       sha256: result.sha256
     }
@@ -232,6 +275,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       outcome: classify(err),
       announcedMs: announcedAt,
       candidateMs: candidateAt,
+      badConfirmations,
       error: err.message
     }
   } finally {
@@ -241,19 +285,24 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
 }
 
 async function runSenderTrial (i, budgetMs) {
-  const { topic, code } = resolveCode(codeForTrial(i), { allowOpaque: true })
+  const { topic, nameplate, secret } = resolveCode(codeForTrial(i))
   const swarm = createSwarm()
   const started = Date.now()
   let candidateAt = null
   let dropped = 0
+  let badConfirmations = 0
 
   try {
     const { socket, pending } = await connectOnce(swarm, topic, {
-      key: dropKey(code),
+      nameplate,
+      secret,
       timeout: budgetMs,
       refreshInterval: refreshMs,
       onCandidate: () => { if (candidateAt === null) candidateAt = Date.now() - started },
-      onCandidateDropped: () => { dropped++ }
+      onCandidateDropped: (info, reason, code) => {
+        dropped++
+        if (code === ERR_CONFIRMATION) badConfirmations++
+      }
     })
     socket.on('error', () => {})
     const connectedAt = Date.now() - started
@@ -275,6 +324,7 @@ async function runSenderTrial (i, budgetMs) {
       connectedMs: connectedAt,
       completedMs: Date.now() - started,
       droppedCandidates: dropped,
+      badConfirmations,
       bytes: result.size,
       sha256: result.sha256
     }
@@ -284,6 +334,7 @@ async function runSenderTrial (i, budgetMs) {
       outcome: classify(err),
       candidateMs: candidateAt,
       droppedCandidates: dropped,
+      badConfirmations,
       error: err.message
     }
   } finally {
@@ -323,6 +374,21 @@ function summarise (results) {
     for (const [reason, n] of [...counts].sort((a, b) => b[1] - a[1])) {
       log(`  ${reason.padEnd(22)} ${n}`)
     }
+  }
+
+  // Reported separately from the failure buckets, because a failed
+  // confirmation is not a trial outcome: a trial can succeed having
+  // rejected several peers first, which is the behaviour section 6 relies
+  // on. On a private topic this should be zero, and a non-zero total is
+  // worth a line of its own -- it means peers reached the nameplate
+  // without the secret, i.e. a version skew between the two hosts or
+  // somebody else on the topic.
+  const badConfirmations = results.reduce((n, r) => n + (r.badConfirmations || 0), 0)
+  if (badConfirmations > 0) {
+    log('')
+    log(`>> ${badConfirmations} PEER(S) FAILED THE PAKE CONFIRMATION across these trials.`)
+    log('   Nobody should be able to reach this topic without the secret. Check')
+    log('   both hosts are on the same build before reading anything else here.')
   }
 
   // Interpretation, so the number is actionable rather than decorative.
