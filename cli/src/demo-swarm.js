@@ -44,10 +44,16 @@ function waitForPattern (child, pattern) {
 async function main () {
   const sizeMb = Number(process.argv[2] || 10)
   const size = sizeMb * 1024 * 1024
-  // An item-3 word code rather than the opaque hex this used to generate,
-  // so the demo shows what a real drop actually puts on screen. The
-  // isolated-testnet test in cli/test/swarm-lan.test.js still drives the
-  // opaque path, so both stay exercised.
+  // A real word code rather than the opaque hex this used to generate, so
+  // the demo shows what a real drop actually puts on screen -- five words
+  // under v2, of which only the first two reach the topic.
+  //
+  // (This comment used to add that swarm-lan.test.js still drove the
+  // opaque path "so both stay exercised". That stopped being true when
+  // that test switched to generateCode() as well: opaque codes are now
+  // exercised only by the engine/scratch-*.js diagnostics and
+  // code.test.js, which is the right place for a path that voids v2's
+  // central property -- see resolveCode.)
   const code = generateCode()
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-swarm-demo-'))
   const sourcePath = path.join(tmpDir, 'demo-file.bin')

@@ -31,7 +31,8 @@ const {
   createSwarm,
   acceptOnce,
   connectOnce,
-  topicFromCode,
+  topicFromNameplate,
+  splitCode,
   generateCode,
   dropKey,
   encodeMessage,
@@ -328,7 +329,7 @@ test('acceptOnce aborted while waiting rejects and leaves the swarm as it found 
   const controller = new AbortController()
 
   // Nothing is ever on this topic, so the only way out is the abort.
-  const accepted = settle(acceptOnce(swarm, topicFromCode(code), {
+  const accepted = settle(acceptOnce(swarm, topicFromNameplate(splitCode(code).nameplate), {
     key: dropKey(code),
     timeout: 60000,
     signal: controller.signal
@@ -443,7 +444,7 @@ test('an acceptOnce given an already-aborted signal never joins at all', slow, a
   const controller = new AbortController()
   controller.abort('too late')
 
-  const outcome = await settle(acceptOnce(swarm, topicFromCode(code), {
+  const outcome = await settle(acceptOnce(swarm, topicFromNameplate(splitCode(code).nameplate), {
     key: dropKey(code),
     timeout: 60000,
     signal: controller.signal
@@ -490,7 +491,7 @@ test('connectOnce aborted while looking rejects and leaves the swarm as it found
   // Nothing is ever on this topic, so the only way out is the abort. If
   // the signal is ignored the only other exit is the 60s timeout, so a
   // regression here fails by timing out rather than by asserting wrong.
-  const connected = settle(connectOnce(swarm, topicFromCode(code), {
+  const connected = settle(connectOnce(swarm, topicFromNameplate(splitCode(code).nameplate), {
     key: dropKey(code),
     timeout: 60000,
     signal: controller.signal
@@ -526,7 +527,7 @@ test('a connectOnce given an already-aborted signal never joins at all', slow, a
   const controller = new AbortController()
   controller.abort('too late')
 
-  const outcome = await settle(connectOnce(swarm, topicFromCode(code), {
+  const outcome = await settle(connectOnce(swarm, topicFromNameplate(splitCode(code).nameplate), {
     key: dropKey(code),
     timeout: 60000,
     signal: controller.signal

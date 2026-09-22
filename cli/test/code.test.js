@@ -1,7 +1,7 @@
 'use strict'
 
-// Automated proof of the drop code (data path D1):
-// "6-word code + QR encoding of the same payload."
+// Automated proof of the drop code (data path D1): a five-word code --
+// nameplate plus secret -- and a QR encoding of the same payload.
 //
 // The load-bearing test in here is the round trip through a real QR
 // decoder. Everything else about the drop code can be checked by inspection, but
@@ -25,9 +25,15 @@ const {
   parseCode,
   isValidCode,
   encodeQrPayload,
+  splitCode,
+  topicFromNameplate,
+  TOPIC_PREFIX,
   WORD_COUNT,
+  NAMEPLATE_WORDS,
+  SECRET_WORDS,
   QR_SCHEME,
-  CODE_ENTROPY_BITS
+  NAMEPLATE_ENTROPY_BITS,
+  SECRET_ENTROPY_BITS
 } = require('@quay/engine')
 const { WORDS, INDEX } = require('@quay/engine/src/wordlist')
 const { renderQr, ECC_LEVEL, QUIET_ZONE } = require('../src/qr')
@@ -36,13 +42,13 @@ const { resolveCode } = require('@quay/engine')
 const execFileAsync = promisify(execFile)
 const CODE_SCRIPT = path.join(__dirname, '..', 'src', 'code.js')
 
-// The longest code the generator can produce: six five-letter words.
+// The longest code the generator can produce: five five-letter words.
 const LONGEST_CODE = WORDS.filter((w) => w.length === 5).slice(0, WORD_COUNT).join('-')
 
 function matrixOf (payload) {
   // ECC_LEVEL widens to `string` crossing the module boundary; qrcode-generator
   // wants the literal union.
-  const qr = qrcode(0, /** @type {'Q'} */ (ECC_LEVEL))
+  const qr = qrcode(0, /** @type {'H'} */ (ECC_LEVEL))
   qr.addData(payload, 'Alphanumeric')
   qr.make()
   return qr
@@ -90,7 +96,7 @@ function matrixFromRender (text) {
   return rows
 }
 
-test('a generated code is six words from the EFF list and is already canonical', () => {
+test('a generated code is five words from the EFF list and is already canonical', () => {
   for (let i = 0; i < 200; i++) {
     const code = generateCode()
     const words = code.split('-')
@@ -103,6 +109,15 @@ test('a generated code is six words from the EFF list and is already canonical',
     // a human would hash to a different topic than the one we joined.
     assert.equal(parseCode(code), code)
     assert.ok(isValidCode(code))
+
+    // The split is positional and total: every word belongs to exactly one
+    // half, and rejoining them reproduces the code. A split that lost or
+    // duplicated a word would still produce a usable-looking nameplate and
+    // secret, and the failure would present as a PAKE that never confirms.
+    const { nameplate, secret } = splitCode(code)
+    assert.equal(nameplate.split('-').length, NAMEPLATE_WORDS)
+    assert.equal(secret.split('-').length, SECRET_WORDS)
+    assert.equal(`${nameplate}-${secret}`, code)
   }
 })
 
@@ -112,37 +127,79 @@ test('the wordlist is the vendored EFF short list, minus the one hyphenated word
   assert.ok(WORDS.every((w) => /^[a-z]{3,5}$/.test(w)), 'all words are 3-5 lowercase letters')
   assert.ok(!WORDS.includes('yo-yo'), 'the hyphenated word is excluded; see engine/src/wordlist.js')
   assert.deepEqual(WORDS, [...WORDS].sort(), 'kept in the source list order')
-  // 6 * log2(1295)
-  assert.ok(Math.abs(CODE_ENTROPY_BITS - 62.03) < 0.01, `entropy was ${CODE_ENTROPY_BITS}`)
+  // 2 * log2(1295) and 3 * log2(1295). Two figures rather than one,
+  // because the halves defend different things: a combined ~51.7 would let
+  // the nameplate's public bits stand in for the secret's strength, and
+  // only the secret's ~31 are load-bearing.
+  assert.ok(Math.abs(NAMEPLATE_ENTROPY_BITS - 20.68) < 0.01, `nameplate entropy was ${NAMEPLATE_ENTROPY_BITS}`)
+  assert.ok(Math.abs(SECRET_ENTROPY_BITS - 31.02) < 0.01, `secret entropy was ${SECRET_ENTROPY_BITS}`)
 })
 
 test('every input style a code arrives in resolves to one canonical form and one topic', () => {
-  const canonical = 'acid-acorn-acre-acts-afar-agent'
+  const canonical = 'acid-acorn-acre-acts-afar'
   const variants = [
     canonical,
-    `${QR_SCHEME}:ACID-ACORN-ACRE-ACTS-AFAR-AGENT`, // scanned QR payload
-    'quay1:acid-acorn-acre-acts-afar-agent',
-    'ACID-ACORN-ACRE-ACTS-AFAR-AGENT',
-    'Acid Acorn Acre Acts Afar Agent', // pasted out of a chat client
-    '  acid   acorn acre acts afar agent  ',
-    'acid_acorn.acre acts--afar-agent' // mangled separators
+    `${QR_SCHEME}:ACID-ACORN-ACRE-ACTS-AFAR`, // scanned QR payload
+    'quay2:acid-acorn-acre-acts-afar',
+    'ACID-ACORN-ACRE-ACTS-AFAR',
+    'Acid Acorn Acre Acts Afar', // pasted out of a chat client
+    '  acid   acorn acre acts afar  ',
+    'acid_acorn.acre acts--afar' // mangled separators
   ]
 
-  const expectedTopic = resolveCode(canonical).topic.toString('hex')
+  const expected = resolveCode(canonical)
   for (const variant of variants) {
     assert.equal(parseCode(variant), canonical, `parse of ${JSON.stringify(variant)}`)
     // The property that actually matters: same code, same 32-byte topic.
     // Divergence here means two peers join unrelated topics and present
     // as a discovery timeout rather than as a typo.
-    const { topic } = resolveCode(variant)
-    assert.equal(topic.length, 32)
-    assert.equal(topic.toString('hex'), expectedTopic, `topic for ${JSON.stringify(variant)}`)
+    const resolved = resolveCode(variant)
+    assert.equal(resolved.topic.length, 32)
+    assert.equal(resolved.topic.toString('hex'), expected.topic.toString('hex'), `topic for ${JSON.stringify(variant)}`)
+    // And the same secret, which is the half whose divergence is worse:
+    // the two peers would find each other on a matching topic and then
+    // fail to confirm, which reads like an attack rather than a typo.
+    assert.equal(resolved.secret, expected.secret, `secret for ${JSON.stringify(variant)}`)
+    assert.equal(resolved.nameplate, 'acid-acorn')
+    assert.equal(resolved.secret, 'acre-acts-afar')
   }
 })
 
+test('the topic commits to the nameplate and to nothing else', () => {
+  // THE PROPERTY v2 EXISTS FOR. The receiver must announce its topic to be
+  // findable, so whatever the topic commits to is grindable offline at
+  // whatever rate an attacker's hardware allows. Under v1 that was the
+  // whole code. Under v2 it must be the nameplate alone.
+  //
+  // Asserted as an equality against a topic derived from the nameplate in
+  // isolation, because that is the only formulation that cannot pass by
+  // accident: if any byte of the secret reached the hash, these two would
+  // differ.
+  const sameNameplate = ['acid-acorn-acre-acts-afar', 'acid-acorn-agent-agile-aging']
+  const [a, b] = sameNameplate.map((c) => resolveCode(c))
+  assert.equal(a.topic.toString('hex'), b.topic.toString('hex'),
+    'two codes sharing a nameplate must land on one topic, or the secret leaked into it')
+  assert.equal(a.topic.toString('hex'), topicFromNameplate('acid-acorn').toString('hex'))
+  assert.notEqual(a.secret, b.secret, 'the two secrets must really differ, or this proves nothing')
+
+  // A different nameplate is a different rendezvous.
+  assert.notEqual(
+    a.topic.toString('hex'),
+    resolveCode('acorn-acid-acre-acts-afar').topic.toString('hex')
+  )
+
+  // And what makes a v1/v2 collision impossible rather than merely
+  // unlikely: the domain prefix. v1 hashed 'quay-v1:' || code, v2 hashes
+  // 'quay-v2:topic' || nameplate, so the two never land on one topic and a
+  // v1-against-v2 pairing surfaces as ERR_NO_PEER rather than as frame
+  // corruption. Asserted on the constant because that is the mechanism;
+  // re-deriving a v1 topic here would only test this test's own arithmetic.
+  assert.equal(TOPIC_PREFIX, 'quay-v2:topic')
+})
+
 test('a bad code is rejected with a message that locates the problem', () => {
-  assert.throws(() => parseCode('acid-acorn-acre-acts-afar'), /expected 6 words, got 5/)
-  assert.throws(() => parseCode('acid-acorn-acre-acts-afar-agent-zoom'), /expected 6 words, got 7/)
+  assert.throws(() => parseCode('acid-acorn-acre-acts'), /expected 5 words, got 4/)
+  assert.throws(() => parseCode('acid-acorn-acre-acts-afar-agent'), /expected 5 words, got 6/)
   assert.throws(() => parseCode(''), /empty/)
   assert.throws(() => parseCode('   '), /empty/)
   assert.throws(() => parseCode(null), TypeError)
@@ -150,15 +207,31 @@ test('a bad code is rejected with a message that locates the problem', () => {
   // Names the offending word *and* its position, because this code was
   // typed by hand off another device's screen.
   assert.throws(
-    () => parseCode('acid-acorn-akorn-acts-afar-agent'),
-    /word 3 of 6, "akorn", is not in the word list/
+    () => parseCode('acid-acorn-akorn-acts-afar'),
+    /word 3 of 5, "akorn", is not in the word list/
   )
 
   // A future payload format must be reported as such, not silently
   // misread as words.
-  assert.throws(() => parseCode('QUAY2:ACID-ACORN-ACRE-ACTS-AFAR-AGENT'), /newer version/)
+  assert.throws(() => parseCode('QUAY3:ACID-ACORN-ACRE-ACTS-AFAR'), /newer version/)
 
-  for (const bad of ['', 'acid', 'one two three four five six']) {
+  // AND THE SKEW MUST POINT THE RIGHT WAY. A QUAY1: payload is from a build
+  // that predates v2, so the fix is to update the other machine -- telling
+  // its holder the code came from "a newer version" sends them looking for
+  // an upgrade that does not exist. v1 reported every unknown scheme as
+  // newer, which is the specific wrong answer this asserts against.
+  assert.throws(
+    () => parseCode('QUAY1:ACID-ACORN-ACRE-ACTS-AFAR-AGENT'),
+    (err) => {
+      const message = /** @type {Error} */ (err).message
+      assert.match(message, /older than this build/)
+      assert.match(message, /[Rr]edeploy both sides/)
+      assert.doesNotMatch(message, /newer/, 'a QUAY1 payload must never be reported as newer')
+      return true
+    }
+  )
+
+  for (const bad of ['', 'acid', 'one two three four five']) {
     assert.equal(isValidCode(bad), false, `${JSON.stringify(bad)} should be invalid`)
   }
 })
@@ -178,16 +251,23 @@ test('the QR payload is uppercase and stays inside QR alphanumeric mode', () => 
   }
 
   const longest = encodeQrPayload(LONGEST_CODE)
-  assert.equal(longest.length, 41, 'worst case is QUAY1: plus six five-letter words')
+  assert.equal(longest.length, 35, 'worst case is QUAY2: plus five five-letter words')
 })
 
-test('every code fits a 29x29 version-3 symbol at ECC level Q', () => {
+test('every code fits a 29x29 version-3 symbol at ECC level H', () => {
   // This is the property the uppercasing buys, and it is worth pinning:
-  // at ECC Q the same 41-character payload needs version 4 (33x33) in byte
-  // mode. Holding the symbol at 29x29 while carrying 25% error correction
+  // at ECC H the same 35-character payload needs version 5 (37x37) in byte
+  // mode. Holding the symbol at 29x29 while carrying 30% error correction
   // is what keeps it readable by an indifferent phone camera pointed at
-  // another screen (plan section 9, spike 5).
-  assert.equal(ECC_LEVEL, 'Q')
+  // another screen.
+  //
+  // v2's shorter code is what paid for the level: at 41 characters ECC H
+  // cost version 4 (33x33), so v1 ran at Q. At 35 it is free -- same
+  // symbol size, ~25% damage tolerance becomes ~30%. The size assertion
+  // below is unchanged from v1 for exactly that reason, and that is the
+  // point of keeping it: if the free upgrade were ever not free, this
+  // fails rather than silently growing the symbol.
+  assert.equal(ECC_LEVEL, 'H')
   const codes = [LONGEST_CODE, ...Array.from({ length: 100 }, () => generateCode())]
   for (const code of codes) {
     const count = matrixOf(encodeQrPayload(code)).getModuleCount()
@@ -260,19 +340,21 @@ test('color is on by default because a QR must be dark-on-light', () => {
   assert.doesNotMatch(renderQr(payload, { color: false }), /\x1b\[/)
 })
 
-test('resolveCode holds a six-word-shaped input to the strict parse', () => {
+test('resolveCode holds a five-word-shaped input to the strict parse', () => {
   // The regression this guards: a typo'd word code must NOT be waved
   // through as an opaque secret. Doing so hashes to a valid but wrong
   // topic, and the resulting peer-discovery timeout is indistinguishable
   // from the announce-propagation races in engine/src/swarm.js.
   assert.throws(
-    () => resolveCode('acid-acorn-akorn-acts-afar-agent'),
+    () => resolveCode('acid-acorn-akorn-acts-afar'),
     /"akorn", is not in the word list/
   )
 
-  const words = resolveCode('acid-acorn-acre-acts-afar-agent')
+  const words = resolveCode('acid-acorn-acre-acts-afar')
   assert.equal(words.kind, 'words')
-  assert.equal(words.code, 'acid-acorn-acre-acts-afar-agent')
+  assert.equal(words.code, 'acid-acorn-acre-acts-afar')
+  assert.equal(words.nameplate, 'acid-acorn')
+  assert.equal(words.secret, 'acre-acts-afar')
 
   // Opaque secrets have to keep working for the engine/scratch-*.js
   // diagnostics, which take hand-typed strings -- but they are now
@@ -284,6 +366,19 @@ test('resolveCode holds a six-word-shaped input to the strict parse', () => {
     assert.equal(resolved.kind, 'opaque', `${opaque} should stay opaque`)
     assert.equal(resolved.code, opaque)
     assert.equal(resolved.topic.length, 32)
+    // AND THE COST OF THAT PATH, PINNED RATHER THAN LEFT IMPLICIT. An
+    // opaque code is its own nameplate and its own secret, so the secret
+    // goes into the announced topic and is grindable offline -- exactly
+    // the property v2 removes. It is asserted here so that the one place
+    // v2's central guarantee is voided is a visible, tested fact rather
+    // than an accident someone might 'fix' into the word-code path.
+    assert.equal(resolved.nameplate, opaque)
+    assert.equal(resolved.secret, opaque)
+    assert.equal(
+      resolved.topic.toString('hex'),
+      topicFromNameplate(opaque).toString('hex'),
+      'the opaque secret really is what the public topic commits to'
+    )
   }
 
   // Same string, same topic, regardless of which branch produced it.
@@ -366,7 +461,7 @@ test('the code.js CLI prints a code, its payload, its topic and a scannable symb
 
 test('the code.js CLI rejects an invalid code with a non-zero exit', async () => {
   await assert.rejects(
-    () => execFileAsync(process.execPath, [CODE_SCRIPT, 'acid-acorn-akorn-acts-afar-agent']),
+    () => execFileAsync(process.execPath, [CODE_SCRIPT, 'acid-acorn-akorn-acts-afar']),
     (err) => {
       // assert.rejects types the error as `unknown`.
       const failure = /** @type {{ code: number, stderr: string }} */ (err)

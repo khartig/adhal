@@ -8,25 +8,34 @@
 
 const qrcode = require('qrcode-generator')
 
-// Error correction level Q (recovers ~25% damage) rather than the usual M
+// Error correction level H (recovers ~30% damage) rather than the usual M
 // (~15%). This is free, and the reason is the uppercasing in
-// `encodeQrPayload`: QR's alphanumeric mode is denser than byte mode, and
-// measured against the worst-case 41-character payload (six five-letter
-// words) the saving is exactly one version's worth of headroom --
+// `encodeQrPayload`: QR's alphanumeric mode is denser than byte mode, so
+// the headroom that buys is spent on error correction rather than on a
+// smaller symbol.
 //
-//   ECC   alphanumeric   byte
-//   L     v2 (25x25)     v3 (29x29)
-//   M     v3 (29x29)     v3 (29x29)
-//   Q     v3 (29x29)     v4 (33x33)
-//   H     v4 (33x33)     v5 (37x37)
+// Re-measured against the vendored encoder when v2 shortened the code from
+// six words to five. The worst case went from 41 characters ('QUAY1:' plus
+// six five-letter words) to 35 ('QUAY2:' plus five), and the v1 column
+// below reproduces the table this file used to carry, which is what makes
+// the v2 column trustworthy:
 //
-// -- so spending it on error correction keeps the symbol at 29x29 while
-// making it more tolerant of the things that actually break a scan off a
-// screen: glare, moire against the other display's pixel grid, and a phone
-// camera that will not quite focus. Growing it to 33x33 instead would have
-// worked against that on the cheap Android cameras of plan section 9
-// spike 5.
-const ECC_LEVEL = 'Q'
+//   ECC   v1 alnum (41)   v1 byte   v2 alnum (35)   v2 byte
+//   L     v2 (25x25)      29x29     v2 (25x25)      29x29
+//   M     v3 (29x29)      29x29     v2 (25x25)      29x29
+//   Q     v3 (29x29)      33x33     v3 (29x29)      33x33
+//   H     v4 (33x33)      37x37     v3 (29x29)      37x37
+//
+// So v2's shorter code buys a free ECC upgrade from Q to H at the IDENTICAL
+// 29x29 symbol size: ~25% damage tolerance becomes ~30% and the symbol does
+// not grow a single module. That is spent on exactly the failures this
+// deliverable actually hits -- glare, moire against the other display's
+// pixel grid, and a phone camera that will not quite focus off a screen.
+//
+// The uppercase argument survives the change: at 35 characters byte mode
+// still costs a version (37x37 at H), so dropping the uppercasing would
+// give back more than the ECC upgrade gained.
+const ECC_LEVEL = 'H'
 
 // The QR specification requires a 4-module light border; a symbol printed
 // flush against surrounding text is materially harder to acquire.

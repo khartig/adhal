@@ -40,7 +40,8 @@ const {
   createSwarm,
   acceptOnce,
   connectOnce,
-  topicFromCode,
+  topicFromNameplate,
+  splitCode,
   generateCode,
   sendFile,
   receiveFile,
@@ -72,7 +73,7 @@ test('the key comes from the code, not the topic, and is stable across callers',
 
   // The key must not be derivable from what an attacker actually has. The
   // topic is public once announced; the code is not.
-  const topic = topicFromCode(code)
+  const topic = topicFromNameplate(splitCode(code).nameplate)
   assert.notDeepEqual(dropKey(code), topic)
 
   // Canonicalization is the caller's job, and getting it wrong is a real
@@ -250,7 +251,7 @@ test('a peer that found the topic but cannot prove the code is rejected, and the
   // Everything the attackers get is what walking the DHT would give them:
   // the topic. Only the honest sender is given the code.
   const code = generateCode()
-  const topic = topicFromCode(code)
+  const topic = topicFromNameplate(splitCode(code).nameplate)
   const key = dropKey(code)
 
   const receiveSwarm = createSwarm({ bootstrap: testnet.bootstrap })
@@ -339,7 +340,7 @@ test('a proof captured off a real exchange cannot be replayed at a receiver', sl
   t.after(() => testnet.destroy())
 
   const code = generateCode()
-  const topic = topicFromCode(code)
+  const topic = topicFromNameplate(splitCode(code).nameplate)
   const key = dropKey(code)
 
   // Phase 1: capture a genuine sender proof. Posing as the receiver is how
@@ -406,7 +407,7 @@ test('a proof captured off a real exchange cannot be replayed at a receiver', sl
 test('the handshake refuses to run without a key at all', () => {
   // A caller that was not updated for the code proof must fail loudly. Defaulting
   // the key would restore the exact hole this file is about, silently.
-  const topic = topicFromCode(generateCode())
+  const topic = topicFromNameplate(splitCode(generateCode()).nameplate)
   const swarm = createSwarm()
   // Deliberately mistyped: the point is the runtime guard, which is what
   // protects a caller that is not being typechecked (the scratch tools) or

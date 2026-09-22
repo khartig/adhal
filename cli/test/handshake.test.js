@@ -37,7 +37,8 @@ const {
   acceptOnce,
   connectOnce,
   timeoutMessage,
-  topicFromCode,
+  topicFromNameplate,
+  splitCode,
   generateCode,
   sendFile,
   receiveFile,
@@ -110,7 +111,7 @@ test('a peer that connects and vanishes without proving itself does not consume 
   const expected = crypto.createHash('sha256').update(payload).digest('hex')
 
   const code = generateCode()
-  const topic = topicFromCode(code)
+  const topic = topicFromNameplate(splitCode(code).nameplate)
   const key = dropKey(code)
   const receiveSwarm = createSwarm({ bootstrap: testnet.bootstrap })
   t.after(() => receiveSwarm.destroy())
@@ -187,7 +188,7 @@ test('a join that finds nobody says so', slow, async (t) => {
   t.after(() => lonely.destroy())
 
   await assert.rejects(
-    () => connectOnce(lonely, topicFromCode(generateCode()), { key: dropKey(generateCode()), timeout: 1500 }),
+    () => connectOnce(lonely, topicFromNameplate(splitCode(generateCode()).nameplate), { key: dropKey(generateCode()), timeout: 1500 }),
     /no peer ever connected/
   )
 })
@@ -211,7 +212,7 @@ test('the receiver CLI reports a dropped candidate and keeps waiting', slow, asy
   t.after(() => { if (receiveProc.exitCode === null) receiveProc.kill() })
 
   const codeMatch = await waitForPattern(output, /scan the code above, or type: {2}(\S+)/)
-  const topic = topicFromCode(codeMatch[1])
+  const topic = topicFromNameplate(splitCode(codeMatch[1]).nameplate)
 
   const bad = await joinAsBadPeer(testnet.bootstrap, topic)
   t.after(() => bad.swarm.destroy())

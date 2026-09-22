@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict'
 
-// The drop code as a thing you can look at: "6-word code + QR
-// encoding of the same payload. UX object exists; you can screenshot it."
+// The drop code as a thing you can look at: a 5-word code plus a QR
+// encoding of the same payload. UX object exists; you can screenshot it.
 //
 // Usage: code.js              generate a new drop code and show its QR
 //        code.js <code>       re-render an existing code (verifies it too)
@@ -11,7 +11,17 @@
 // QUAY_QR_WIDE=1 switches to full-block rendering for console fonts
 // lacking the half-block glyphs; NO_COLOR drops the ANSI colors.
 
-const { generateCode, parseCode, encodeQrPayload, resolveCode, CODE_ENTROPY_BITS, WORD_COUNT } = require('@quay/engine')
+const {
+  generateCode,
+  parseCode,
+  splitCode,
+  encodeQrPayload,
+  resolveCode,
+  NAMEPLATE_ENTROPY_BITS,
+  SECRET_ENTROPY_BITS,
+  NAMEPLATE_WORDS,
+  SECRET_WORDS
+} = require('@quay/engine')
 const { printQr } = require('./qr')
 
 function main () {
@@ -50,12 +60,29 @@ function main () {
   console.log()
   printQr(payload)
   console.log()
+  const { nameplate, secret } = splitCode(code)
   console.log(`  code:    ${code}`)
   console.log(`  payload: ${payload}`)
+  // Shown split, because under v2 the two halves are not the same kind of
+  // thing and a reader who treats them alike will draw the wrong
+  // conclusion from the topic line below. The nameplate is public the
+  // moment the receiver announces; the secret is the only secret.
+  console.log(`  parts:   nameplate=${nameplate}  secret=${secret}`)
   // The topic is printed because it is what the DHT actually sees, which
-  // makes this the fastest way to get an argument for engine/scratch-lookup.js.
+  // makes this the fastest way to get an argument for
+  // engine/scratch-lookup.js. Note it is derived from the NAMEPLATE alone
+  // -- that is the v2 change, and printing both on adjacent lines is what
+  // makes it checkable by eye: the secret must not be recoverable from
+  // anything here.
   console.log(`  topic:   ${resolveCode(code).topic.toString('hex')}`)
-  console.log(`  entropy: ${CODE_ENTROPY_BITS.toFixed(1)} bits (${WORD_COUNT} words)`)
+  // Two figures, not one. A single combined number would let ~51 bits
+  // stand in for the strength of a ~31-bit secret, and only the secret's
+  // entropy is load-bearing -- a nameplate collision is a rendezvous
+  // accident the PAKE then separates, not a compromise.
+  console.log(
+    `  entropy: nameplate ${NAMEPLATE_ENTROPY_BITS.toFixed(1)} bits (${NAMEPLATE_WORDS} words, public), ` +
+    `secret ${SECRET_ENTROPY_BITS.toFixed(1)} bits (${SECRET_WORDS} words)`
+  )
   console.log()
 }
 
