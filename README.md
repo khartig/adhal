@@ -2,7 +2,7 @@
 
 <img src="assets/AppIcon-preview-rounded.png" width="120" alt="Project logo" />
 
-Quay is a one-shot, no-account file drop between two devices: QR or 6-word
+Quay is a one-shot, no-account file drop between two devices: QR or 5-word
 code, LAN first, DHT second, relay if a direct connection can't be
 established. No intermediary server sees your file unless a relay carries
 ciphertext on your behalf.
@@ -39,25 +39,43 @@ security work that had been deferred is done (Stage 0).**
   race described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) -- that
   one is fixed, not waited out. Cross-ISP transfer (Starlink CGNAT to
   Comcast, both behind NAT) is verified with matching hashes on both sides.
-- **Drop codes** are generated rather than typed. Six words from the
-  vendored EFF short list (`acid-acorn-acre-acts-afar-agent`, ~62 bits) and
-  a QR carrying the same payload uppercased (`QUAY1:ACID-ACORN-...`), which
-  keeps it a 29x29 version-3 symbol at ECC level Q. `pnpm run code`
-  prints one; `quay-receive`/`swarm-receive.js` now generates its own when
-  given no code, and shows the QR at the moment it becomes discoverable.
-  Word list and QR payload contents are both settled --
-  see [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-drop-code-d1).
-- **The code proof:** knowing the code is a requirement, not a convention.
-  A receiver has to announce its topic to be findable, so the topic is
-  public from the moment a drop starts -- readable by the DHT nodes near
-  that topic, which is what `engine/scratch-lookup.js` walks. The code is not
-  public, so the handshake ends with each side proving to the other, over
-  fresh nonces, that it has one. A stranger who scraped the topic can no
-  longer be handed a file, nor hand one over into your `~/Downloads`. It is
-  mutual because both of those are real. See
-  [The code proof](docs/ARCHITECTURE.md#the-code-proof-d3) -- including
-  what it deliberately does not defend against, and note that it is a
-  wire-format change, so both machines must be redeployed together.
+- **Drop codes** are generated rather than typed, and split in two. Five
+  words from the vendored EFF short list, of which the first two are a
+  public *nameplate* and the last three are the only secret:
+
+  ```
+  acid-acorn-acre-acts-afar
+  ^^^^^^^^^^ nameplate, ~20.7 bits   public; this is what the DHT sees
+             ^^^^^^^^^^^^^^ secret, ~31.0 bits   never hashed into anything
+  ```
+
+  The QR carries the same payload uppercased (`QUAY2:ACID-ACORN-...`),
+  which keeps it a 29x29 version-3 symbol -- now at ECC level H (~30%
+  damage tolerance) rather than Q, because the shorter code bought the
+  upgrade at the identical symbol size. `pnpm run code` prints one;
+  `quay-receive`/`swarm-receive.js` generates its own when given no code,
+  and shows the QR at the moment it becomes discoverable. See
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-drop-code-d1).
+- **The code is un-grindable, which is the point of the split.** A
+  receiver has to announce its topic to be findable, so the topic is public
+  from the moment a drop starts -- readable by the DHT nodes near it, which
+  is what `engine/scratch-lookup.js` walks. Earlier versions hashed the
+  *whole* code into that topic, so a stranger who scraped one could grind
+  candidate codes offline, as fast as its hardware allowed, without ever
+  touching a peer. No challenge-response can fix that; the commitment is
+  already public.
+
+  Now the topic commits only to the nameplate, and the secret is the
+  password to a [CPace](docs/PROTOCOL.md#32-parameter-mapping-transcript-and-downgrade-resistance)
+  PAKE -- so it is hashed into nothing an observer can obtain. A guess
+  costs a live protocol run against a peer that is counting them, and 100
+  failures burn the drop and say plainly that somebody was guessing. A
+  stranger who scraped the topic cannot be handed a file, nor hand one
+  over into your `~/Downloads`; it is mutual because both of those are
+  real. See
+  [The PAKE handshake](docs/ARCHITECTURE.md#the-pake-handshake-d3) --
+  including what it deliberately does not defend against, and note that it
+  is a wire-format change, so both machines must be redeployed together.
 - **Failure reporting:** failures are something a human can name and act on. The
   receiver verifies the file against the sender's manifest digest and
   publishes it under its real name only if it passes (D6, which had been
@@ -74,7 +92,7 @@ security work that had been deferred is done (Stage 0).**
   build is detected and told to redeploy rather than reported as
   corruption. See
   [Manifest, progress and cancel](docs/ARCHITECTURE.md#manifest-progress-and-cancel).
-- **Stage 0 hardening:** the code proof proves a peer is the one the human
+- **Stage 0 hardening:** the handshake proves a peer is the one the human
   meant, and nothing more. A peer that has the code could still overwrite
   `~/.zshrc`, redirect a write through a planted symlink, forge a log line
   or clear your terminal with a crafted filename, declare a 9 PB transfer,
@@ -155,7 +173,7 @@ it off its screen -- by camera or by eye:
 node cli/src/swarm-receive.js --new ~/Downloads
 
 # on the sending machine, using the words it printed
-node cli/src/swarm-send.js acid-acorn-acre-acts-afar-agent ./some-file.bin
+node cli/src/swarm-send.js acid-acorn-acre-acts-afar ./some-file.bin
 ```
 
 Both sides show a progress bar while the transfer runs (`QUAY_NO_PROGRESS=1`
@@ -178,7 +196,7 @@ An existing file is never overwritten: a drop that collides with one lands
 as `name (1)` unless you pass `--replace`.
 
 The sender accepts the code in any casing or separator style, and accepts a
-scanned QR payload (`QUAY1:ACID-...`) verbatim; all of them normalize to
+scanned QR payload (`QUAY2:ACID-...`) verbatim; all of them normalize to
 the same topic. If a word is mistyped, it says which one, before it spends
 any time on the network. `QUAY_QR_WIDE=1` switches to a double-width
 symbol for console fonts lacking the half-block glyphs, and `NO_COLOR`

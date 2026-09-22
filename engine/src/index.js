@@ -2,6 +2,7 @@
 
 module.exports = {
   ...require('./errors'),
+  ...require('./attempts'),
   ...require('./frame'),
   ...require('./message'),
   ...require('./channel'),

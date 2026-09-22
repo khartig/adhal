@@ -45,11 +45,11 @@ See [`THREAT-MODEL.md`](THREAT-MODEL.md) §4.
    code splits into nameplate + secret and the topic commits only to the
    nameplate — see [`PROTOCOL.md`](PROTOCOL.md) §2.
 2. **D2** Both peers `swarm.join(topic)`.
-3. **D3** Prove knowledge of the code before treating the peer as real.
-   v1 is an HMAC challenge-response (`engine/src/proof.js`, exchanged by
-   the readiness handshake in `engine/src/swarm.js` — see
-   [The code proof](#the-code-proof-d3) below); v2 replaces it with a
-   PAKE in the same three-message slot.
+3. **D3** Prove knowledge of the drop secret before treating the peer as
+   real. v2 is a CPace PAKE in the same three-message slot v1's HMAC
+   challenge-response occupied — see
+   [The PAKE handshake](#the-pake-handshake-d3) below, and
+   [`PROTOCOL.md`](PROTOCOL.md) §9 for the v1 exchange it replaced.
 4. **D4** Send a manifest (name, size, chunk size, content hash).
 5. **D5** Stream chunks. **Resume is a durable offset, not a per-chunk
    ack** — this step used to read "ack by index", which is the wrong
@@ -80,9 +80,10 @@ encrypted transport without changing the framing logic at all.
 `swarm-receive.js` (Hyperswarm) are the corresponding CLI pairs. The drop
 code then replaces the hand-typed code both of those took with a
 generated one --
-see [The drop code](#the-drop-code-d1) below. The code proof makes knowing
-that code a requirement rather than a convention -- see
-[The code proof](#the-code-proof-d3). The manifest/progress/cancel work
+see [The drop code](#the-drop-code-d1) below. The PAKE handshake makes
+knowing that code a requirement rather than a convention, and makes the
+secret half of it un-grindable -- see
+[The PAKE handshake](#the-pake-handshake-d3). The manifest/progress/cancel work
 makes every failure path say what it was, and adds the two things a human
 needs while a transfer is running -- see
 [Manifest, progress and cancel](#manifest-progress-and-cancel). Stage 0
@@ -160,7 +161,7 @@ comments for detail):
   criterion).** A Mac on
   Starlink (CGNAT, DHT-observed <host A>, firewalled) sent to a Linux
   box on Comcast (<host B> firewalled) in ~9s. Re-verified for the
-  drop code with the two-way handshake: generated six-word code, QR shown on
+  drop code with the two-way handshake: a generated word code, QR shown on
   announce, 10 MB matching SHA-256 on both sides, at both
   `QUAY_REFRESH_INTERVAL=4000` and `30000`.
 - **Measured reliability on that path, 2026-09-17** (`scratch-trials.js`,
@@ -274,7 +275,7 @@ comments for detail):
   the constant ACK. The third message is sent only after both are already
   established. Only the message *sizes* changed -- which is its own hazard,
   handled by reading a fixed byte count rather than assuming one chunk is
-  one message (`MessageReader` in `engine/src/proof.js`).
+  one message (`MessageReader`, now in `engine/src/reader.js`).
 - **`scratch-lookup.js --connect` and `scratch-hs-dial.js` are no longer
   destructive.** They never answer the receiver's challenge, so a live
   receiver logs them as a dropped candidate and keeps waiting. A
@@ -595,11 +596,35 @@ Step D1 of the data path. `engine/src/code.js` owns the code as a value,
 symbol; `engine/src/resolve-code.js` is the only place that turns
 user input into a topic.
 
+**Five words, split into a public nameplate and a secret** (W11,
+[`PROTOCOL.md`](PROTOCOL.md) §2):
+
+```
+acid-acorn-acre-acts-afar
+^^^^^^^^^^ nameplate, ~20.7 bits   public; hashed into the topic
+           ^^^^^^^^^^^^^^ secret, ~31.0 bits   the PAKE password
+```
+
+The code is **shorter than v1's six words and stronger**, because its
+entropy no longer has to defend a public hash. v1's topic was
+`hash(code || salt)`, so announcing published a commitment to the whole
+code and an attacker could grind candidates offline at whatever rate its
+hardware allowed. Under v2 the announced topic commits only to the
+nameplate — a rendezvous label, not a secret — and the secret appears in
+no value an observer can obtain. Guessing it costs a live protocol run
+against a peer that is counting (§6, `engine/src/attempts.js`).
+
+Two figures rather than one, and `CODE_ENTROPY_BITS` is gone because of
+it: a combined ~51.7 would let the nameplate's public bits stand in for
+the strength of a ~31-bit secret, and only the secret's are load-bearing.
+A nameplate collision is a rendezvous accident that the PAKE then
+separates.
+
 **Word list: EFF short list #1**, vendored (1295 of its 1296 words, all
-3-5 letters, ~62 bits over six words).
+3-5 letters).
 Chosen over BIP39 on two grounds. Typing cost: EFF's words are 3-5 letters
 against BIP39's up-to-8, and a generated code exists precisely to remove the friction
-of typing a code by hand on two machines. Optics: a six-word lowercase
+of typing a code by hand on two machines. Optics: a lowercase
 phrase drawn from BIP39 reads as a wallet seed phrase, which cuts against
 the deliberate avoidance of crypto framing and would train users
 toward typing seed-like phrases into whatever asks for one. The list's one
@@ -612,30 +637,49 @@ plain modulo would skew draws toward the front of the list).
 **QR payload: the typed code and nothing else**, as a versioned URI.
 
 ```
-QUAY1:ACID-ACORN-ACRE-ACTS-AFAR-AGENT      <- in the QR, at most 41 chars
-acid-acorn-acre-acts-afar-agent            <- shown to a human
+QUAY2:ACID-ACORN-ACRE-ACTS-AFAR      <- in the QR, at most 35 chars
+acid-acorn-acre-acts-afar            <- shown to a human
 ```
 
 Scanning and typing are therefore provably the same code path rather than
 two paths to test. Embedding the sender's public key would let a scanner
 `joinPeer()` directly and skip the topic lookup entirely -- attractive
 given the announce-propagation race below -- but that is LAN-discovery work (Stage 3), and
-the `QUAY1` version prefix is what buys the room to add it without a format
-break. An unknown scheme (`QUAY2:`) is reported as "newer version" rather
-than misread as words.
+the `QUAY2` version prefix is what buys the room to add it without a format
+break. An unknown scheme is reported with a **direction**: a version this
+build knows to be older (`QUAY1:`) says "redeploy both sides", and anything
+unrecognised says "newer version". v1 conflated the two and told a `QUAY1:`
+holder their code came from a newer version, which sends someone looking
+for an upgrade that does not exist.
 
 Two details are load-bearing rather than cosmetic:
 
 - **Uppercase in the QR, lowercase for humans.** QR's alphanumeric encoding
   mode covers only `0-9 A-Z` and `space $%*+-./:` -- both `:` and `-`
-  qualify, lowercase does not. Measured against the worst-case
-  41-character payload, staying in alphanumeric mode is worth exactly one
-  version of headroom (`Q`: 29x29 alphanumeric vs 33x33 byte), and that is
-  spent on error correction: **ECC level Q (~25% recovery) at version 3,
-  29x29**. A bigger symbol would work against the cheap Android cameras
-  that spike 5 was worried about, so the headroom buys robustness against
-  glare, moire and poor focus instead of size. `parseCode` is
-  case-insensitive, so a scan still round-trips.
+  qualify, lowercase does not. Staying in alphanumeric mode is worth a
+  version of headroom, and that headroom is spent on error correction
+  rather than on a smaller symbol: a bigger symbol would work against the
+  cheap Android cameras spike 5 was worried about, so the trade buys
+  robustness against glare, moire and poor focus instead of size.
+  `parseCode` is case-insensitive, so a scan still round-trips.
+
+  **v2's shorter code bought a free ECC upgrade.** Re-measured when the
+  worst case dropped from 41 characters to 35, with the v1 column
+  reproducing the table `cli/src/qr.js` used to carry:
+
+  | ECC | v1 alnum (41) | v1 byte | v2 alnum (35) | v2 byte |
+  | --- | --- | --- | --- | --- |
+  | L | 25x25 | 29x29 | 25x25 | 29x29 |
+  | M | 29x29 | 29x29 | 25x25 | 29x29 |
+  | Q | **29x29** | 33x33 | 29x29 | 33x33 |
+  | H | 33x33 | 37x37 | **29x29** | 37x37 |
+
+  So v2 runs at **ECC level H (~30% recovery) at version 3, 29x29** where
+  v1 ran at Q: ~25% damage tolerance becomes ~30% and the symbol does not
+  grow a single module. Confirmed through the real `jsqr` decoder, not
+  just the encoder's size report. The uppercase argument survives — at 35
+  characters byte mode still costs a version — so dropping it would give
+  back more than the upgrade gained.
 - **The code is shown only after `discovery.flushed()`.** Same reasoning as
   the announce-propagation race below: the moment the code is readable is
   the moment the other side may start looking, so showing it before the
@@ -645,119 +689,192 @@ Two details are load-bearing rather than cosmetic:
 Input is normalized hard, because a code is read off another device's
 screen: case, and any run of `-`, `_`, `.` or whitespace as a separator, all
 collapse to one canonical lowercase hyphenated form, which is the only
-thing that reaches `topicFromCode`. `topicFromCode` itself hashes exactly
-what it is given and normalizes nothing, so that opaque hex codes
-keep working -- which makes feeding it an unnormalized word code a real
-footgun, since the result is a valid but wrong topic and presents as a
-discovery timeout. `resolveCode` exists to close that hole: an input
-*shaped* like a six-word code is held to the strict parse and reports which
-word is wrong, rather than being waved through as an opaque secret.
+thing that reaches `splitCode` and `topicFromNameplate`. Getting that
+wrong is a real footgun with two different failure modes: an unnormalized
+*nameplate* yields a valid but wrong topic and presents as a discovery
+timeout, while an unnormalized *secret* makes the two peers find each
+other and then fail to confirm — which reads like an attack rather than a
+typo. `splitCode` therefore runs `parseCode` itself rather than trusting
+its caller, and `resolveCode` closes the other half: an input *shaped*
+like a five-word code is held to the strict parse and reports which word
+is wrong, rather than being waved through as an opaque secret.
 
-`cli/src/code.js` (`quay-code`) prints a code, its payload, its topic and
-the symbol -- the drop code's screenshottable artifact, and the quickest way to
+**Opaque codes void all of this, deliberately and behind a flag.** An
+opaque code (`--unsafe-opaque`, diagnostics only) becomes its own
+nameplate *and* its own secret, which puts the secret into the announced
+topic and reintroduces exactly the offline grinding target v2 exists to
+remove. `engine/src/resolve-code.js` says so in those words at the call
+site, because the code looks identical to the word-code path and every
+module downstream behaves the same way.
+
+`cli/src/code.js` (`quay-code`) prints a code, its two halves, its payload,
+its topic and the symbol -- the drop code's screenshottable artifact, and the quickest way to
 get a topic argument for `engine/scratch-lookup.js`.
 
 Verified by `cli/test/code.test.js`, which decodes the printed matrix with
 a real QR decoder (`jsqr`, test-only) and confirms the scan lands on the
-same topic the receiver joined.
+same topic the receiver joined, and by `cli/test/code-vectors.test.js`,
+which freezes code → nameplate/secret → topic as fixed pairs — the first
+of the Quay-specific vectors §11 requires.
 
 Step D7 of the data path above and resume (D5's offset persistence)
 belong to later stages and are not yet built. Protomux-based channel
 multiplexing was on that list and has since been ruled out rather than
 deferred -- see [`PROTOCOL.md`](PROTOCOL.md) §8.2.
 
-## The code proof (D3)
+## The PAKE handshake (D3)
 
-Data path step D3. `engine/src/proof.js` holds the construction and the
-reasoning; this is the summary.
+Data path step D3. `engine/src/handshake.js` holds the parameter mapping,
+`engine/src/cpace.js` the primitive, and `engine/src/swarm.js` the
+exchange. **v1's HMAC code proof is gone** — `engine/src/proof.js` is
+deleted — and [`PROTOCOL.md`](PROTOCOL.md) §9 keeps it documented so a v2
+build can recognise a v1 peer and say so rather than reporting corruption.
 
-**The hole it closes.** A topic is `hash(code || app-salt)`, and a receiver
-must *announce* that topic to be findable at all -- so the topic is public
-from the moment a drop starts, readable by anyone walking the DHT.
-`engine/scratch-lookup.js` is that walk, written as a diagnostic. The code
-is not public. Until the code proof landed, the answer to `READY` was the constant byte
-`0x02`, which proves nothing, so a stranger who scraped a topic could
-complete the handshake and be treated as the intended peer.
+**The hole v1 could not close.** A v1 topic was `hash(code || app-salt)`,
+and a receiver must *announce* its topic to be findable at all — so the
+topic is public from the moment a drop starts, readable by anyone walking
+the DHT (`engine/scratch-lookup.js` is that walk, written as a
+diagnostic). v1's proof stopped a stranger *completing* the exchange, and
+that was worth having. What it could not do was stop the stranger grinding
+candidate codes offline against the announced hash, at whatever rate its
+hardware allowed, never touching a peer and never being counted. No
+challenge-response can: the commitment is already public.
 
-It is mutual because both directions are exposed: a sender must not
+**v2 removes the target rather than shrinking the window on it.** The
+topic commits only to the nameplate, and the secret is a PAKE password
+that is hashed into nothing an observer can obtain. A guess now costs a
+live protocol run against a peer that is counting.
+
+It is still mutual, and for the reason it always was: a sender must not
 transmit a file to someone who merely found the topic, and a receiver must
-not accept one -- into `~/Downloads` -- from them either.
+not accept one — into `~/Downloads` — from them either. CPace is a
+*balanced* PAKE, so mutuality is structural rather than two proofs stapled
+together.
 
-**The exchange**, replacing the constant ACK and keeping its round trips:
+**The exchange**, in the same three-message slot v1 used:
 
 ```
-K = HKDF(code, "quay-drop-v1")                  derived both sides, never sent
-receiver -> sender:   READY || nonceR                    (1 + 32 bytes)
-sender   -> receiver: HMAC(K, "s" || nonceR || bind) || nonceS  (32 + 32)
-receiver -> sender:   HMAC(K, "r" || nonceS || bind)     (32 bytes)
+HELLO   = [2-byte BE len][version 1][sid 16][Ya 32][caps_r ...]   R -> S
+REPLY   = [2-byte BE len][Yb 32][confirmS 32][caps_s ...]         S -> R
+CONFIRM = [confirmR 32]                                           R -> S
 ```
 
-Four properties, each closing an attack that the others do not:
+Same round trips, and — this is the load-bearing part — the same
+first-read and first-write points. Hyperswarm produces two connections
+per pair and destroys one; the tie-break at `hyperswarm/index.js:359` is
+`existingIsOutdated = rawBytesRead > 0 && rawBytesWritten > 0`, so a
+connection that has written but not yet read is eligible to be destroyed
+mid-handshake. Moving either point would be a new duplicate-resolution
+risk. Note what that tie-break reads: *whether* bytes moved, never how
+many — checked in the source rather than taken from a paraphrase, which
+is why lengthening `REPLY` is safe.
 
-| Element | Stops |
+The mapping (`PROTOCOL.md` §3.2) is the only genuinely novel piece:
+
+```
+PRS = the 3-word secret, canonical, UTF-8     not the nameplate, not the
+                                              QR payload's uppercase
+CI  = lv_cat("quay-v2", nameplate)            binds the rendezvous
+sid = 16 CSPRNG bytes, per connection
+ADa = lv_cat(version, caps_r)                 receiver = initiator
+ADb = lv_cat(version, caps_s)                 sender   = responder
+```
+
+`version` and `caps` sit inside `transcript_ir`, which is hashed into the
+ISK, which keys both confirmations and both channel keys. An attacker who
+strips a capability or forces an older version makes the two sides derive
+different keys and both confirmations fail. **Detection, not prevention** —
+the handshake aborts rather than silently falling back, which is the only
+outcome available to a one-round-trip PAKE and the correct one.
+
+Four things the implementation has to get right, and where each lives:
+
+| Requirement | Where |
 | --- | --- |
-| `K` from the code | A peer that has only the topic |
-| Fresh `nonceR`/`nonceS` per attempt | Replaying a proof captured earlier |
-| `"s"` / `"r"` domain tags | Reflecting one direction's proof into the other |
-| `bind` = both Noise public keys, ordered by role | Relaying: getting an honest peer to answer a challenge on your behalf |
+| `ya`, `yb`, `sid` per *connection*, never per drop | Constructed inside `swarm.js`'s per-connection handler; no way to inject a scalar or a sid, because a caller that could supply one could reuse one |
+| `caps` byte-exact canonical encoding | `encodeCaps` — deduplicated, sorted bytewise, comma-joined, 128-byte cap. Non-canonical input from a peer is *refused*, not normalised |
+| Bind what you sent and what you received, verbatim | Each side hashes the peer's caps bytes as received, never a re-serialisation of its parsed view |
+| `PRS` is the secret's canonical form | `splitCode` produces it; `handshake.js` refuses uppercase or whitespace |
 
-That last one is worth spelling out, because nonces and tags look
-sufficient and are not. An attacker can announce on the topic, take the
-receiver's challenge, pose as a receiver to the honest *sender* (which
-dials every candidate it discovers), have the sender answer that very
-challenge, and forward the result. Every nonce is fresh and every tag
-correct. What breaks it is binding the proof to the session it was made on:
-the attacker cannot borrow the sender's public key, having no private half,
-so the proof it obtains is bound to the wrong pair of peers.
+That third row is what lets v2.1 add a capability without breaking a v2
+peer: an unknown token stays bound in the transcript and is merely not
+acted on. There is a test that fails if a future refactor filters unknown
+tokens before hashing.
 
-Comparisons use `crypto.timingSafeEqual`, behind an explicit length check
--- that function throws rather than returning false on a length mismatch,
-so without one a peer could stop the process by answering with the wrong
-number of bytes.
+**Channel binding moved to the transcript.** v1 bound its proof to the
+Noise session's public keys, which closed a real relay attack and was
+correct for v1. It is wrong for v2 for one reason: it makes the engine's
+security depend on which transport carried the bytes, so a relayed or
+browser connection would have to reinvent it. Binding to the PAKE
+transcript instead is relay-safe (the relay is a pipe and cannot be a
+party), browser-possible later without redesigning authentication, and one
+property to reason about rather than one per transport. Noise remains
+underneath and is still valuable; it just stops being load-bearing for
+authentication. See [`PROTOCOL.md`](PROTOCOL.md) §3.3.
 
-**A peer that fails the proof is discarded like any other bad candidate**
-and both sides keep waiting, reusing the resilience the Hyperswarm
-milestone already had. An
-attacker must not be able to end a drop just by connecting to it and
-failing.
+**The weak point, named.** `sid` is chosen by the receiver, where the
+draft recommends one contributed by both parties. The receiver must
+compute the generator before it can send `Ya`, so a joint `sid` costs a
+round trip — and then the receiver could not write first, which the
+tie-break above makes load-bearing. The message shape wins. What it costs
+is the UC proof's uniqueness premise and a constant factor on generator
+derivation; what it does *not* cost is guesses per run, which is the
+quantity the attempt cap bounds. Two mitigations, both required: the
+receiver samples `sid` per connection, and the **sender** remembers the
+`sid` values it has seen for a nameplate and counts a repeat as a failed
+attempt (`engine/src/attempts.js`).
 
-> **Superseded in v2.** That last rule is a v1 rule and v2 reverses it
-> deliberately. Under v2 a nameplate-holder *can* end a drop, after 100
-> failed PAKE confirmations — see [`PROTOCOL.md`](PROTOCOL.md) §6 and
-> [`THREAT-MODEL.md`](THREAT-MODEL.md) §5.3. The trade is explicit:
-> unlimited guessing against ~31 bits is worse than a denial of service,
-> because a denial of service is visible and a silent compromise is not.
-> The v1 rule stands for the v1 handshake this section describes, which
-> is what still ships.
- It is reported with its own reason string, though, because it is
-the one discard that is not a network problem: `cli/test/code-proof.test.js`
-covers wrong-code, reflected, replayed and relayed proofs, and asserts that
-a genuine drop still completes after three rejected peers.
+Confirmations are compared with `crypto.timingSafeEqual` behind an
+explicit length check — that function throws rather than returning false
+on a length mismatch, so without one a peer could stop the process by
+answering with the wrong number of bytes.
+
+**A peer that fails its confirmation is discarded like any other bad
+candidate** and both sides keep waiting, reusing the resilience the
+Hyperswarm milestone already had. What changed from v1 is that it is now
+also *counted*: 100 failures burn the drop with `ERR_ATTEMPT_CAP`. v1 held
+that an attacker must not be able to end a drop by connecting and failing;
+v2 reverses that deliberately, because the alternative is unlimited
+guessing against ~31 bits and a denial of service is a better failure than
+a silent compromise. Nothing else is counted — never a dropped candidate,
+because stale DHT announces routinely produce dead ones and three were
+once enough to starve every connection slot here. See
+[`PROTOCOL.md`](PROTOCOL.md) §6 and [`THREAT-MODEL.md`](THREAT-MODEL.md)
+§5.3.
 
 Two consequences to know:
 
-- **It cannot mean a mistyped code.** Topic and key both derive from the
-  code, so a peer that reached you on this topic at all derived the same
-  key. Get a word wrong and the two sides land on unrelated topics and
-  never meet, which surfaces as the zero-candidate timeout instead. A proof
-  failure is a stranger, or a version skew.
+- **It can now mean a mistyped code, which is new.** Under v1 the topic
+  and the key both derived from the whole code, so a peer that reached you
+  at all had derived the same key and a proof failure meant a stranger or
+  a version skew. Under v2 the topic commits only to the nameplate, so a
+  half-mistyped code — nameplate right, secret wrong — produces two peers
+  that find each other and then fail to confirm. That is byte-for-byte
+  what a guessing attempt looks like, and the two are indistinguishable in
+  principle: distinguishing them is precisely what a PAKE refuses to do.
+  The reported reason names both possibilities rather than guessing.
 - **It is a wire-format change, so both machines must be redeployed
-  together.** Old and new do not interoperate: a pre-item-4 peer answers
-  with `0x02` and is discarded. The reason string says so, since during a
-  staged rollout that is the likeliest cause.
+  together.** A v1 receiver opens with `READY` (`0x01`) and a v2 responder
+  reports that as a wire-version skew by name, not as corruption. The two
+  cannot even meet by accident: v1 and v2 topics use different domain
+  prefixes, so a v1-against-v2 pairing surfaces as `ERR_NO_PEER`.
 
-**What it does not do: it does not make a weak code strong.** Six words is
-~62 bits and the announced topic already commits to them, so an attacker
-holding a topic can grind candidate codes offline against
-`hash(code || salt)` whether or not this handshake exists. Deriving `K`
-from the code adds no exposure the topic had not already created, and
-cannot remove it.
+Covered by `cli/test/pake-handshake.test.js` (both roles over a duplex
+pair, plus two tests against a real `hyperdht` testnet, because a duplex
+pair cannot reproduce several-candidates-per-drop — which is what the
+per-connection-scalar requirement is about), by
+`cli/test/handshake-vectors.test.js` (the mapping frozen end to end, with
+every derivation recomputed a second way through `node:crypto`), and by
+`cli/test/attempts.test.js` (the cap fires on guessing and never on
+network noise).
 
-**The answer to grinding is the v2 code split**, not a shorter topic
-lifetime: the topic comes to commit only to a public *nameplate*, and the
-secret is fed to a PAKE and never hashed into anything an observer can
-obtain. That removes the offline target entirely rather than shrinking the
-window on it. See [`PROTOCOL.md`](PROTOCOL.md) §2.
+**What it still does not do: it does not make a weak code strong.** It
+makes a ~31-bit secret *sufficient*, which is a different claim and the
+one v2 is built on: ~31 bits is ample against 100 counted guesses and
+nothing at all against unlimited ones. Take away the cap and the PAKE
+alone does not save it. Take away the code split and the cap does not
+either, because the grinding happens offline where nothing counts. The two
+are one design.
 
 ## Relay threat boundary
 

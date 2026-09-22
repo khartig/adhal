@@ -14,6 +14,12 @@
 // arrived as nothing at all. "The peer cancelled", "the bytes are wrong"
 // and "the punch died" are three different situations with three
 // different responses, and telling them apart is the whole point.
+//
+// Switched on `err.code`, never on the message. That is load-bearing
+// rather than tidy: the messages here are free to be reworded, and
+// PROTOCOL.md section 10 makes the codes the contract precisely because
+// this project's own measurement harness once classified failures by
+// regex-matching prose.
 
 const { displayName } = require('@quay/engine')
 
@@ -83,6 +89,27 @@ function describeError (err) {
 
     case 'ERR_CONNECTION':
       return `FAILED: the connection closed before the transfer finished (${err.bytes} bytes received). The partial file was discarded.`
+
+    case 'ERR_ATTEMPT_CAP':
+      // THE ONLY CASE IN THIS FILE THAT MEANS SOMEONE WAS GUESSING.
+      // Everything else here is a fault; this one is a report, and it is
+      // the reason PROTOCOL.md section 10 singles it out. Without this
+      // case it would fall through to the generic `error: <message>` and
+      // get the least prose of any failure -- which is precisely backwards
+      // for the only outcome a human has to act on beyond retrying.
+      //
+      // Three things have to be said, and in this order. What happened,
+      // because "burned" is not self-explanatory. That the code is spent,
+      // because the instinct is to retry with it and that hands the
+      // guesser its next hundred attempts. And that the handover route may
+      // be the problem, because a guesser who knew the nameplate got it
+      // from somewhere.
+      return `FAILED: this drop was burned after ${err.attempts} failed attempts to confirm the code` +
+        `${typeof err.max === 'number' ? ` (the limit is ${err.max})` : ''}. ` +
+        'That is not a network problem: somebody was guessing the secret. Nothing was ' +
+        'transferred. Do NOT retry with the same code -- it is spent, and reusing it ' +
+        'would give them another hundred guesses. Generate a new one, and consider ' +
+        'whether the way you shared the last one is how they found it.'
 
     case 'ERR_NO_PEER':
     case 'ERR_NO_HANDSHAKE':

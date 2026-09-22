@@ -3,7 +3,8 @@
 const Hyperswarm = require('hyperswarm')
 const { TransferError, abortError } = require('./errors')
 const { MessageReader } = require('./reader')
-const { Initiator, Responder, assertHandshakeInputs } = require('./handshake')
+const { Initiator, Responder, assertHandshakeInputs, ERR_CONFIRMATION } = require('./handshake')
+const { AttemptCap, sidReusedError, ERR_SID_REUSED } = require('./attempts')
 
 // The readiness handshake, which is also v2's PAKE exchange. The receiver
 // writes HELLO once its connection is confirmed stable; three messages
@@ -286,8 +287,11 @@ function timeoutError (phase, timeout, candidates) {
  *   signal?: AbortSignal,
  *   onAnnounced?: () => void,
  *   onCandidate?: (peerInfo: any) => void,
+ *   attemptCap?: InstanceType<typeof AttemptCap>,
  *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void
  * }} options not optional, because `secret` and `nameplate` are not
+ *   `attemptCap` counts failed confirmations for THIS drop (section 6);
+ *   one is created per join, so burning it burns only this drop.
  *   `secret` and `nameplate` are the two halves of the drop code -- see
  *   splitCode in ./code.js and resolveCode in ./resolve-code.js. The
  *   secret is the PAKE password and must be the canonical form.
@@ -299,7 +303,7 @@ function timeoutError (phase, timeout, candidates) {
  *   (k_r2s and k_s2r respectively for a receiver). NOTHING IS SEALED WITH
  *   THEM YET -- see the note where they are resolved.
  */
-function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, signal, onAnnounced, onCandidate, onCandidateDropped }) {
+function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onAnnounced, onCandidate, onCandidateDropped }) {
   // Validated up front rather than per connection, and required rather
   // than defaulted. A missing secret can only mean a caller that was not
   // updated for v2, and the failure mode of quietly carrying on without
@@ -367,17 +371,28 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       // a sid: there is no correct caller for one.
       const handshake = new Initiator({ secret, nameplate })
       const reader = new MessageReader()
+      /** @type {NodeJS.Timeout | null} */
+      let helloTimer = null
 
       // See HANDSHAKE_TIMEOUT_MS: a candidate that goes quiet mid-
       // handshake is dropped on its own schedule rather than holding a
       // connection slot until the whole drop times out.
-      const deadline = handshakeTimeout
-        ? setTimeout(() => onFailed(new Error(`did not complete the handshake within ${handshakeTimeout}ms`)), handshakeTimeout)
+      //
+      // The attempt cap's backoff is added to the budget rather than
+      // spent out of it. Without that, a delayed HELLO could be dropped
+      // before it was even written -- the defence would be timing out its
+      // own handshakes and reporting them as peers that never confirmed.
+      const candidateBudget = handshakeTimeout
+        ? handshakeTimeout + attemptCap.delayMs()
+        : 0
+      const deadline = candidateBudget
+        ? setTimeout(() => onFailed(new Error(`did not complete the handshake within ${candidateBudget}ms`)), candidateBudget)
         : null
       if (deadline && typeof deadline.unref === 'function') deadline.unref()
 
       const detach = () => {
         if (deadline) clearTimeout(deadline)
+        if (helloTimer) clearTimeout(helloTimer)
         socket.removeListener('error', onFailed)
         socket.removeListener('close', onFailed)
         socket.removeListener('data', onData)
@@ -397,6 +412,16 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       // legitimate drop (section 6).
       function onFailed (err) {
         if (settled) return
+        // THE ONE THING THAT IS COUNTED, and the check is on the CODE
+        // rather than the message: a confirmation failure means a peer
+        // reached the nameplate without the secret, which is either
+        // somebody guessing or a mistyped code. Everything else arriving
+        // here -- a dead punch, a socket reset, a candidate that went
+        // quiet -- is network noise and must not be counted, or the DHT's
+        // own stale announces would burn a legitimate drop (section 6).
+        const burned = err && err.code === ERR_CONFIRMATION
+          ? attemptCap.fail()
+          : false
         detach()
         // detach() just removed the only 'error' listener, and destroy()
         // on a NoiseSecretStream can emit one asynchronously -- "connection
@@ -421,6 +446,16 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
           )
         }
 
+        // Burning the drop happens HERE rather than inside the counter,
+        // because there are listeners and timers to unwind first and
+        // throwing from a counter would skip them. Reported after the
+        // dropped-candidate line, so a log reads in the order things
+        // happened: the hundredth failure, then the drop ending.
+        if (burned) {
+          finish()
+          swarm.removeListener('connection', onConnection)
+          reject(attemptCap.error())
+        }
       }
 
       function onData (chunk) {
@@ -488,7 +523,23 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       // truly done, the server never sees the connection at all). Signal
       // readiness so connectOnce's sender knows it's now safe to write,
       // and carry Ya, the sid and our capabilities in the same message.
-      socket.write(handshake.hello())
+      //
+      // Delayed by the attempt cap's backoff once anything has failed. A
+      // DELAY, not a refusal: declining to talk during a backoff window
+      // would discard the legitimate sender along with the guesser, and
+      // the legitimate sender is the one that cannot retry a thousand
+      // times. A guess needs this HELLO, so delaying it is what makes
+      // guessing cost wall-clock time. See engine/src/attempts.js.
+      const backoff = attemptCap.delayMs()
+      if (backoff === 0) {
+        socket.write(handshake.hello())
+      } else {
+        helloTimer = setTimeout(() => {
+          if (settled || socket.destroyed) return
+          socket.write(handshake.hello())
+        }, backoff)
+        if (typeof helloTimer.unref === 'function') helloTimer.unref()
+      }
     }
 
     swarm.on('connection', onConnection)
@@ -538,10 +589,16 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   timeout?: number,
  *   refreshInterval?: number,
  *   handshakeTimeout?: number,
+ *   attemptCap?: InstanceType<typeof AttemptCap>,
  *   signal?: AbortSignal,
  *   onCandidate?: (peerInfo: any) => void,
  *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void
  * }} options not optional, because `secret` and `nameplate` are not
+ *   `attemptCap` is where the SENDER's extra duty lives: as well as
+ *   counting failed confirmations it remembers the sid values it has seen
+ *   for this nameplate, and treats a repeat as a failed attempt. That is
+ *   section 3.2's mitigation for a receiver-chosen sid, and it is why that
+ *   choice is acceptable at all.
  * @returns {Promise<{
  *   socket: any, peerInfo: any, pending: Buffer | null,
  *   sendKey: Buffer, receiveKey: Buffer, caps: string[]
@@ -549,7 +606,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   For a sender, `sendKey` is k_s2r and `receiveKey` is k_r2s -- the
  *   mirror of acceptOnce's view. Nothing is sealed with them yet.
  */
-function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, signal, onCandidate, onCandidateDropped }) {
+function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onCandidate, onCandidateDropped }) {
   // See acceptOnce: required rather than defaulted, and validated up
   // front, because carrying on without a secret would silently hand a file
   // to whoever answered.
@@ -608,15 +665,23 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
       const handshake = new Responder({ secret, nameplate })
       const reader = new MessageReader()
       let replied = false
+      /** @type {NodeJS.Timeout | null} */
+      let replyTimer = null
 
-      // See HANDSHAKE_TIMEOUT_MS, and acceptOnce's copy of this.
-      const deadline = handshakeTimeout
-        ? setTimeout(() => onFailed(new Error(`did not complete the handshake within ${handshakeTimeout}ms`)), handshakeTimeout)
+      // See HANDSHAKE_TIMEOUT_MS, and acceptOnce's copy of this --
+      // including why the backoff is added to the budget rather than spent
+      // out of it.
+      const candidateBudget = handshakeTimeout
+        ? handshakeTimeout + attemptCap.delayMs()
+        : 0
+      const deadline = candidateBudget
+        ? setTimeout(() => onFailed(new Error(`did not complete the handshake within ${candidateBudget}ms`)), candidateBudget)
         : null
       if (deadline && typeof deadline.unref === 'function') deadline.unref()
 
       const detach = () => {
         if (deadline) clearTimeout(deadline)
+        if (replyTimer) clearTimeout(replyTimer)
         socket.removeListener('error', onFailed)
         socket.removeListener('close', onFailed)
         socket.removeListener('data', onData)
@@ -624,6 +689,11 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 
       function onFailed (err) {
         if (settled) return
+        // See acceptOnce's copy: only a confirmation failure or a reused
+        // sid is counted, never a dead punch or a reset socket.
+        const burned = err && (err.code === ERR_CONFIRMATION || err.code === ERR_SID_REUSED)
+          ? attemptCap.fail()
+          : false
         detach()
         // detach() just removed the only 'error' listener, and destroy()
         // on a NoiseSecretStream can emit one asynchronously -- "connection
@@ -647,6 +717,12 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
             err ? err.code : undefined
           )
         }
+
+        if (burned) {
+          finish()
+          swarm.removeListener('connection', onConnection)
+          reject(attemptCap.error())
+        }
       }
 
       // Two reads, in order, off one listener: the receiver's HELLO, then
@@ -665,10 +741,45 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
             const answer = handshake.readHello(reader)
             if (!answer) return
             replied = true
+
+            // SECTION 3.2'S MITIGATION FOR A RECEIVER-CHOSEN sid, and the
+            // reason that departure from the draft is acceptable. The
+            // draft recommends a sid contributed by both parties; here the
+            // receiver must compute the generator before it can send Ya,
+            // so a jointly contributed sid would cost a round trip and the
+            // receiver could not write first -- which section 3.1 shows is
+            // load-bearing for Hyperswarm's duplicate tie-break. The
+            // message shape wins, and the sender remembers instead. That
+            // turns sid reuse from invisible into countable.
+            //
+            // Note what a repeat does NOT mean: a 16-byte CSPRNG value
+            // does not repeat by chance, but a buggy peer reusing one
+            // lands here too. Either way it is something a correct peer
+            // never does, so the reason says "reused" rather than
+            // "attacked".
+            if (attemptCap.seenSid(answer.sid)) {
+              onFailed(sidReusedError(answer.sid))
+              return
+            }
+
             // REPLY carries Yb, our confirmation and our capabilities in
             // one message, so this stays the same number of round trips as
             // the v1 handshake it replaces.
-            socket.write(answer.reply)
+            //
+            // Delayed by the attempt cap's backoff once something has
+            // failed -- a delay rather than a refusal, for the reason
+            // acceptOnce's copy of this gives. A guess against a sender
+            // needs this REPLY.
+            const backoff = attemptCap.delayMs()
+            if (backoff === 0) {
+              socket.write(answer.reply)
+            } else {
+              replyTimer = setTimeout(() => {
+                if (settled || socket.destroyed) return
+                socket.write(answer.reply)
+              }, backoff)
+              if (typeof replyTimer.unref === 'function') replyTimer.unref()
+            }
           }
 
           // Falls through in the same tick when both messages arrived

@@ -41,6 +41,16 @@
 //   ERR_NO_HANDSHAKE      join timed out having seen peers that never
 //                         completed the handshake. A different
 //                         investigation entirely -- see swarm.js.
+//   ERR_ATTEMPT_CAP       the drop was burned after N failed attempts to
+//                         confirm the secret. THE ONLY CODE HERE THAT
+//                         MEANS SOMEONE WAS GUESSING: everything else in
+//                         this list is a fault, and this one is a report.
+//                         See attempts.js and PROTOCOL.md section 6, and
+//                         note that it deliberately reverses v1's rule
+//                         that an attacker must not be able to end a drop
+//                         by connecting and failing -- a denial of service
+//                         is a better failure than a silent compromise
+//                         against ~31 bits.
 //
 // `name` stays 'TransferError' for everything except a local abort, which
 // uses Node's own 'AbortError'/'ABORT_ERR' pair so that `signal.reason`

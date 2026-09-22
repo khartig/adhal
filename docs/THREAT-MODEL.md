@@ -146,23 +146,23 @@ copy without abandoning its own design.
 
 ## 5. What the drop code protects, and what it cannot
 
-### 5.1 Today (v1)
+### 5.1 v1, as shipped until W11
 
 ```
 topic = hash(code || app-salt)      announced publicly
 key   = HKDF(code, ...)             proves the peer knows the code
 ```
 
-Both derive from the *whole* code, and the topic is public. So an attacker
-who scrapes a topic can **grind candidate codes offline**: hash each guess,
-compare to the topic, no network round trip and no rate limit. ~62 bits of
-code is what stands between them and the drop key.
+Both derived from the *whole* code, and the topic is public. So an attacker
+who scraped a topic could **grind candidate codes offline**: hash each
+guess, compare to the topic, no network round trip and no rate limit. ~62
+bits of code was what stood between them and the drop key.
 
-62 bits is a lot. But the structure is wrong: it spends the code's entropy
-on defending a public value, and it gets weaker the moment anyone wants a
+62 bits is a lot. But the structure was wrong: it spent the code's entropy
+on defending a public value, and it got weaker the moment anyone wanted a
 shorter code.
 
-### 5.2 After the v2 break (W9-W11)
+### 5.2 v2, implemented in W11
 
 ```
 code   = nameplate(2 words) + secret(3 words)
@@ -174,21 +174,36 @@ The topic commits only to the nameplate. The secret is never hashed into
 any public value, so there is nothing to grind offline: **every guess of
 the secret costs one live protocol run** against a peer that is counting.
 
-The code gets *shorter* — five words instead of six — while getting
-stronger, because entropy no longer has to defend a public hash.
+The code is *shorter* — five words instead of six — while being stronger,
+because entropy no longer has to defend a public hash.
+
+Shipped in W11: `engine/src/topic.js` derives the topic from the nameplate
+alone, `engine/src/handshake.js` feeds the secret to CPace, and
+`engine/src/proof.js` — v1's HMAC proof — is deleted. §5.1 is kept because
+a v2 build still has to recognise a v1 peer and say so
+([`PROTOCOL.md`](PROTOCOL.md) §9), and because the reasoning is what
+justifies the break.
 
 ### 5.3 The attempt cap, and the trade it makes
 
 Online guessing is answered by counting failures: N=100 PAKE confirmation
 failures with exponential backoff, then the drop is burned and the human is
-told someone was guessing.
+told someone was guessing. Implemented in W11
+(`engine/src/attempts.js`, `ERR_ATTEMPT_CAP`).
+
+The backoff is applied as a **delay before answering**, not as a refusal to
+talk. That distinction matters: declining new candidates during a backoff
+window would discard the legitimate peer along with the guesser, and the
+legitimate peer is the one that cannot retry a thousand times. A guess
+needs our next message, so delaying it is what makes guessing cost
+wall-clock time.
 
 **Only PAKE confirmation failures are counted — never dropped candidates.**
 This repo has measured evidence that stale DHT announces routinely produce
 dead candidates; three were once enough to starve every connection slot.
 Counting those would let the DHT's own garbage burn a legitimate drop.
 
-**This reverses an earlier rule, deliberately.** The v1 code says an
+**This reverses an earlier rule, deliberately.** The v1 code said an
 attacker "must not be able to end a drop just by connecting to it and
 failing". Under v2 a nameplate-holder *can* end a drop, after 100 failed
 guesses. That is accepted because the alternative is unlimited guessing
@@ -199,7 +214,7 @@ than a silent compromise. It is a chosen trade, not an oversight.
 
 ## 6. A peer that knows the code is not a peer you can trust
 
-The code proof answers exactly one question: *is this the peer the human
+The handshake answers exactly one question: *is this the peer the human
 meant?* It says nothing about whether that peer is well-behaved. A code can
 be shoulder-surfed, screenshotted, forwarded to the wrong chat, or given to
 someone for a different file than the one they send.

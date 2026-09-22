@@ -119,11 +119,19 @@ reliability. Raise it above 135 for large files or a very slow path.
 The two ends are on different machines with **no channel between them**.
 
 1. **Codes are derived, not exchanged.** Both sides compute the same code
-   from `(seed, index)`, so neither has to be told anything. They are
-   deliberately opaque secrets rather than six-word codes: a topic is a
-   32-byte hash either way, `resolveCode` handles both, and word parsing is
-   already covered by `cli/test/code.test.js`. Nothing about the
-   measurement changes.
+   from `(seed, index)`, so neither has to be told anything.
+
+   **They are real five-word codes as of W11, and that is a correctness
+   fix rather than tidying.** They used to be opaque `trial-<hex>`
+   secrets, on the reasoning that "a topic is a 32-byte hash either way".
+   That stopped being true under v2: an opaque code becomes its own
+   nameplate *and* its own secret, so every trial would have run down the
+   `--unsafe-opaque` path — publishing each trial's secret in its own
+   announced topic and measuring a configuration no user can reach. The
+   instrument would have been measuring something other than the product.
+   The derivation from `(seed, index)` is unchanged in spirit and
+   rejection-sampled over the word list, so the "neither side has to be
+   told the codes" property survives.
 2. **Trials are pinned to wall-clock slots, not to each other's progress.**
    If each side advanced when *its own* trial finished, a fast failure on
    one side against a slow timeout on the other would desynchronise them,
@@ -165,13 +173,32 @@ they disagree by much, something is wrong with the run itself.
 | `ok` | Transferred, verified by the engine, and cross-checked here | — |
 | `no-peer` | Timed out having seen **no** connection | Discovery or hole punching. Intermittent = flaky path; every trial = check both sides are really on the same topic. |
 | `no-handshake` | Peers connected but none completed the readiness handshake | **Our code**, not the network. Start at `acceptOnce`/`connectOnce` in `engine/src/swarm.js`. |
-| `bad-proof` | Peers connected and were rejected for not proving they know the code | Not the network either. On a private topic this should be zero: expect it only when the two hosts are running different builds (the code proof is a wire-format change — see `engine/src/proof.js`), and treat any other occurrence as someone else on your topic. |
+| `attempt-cap` | The drop was burned after 100 failed PAKE confirmations | Should never appear in an unattended run on a private topic. If it does, the run is not measuring the network at all — somebody reached the nameplate and spent the drop's hundred guesses. |
 | `transfer-error` | Connected and handshake fine; the transfer threw something with no code | `engine/src/transfer.js`. An uncoded error reaching this bucket is itself a small bug — see below. |
 | `hash-mismatch` | The engine rejected the file: its bytes do not match the manifest digest | **Correctness bug. Stop feature work.** |
 | `hash-crosscheck-disagreed` | The engine *accepted* a file this harness says is wrong | **Worse. The verification itself is broken** — `finalize()` in `engine/src/transfer.js`. |
 | `size-mismatch` | The peer sent more, or fewer, bytes than its manifest declared | `engine/src/transfer.js` |
 | `connection-lost` | The socket closed before the transfer finished | A punch that died mid-transfer. Before the failure-reporting work this hung forever instead of being counted. |
 | `unsafe-name` / `manifest-invalid` / `protocol-error` | The peer's manifest or framing was refused | On a private topic, almost always a build-version skew between the two hosts |
+| `cancelled-by-peer` / `cancelled-locally` | Someone stopped the drop deliberately | Not a failure of the path. Should be zero in an unattended run. |
+
+**`bad-proof` is gone, and its removal is worth recording** because it was
+the last piece of prose-matching in this harness. It counted peers rejected
+for not proving they knew the code, and it was matched by regex against an
+error *message* — the exact coupling `engine/src/errors.js` exists to
+remove. It was also already dead: a drop whose candidates all failed
+reports `ERR_NO_HANDSHAKE`, which the table above catches first.
+
+Failed PAKE confirmations are **per-candidate events, not trial
+outcomes** — a trial can succeed having rejected several peers first, which
+is the behaviour the attempt cap relies on. So they are counted where they
+happen, off the code `ERR_PAKE_CONFIRMATION`, and reported separately as a
+`badConfirmations` total per trial plus one summary line. On a private
+topic that total should be zero; a non-zero one means peers reached the
+nameplate without the secret, i.e. a build skew between the two hosts or
+somebody else on the topic. Check that before reading anything else in the
+run.
+
 | `cancelled-by-peer` / `cancelled-locally` | Someone stopped the drop deliberately | Not a failure of the path. Should be zero in an unattended run. |
 | `timeout-other` | Timed out without a recognised reason | Read the `error` field in the JSON |
 | `skipped` | The slot was already over when the trial began | Clock skew, or `--slot` too short |

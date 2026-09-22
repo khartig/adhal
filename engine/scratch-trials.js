@@ -165,6 +165,10 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, m
 const OUTCOME_BY_CODE = {
   ERR_NO_PEER: 'no-peer',
   ERR_NO_HANDSHAKE: 'no-handshake',
+  // Should never appear in an unattended run on a private topic. If it
+  // does, the run is not measuring the network at all -- somebody reached
+  // the nameplate and spent the drop's hundred guesses (section 6).
+  ERR_ATTEMPT_CAP: 'attempt-cap',
   ERR_HASH_MISMATCH: 'hash-mismatch',
   ERR_SIZE_MISMATCH: 'size-mismatch',
   ERR_CONNECTION: 'connection-lost',
