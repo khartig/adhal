@@ -1,8 +1,16 @@
 # Quay wire protocol
 
-**v1 — shipped, described in §9 for interoperability.**
-**v2 — specified here and frozen by W10. Implemented in W11. Not yet on
-the wire.**
+**v1 — superseded, described in §9 for interoperability.**
+**v2 — specified here, frozen by W10, and on the wire as of W11's
+security-core pass.**
+
+What W11 shipped: §2's code split, §3's handshake, §5's AEAD channel
+(built and tested but not yet carrying the transfer), §4's message
+numbers, and §6's attempt cap. What it deliberately did not: manifest v2,
+the ACCEPT/DECLINE gate, `RESULT`, streaming and resume. Those are one
+further pass, and the capability tokens in §3.2 are what let it ship
+without a third wire break. §3.1 carries an amendment W11 found while
+implementing it.
 
 §8's decisions are settled, not open: the PAKE suite, the framing, the
 resume strategy and the checkpoint interval each carry the measurement
@@ -106,10 +114,10 @@ duplicate-resolution risk**. The third message is sent only after both
 sides are already established.
 
 **One framing consequence, stated here because W11 will otherwise trip
-over it.** v1's three messages are all fixed sizes — 33, 64, 32 — which
-is why `engine/src/swarm.js:66-67` can hold them as compile-time
-constants and call `MessageReader.take(n)` with a literal. `CONFIRM` (32)
-stays fixed under v2. `HELLO` and `REPLY` do not: `caps` is
+over it.** v1's three messages were all fixed sizes — 33, 64, 32 — which
+is why `engine/src/swarm.js` could hold them as compile-time constants and
+call `MessageReader.take(n)` with a literal. `CONFIRM` (32) stays fixed
+under v2. `HELLO` and `REPLY` do not: `caps` is
 variable-length, so **both carry their own length prefix** and the reader
 takes the prefix first. `MessageReader` already reads by byte count and
 needs no change; the constants do.
@@ -144,7 +152,7 @@ needs no change; the constants do.
 > `REPLY` cannot affect it.
 >
 > So "REPLY stays fixed" was a note about holding sizes as compile-time
-> constants (`swarm.js:66-67`), not a security claim. Recorded here
+> constants, not a security claim. Recorded here
 > rather than edited away, for the same reason §8.2's wrong latency
 > estimate and the Node-version floor are: a spec that quietly rewrites
 > its own mistakes teaches a second implementer nothing.
@@ -781,12 +789,21 @@ project's own measurement instrument to its wording.
 | `ERR_NO_HANDSHAKE` | join timed out having seen peers that never confirmed |
 | `ERR_ATTEMPT_CAP` | the drop was burned after N failed PAKE confirmations (§6) |
 
-`ERR_ATTEMPT_CAP` is **specified here and thrown in W11.** It is not in
-`engine/src/errors.js` yet, deliberately: there is nothing to count until
-there is a PAKE confirmation to fail, and a code that nothing throws is a
-code nothing tests. The name matches §6's own term ("attempt cap") and
-the `ERR_NO_PEER` / `ERR_NO_HANDSHAKE` shape already in
-`engine/src/errors.js:14-43`.
+`ERR_ATTEMPT_CAP` **is thrown as of W11** (`engine/src/attempts.js`). It
+was deliberately absent from `engine/src/errors.js` until then: there was
+nothing to count until there was a PAKE confirmation to fail, and a code
+that nothing throws is a code nothing tests. The name matches §6's own
+term ("attempt cap") and the `ERR_NO_PEER` / `ERR_NO_HANDSHAKE` shape.
+
+Two further codes exist in the implementation and are **deliberately not
+in this table**: `ERR_PAKE_CONFIRMATION` and `ERR_SID_REUSED`. They say
+why one *candidate* was discarded, not how a *drop* ended, and the
+distinction is load-bearing — a receiver discards a failed candidate and
+keeps waiting, exactly as it does for a dead punch. What the drop reports
+is `ERR_NO_HANDSHAKE`, or `ERR_ATTEMPT_CAP` once enough of them have
+accumulated. They exist so that `engine/src/swarm.js` can count the two
+things §6 says to count and nothing else, and so
+`engine/scratch-trials.js` can tally them without matching prose.
 
 It is the one error in this table that means *someone was guessing*, and
 the only one whose human-facing message should say so. Everything else

@@ -42,11 +42,12 @@ const { Field } = require('@noble/curves/abstract/modular.js')
 // bit #255 set and are the pair that silently breaks any implementation
 // skipping RFC 7748's decodeUCoordinate.
 //
-// NOT WIRED IN. swarm.js still runs the v1 handshake. This module exists
-// so the W10 decision rests on running code; W11 is what puts it on the
-// wire. See PROTOCOL.md section 3 for the Quay-specific parameter
-// mapping (what goes in PRS, CI, sid, ADa and ADb), which is the part
-// this file deliberately does not decide.
+// ON THE WIRE AS OF W11. ./handshake.js owns the Quay-specific parameter
+// mapping -- what goes in PRS, CI, sid, ADa and ADb -- and ./swarm.js
+// runs the exchange. That mapping is the part this file deliberately does
+// not decide: everything here is the suite as the draft defines it, which
+// is what makes cli/test/cpace-vectors.test.js able to check it against
+// values computed by someone else. See PROTOCOL.md section 3.2.
 
 // The suite's domain-separation identifiers. G.DSI seeds the generator,
 // G.DSI_ISK the key derivation, and they differ so that no hash input can
