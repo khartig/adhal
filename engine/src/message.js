@@ -12,10 +12,18 @@ const { TransferError } = require('./errors')
 // if it is the first one, file bytes otherwise". That is enough to move a
 // file and nothing else: there is no way to say CANCEL, because any frame
 // that is not the manifest is already defined to be file content. The failure-reporting work
-// needs exactly that, and resume (W11) needs more messages still
-// (ack-by-index, resume-from), so a type space that does not exist by then
-// costs two wire breaks instead of one. This is the second break after
-// the code proof's handshake and the last cheap moment to take it.
+// needs exactly that, and v2 needs more messages still, so a type space
+// that does not exist by then costs two wire breaks instead of one. This
+// was the second break after the code proof's handshake and the last cheap
+// moment to take it.
+//
+// (This comment used to name those further messages as "ack-by-index,
+// resume-from". PROTOCOL.md section 4.1 refuted the first half: UDX under
+// Noise is already reliable and ordered, so a per-chunk acknowledgement
+// re-implements a guarantee the transport gives for free and costs a round
+// trip per chunk to do it. What resume needs is a durable offset, which is
+// CHECKPOINT{offset} below, sent periodically after an fsync rather than
+// per chunk.)
 //
 // It lives here rather than in ./frame.js on purpose. The framer stays a
 // pure length-prefixer that knows nothing about what it carries -- it is
@@ -45,12 +53,33 @@ const TYPE_RESERVED = 0x00
 const TYPE_MANIFEST = 0x01
 const TYPE_CHUNK = 0x02
 const TYPE_CANCEL = 0x03
-// 0x04+ is reserved for resume (W11); see docs/PROTOCOL.md.
+
+// v2's additions (PROTOCOL.md section 4). Named here as soon as the number
+// space is settled, ahead of anything sending them, for one reason: a type
+// that is not in TYPE_NAMES is reported as "unknown message type 0x04",
+// which reads like a corrupt stream. Named, the same frame is refused as
+// "receiver sent ACCEPT during a transfer" -- see ./transfer.js, whose
+// dispatch is exhaustive by exclusion and therefore already declines
+// everything it does not handle.
+//
+// So this commit makes the v1 transfer path refuse them ACCURATELY rather
+// than making it handle them. The handling lands with the accept gate,
+// streaming and resume in W11's second pass.
+const TYPE_ACCEPT = 0x04 // {resumeFrom} -- the accept step and resume, one message
+const TYPE_DECLINE = 0x05 // {reason}
+const TYPE_CHECKPOINT = 0x06 // {offset} -- R->S, periodic, post-fsync
+const TYPE_RESULT = 0x07 // {ok, sha256} | {error}
+const TYPE_END = 0x08 // {sha256} -- streaming trailer, when size was null
 
 const TYPE_NAMES = new Map([
   [TYPE_MANIFEST, 'MANIFEST'],
   [TYPE_CHUNK, 'CHUNK'],
-  [TYPE_CANCEL, 'CANCEL']
+  [TYPE_CANCEL, 'CANCEL'],
+  [TYPE_ACCEPT, 'ACCEPT'],
+  [TYPE_DECLINE, 'DECLINE'],
+  [TYPE_CHECKPOINT, 'CHECKPOINT'],
+  [TYPE_RESULT, 'RESULT'],
+  [TYPE_END, 'END']
 ])
 
 // An untagged manifest from a pre-item-5 build starts with '{' (0x7b),
@@ -163,5 +192,10 @@ module.exports = {
   TYPE_MANIFEST,
   TYPE_CHUNK,
   TYPE_CANCEL,
+  TYPE_ACCEPT,
+  TYPE_DECLINE,
+  TYPE_CHECKPOINT,
+  TYPE_RESULT,
+  TYPE_END,
   TYPE_NAMES
 }
