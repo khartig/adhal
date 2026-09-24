@@ -220,6 +220,17 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
   let announcedAt = null
   let candidateAt = null
   let badConfirmations = 0
+  // WHERE a failure happened, and how far the bytes got. Added after a run
+  // whose trial 4 the sender scored 'ok' and the receiver scored "connection
+  // reset by peer": the suspect is the sender's 5s close-wait fallback
+  // destroying a socket the receiver was still draining. `failedAtEpochMs`
+  // is wall-clock so it can be lined up against the sender's
+  // `destroyAtEpochMs` for the same trial -- valid to NTP accuracy, which
+  // slot alignment already assumes.
+  /** @type {'accept' | 'receive' | 'end'} */
+  let phase = 'accept'
+  let connectedAt = null
+  let bytesReceived = 0
 
   try {
     const { socket, pending } = await acceptOnce(swarm, topic, {
@@ -239,12 +250,15 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       }
     })
     socket.on('error', () => {})
-    const connectedAt = sinceDial()
+    connectedAt = sinceDial()
 
+    phase = 'receive'
     const result = await receiveFile(socket, outDir, {
       pending,
-      onManifest: (m) => { manifest = m }
+      onManifest: (m) => { manifest = m },
+      onProgress: (p) => { bytesReceived = p.bytes }
     })
+    phase = 'end'
     await new Promise((resolve) => socket.end(resolve))
 
     // A CROSS-CHECK, no longer the integrity check itself.
@@ -279,8 +293,13 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       outcome: classify(err),
       announcedMs: announcedAt,
       candidateMs: candidateAt,
+      connectedMs: connectedAt,
       badConfirmations,
-      error: err.message
+      error: err.message,
+      phase,
+      bytesReceived,
+      manifestSize: manifest ? manifest.size : null,
+      failedAtEpochMs: Date.now()
     }
   } finally {
     await swarm.destroy().catch(() => {})
@@ -295,6 +314,20 @@ async function runSenderTrial (i, budgetMs) {
   let candidateAt = null
   let dropped = 0
   let badConfirmations = 0
+  // How the post-send wait ENDED, which the sender's 'ok' cannot see.
+  // sendFile resolves once the last chunk is handed to the transport, so a
+  // trial whose close wait ran out ('timer') had swarm.destroy() called
+  // while the receiver may still have been draining -- the suspected cause
+  // of a receiver-side "connection reset by peer" on a sender-side 'ok'.
+  // Compare `destroyAtEpochMs` with the receiver's `failedAtEpochMs`.
+  /** @type {'closed' | 'timer' | null} */
+  let closeWait = null
+  let closeWaitMs = null
+  let sentAtEpochMs = null
+  /** @type {string | null} */
+  let socketErrorAfterSend = null
+  /** @type {any} */
+  let out
 
   try {
     const { socket, pending } = await connectOnce(swarm, topic, {
@@ -315,13 +348,20 @@ async function runSenderTrial (i, budgetMs) {
     // Ordinarily empty, but sendFile reads now (for CANCEL), so dropping
     // it would lose a message rather than merely skipping a no-op.
     const result = await sendFile(socket, filePath, { pending })
+    sentAtEpochMs = Date.now()
+    socket.on('error', (err) => { if (!socketErrorAfterSend) socketErrorAfterSend = err.message })
     socket.end()
-    await Promise.race([
-      new Promise((resolve) => socket.once('close', resolve)),
-      sleep(5000)
-    ])
+    // A socket already gone before the wait starts would never emit
+    // 'close' to this listener, and would be misreported as 'timer'.
+    closeWait = socket.destroyed
+      ? 'closed'
+      : await Promise.race([
+        new Promise((resolve) => socket.once('close', () => resolve('closed'))),
+        sleep(5000).then(() => 'timer')
+      ])
+    closeWaitMs = Date.now() - sentAtEpochMs
 
-    return {
+    out = {
       trial: i,
       outcome: 'ok',
       candidateMs: candidateAt,
@@ -330,10 +370,14 @@ async function runSenderTrial (i, budgetMs) {
       droppedCandidates: dropped,
       badConfirmations,
       bytes: result.size,
-      sha256: result.sha256
+      sha256: result.sha256,
+      closeWait,
+      closeWaitMs,
+      sentAtEpochMs,
+      socketErrorAfterSend
     }
   } catch (err) {
-    return {
+    out = {
       trial: i,
       outcome: classify(err),
       candidateMs: candidateAt,
@@ -342,8 +386,13 @@ async function runSenderTrial (i, budgetMs) {
       error: err.message
     }
   } finally {
+    // Stamped immediately before the destroy, because the destroy is the
+    // event under suspicion: it is what would reset a receiver still
+    // draining after a 'timer' close wait.
+    if (out) out.destroyAtEpochMs = Date.now()
     await swarm.destroy().catch(() => {})
   }
+  return out
 }
 
 function percentile (sorted, p) {
@@ -387,6 +436,19 @@ function summarise (results) {
   // worth a line of its own -- it means peers reached the nameplate
   // without the secret, i.e. a version skew between the two hosts or
   // somebody else on the topic.
+  // A sender-side 'ok' means "handed to the transport", not "delivered".
+  // Each 'timer' below is a trial where this side destroyed the swarm
+  // without seeing the receiver close -- check the receiver's result for
+  // the same trial before believing the 'ok'.
+  const timerWaits = ok.filter((r) => r.closeWait === 'timer').length
+  if (role === 'sender' && ok.length) {
+    log(`close wait: ${ok.length - timerWaits} closed by receiver, ${timerWaits} ended by the 5s timer`)
+    if (timerWaits) {
+      log('   a "timer" trial was destroyed before the receiver confirmed; its receiver may')
+      log('   have been reset mid-transfer. The receiver\'s summary is the authoritative rate.')
+    }
+  }
+
   const badConfirmations = results.reduce((n, r) => n + (r.badConfirmations || 0), 0)
   if (badConfirmations > 0) {
     log('')
@@ -463,10 +525,18 @@ async function main () {
       : await runSenderTrial(i, budget)
     results.push(result)
 
-    const timing = result.connectedMs !== undefined && result.connectedMs !== null
+    const timing = typeof result.completedMs === 'number'
       ? ` connect=${(result.connectedMs / 1000).toFixed(1)}s total=${(result.completedMs / 1000).toFixed(1)}s`
       : ''
-    log(`trial ${i + 1}/${trials}: ${result.outcome}${timing}${result.error ? ` -- ${result.error}` : ''}`)
+    // The two lines that line a sender 'ok' up against a receiver failure:
+    // how the sender's close wait ended, and where the receiver stopped.
+    const closeInfo = result.closeWait
+      ? ` close=${result.closeWait}(${(result.closeWaitMs / 1000).toFixed(1)}s) destroyAt=${result.destroyAtEpochMs}`
+      : ''
+    const failInfo = result.phase
+      ? ` [phase=${result.phase} bytes=${result.bytesReceived}/${result.manifestSize ?? '?'} failedAt=${result.failedAtEpochMs}]`
+      : ''
+    log(`trial ${i + 1}/${trials}: ${result.outcome}${timing}${closeInfo}${result.error ? ` -- ${result.error}` : ''}${failInfo}`)
   }
 
   summarise(results)
