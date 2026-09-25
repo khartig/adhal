@@ -181,11 +181,56 @@ function decodeCancelReason (body) {
   }
 }
 
+// RESULT is the receiver's verdict on the whole file, sent after it has
+// verified the digest and published under the real name (PROTOCOL.md
+// section 4.2). Two shapes, and nothing else:
+//
+//   {ok: true, sha256}   the digest the receiver computed
+//   {error}              why it could not keep the file
+const SHA256_HEX = /^[0-9a-f]{64}$/
+
+/**
+ * @param {{ ok: true, sha256: string } | { error: string }} result
+ * @returns {Buffer} a complete RESULT frame
+ */
+function encodeResult (result) {
+  const body = 'error' in result
+    ? { error: sanitizeReason(result.error) }
+    : { ok: true, sha256: result.sha256 }
+  return encodeMessage(TYPE_RESULT, Buffer.from(JSON.stringify(body), 'utf8'))
+}
+
+/**
+ * THROWS, unlike decodeCancelReason, and the asymmetry is deliberate. A
+ * cancel that cannot be parsed has still said "stop". A RESULT that cannot
+ * be parsed has said nothing, and the one thing the sender must never do
+ * is count a verdict it could not read as a success.
+ * @param {Buffer} body
+ * @returns {{ ok: true, sha256: string } | { ok: false, error: string }}
+ */
+function decodeResult (body) {
+  let parsed
+  try {
+    parsed = JSON.parse(body.toString('utf8'))
+  } catch (err) {
+    throw new TransferError('ERR_PROTOCOL', `the receiver's RESULT is not valid JSON: ${err.message}`)
+  }
+  if (parsed && parsed.ok === true && typeof parsed.sha256 === 'string' && SHA256_HEX.test(parsed.sha256)) {
+    return { ok: true, sha256: parsed.sha256 }
+  }
+  if (parsed && typeof parsed.error === 'string' && parsed.ok !== true) {
+    return { ok: false, error: sanitizeReason(parsed.error) }
+  }
+  throw new TransferError('ERR_PROTOCOL', 'the receiver\'s RESULT is neither {ok, sha256} nor {error}')
+}
+
 module.exports = {
   encodeMessage,
   decodeMessage,
   encodeCancel,
   decodeCancelReason,
+  encodeResult,
+  decodeResult,
   sanitizeReason,
   TAG_SIZE,
   TYPE_RESERVED,

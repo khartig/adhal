@@ -263,9 +263,20 @@ async function main () {
     }
     console.log(`[swarm-receive] saved to: ${result.path}`)
 
-    // Signal the sender we're fully done reading so it knows it's safe
-    // to tear its side down too (see swarm-send.js).
-    await new Promise((resolve) => socket.end(resolve))
+    // receiveFile has written RESULT, but "written" is a local flush.
+    // Destroying now could drop it and leave the sender reporting an
+    // unconfirmed file -- the same mistake the sender used to make with
+    // the last chunks. So end, and wait for the sender's end in reply,
+    // which it sends once it has read RESULT. The timeout only bounds a
+    // sender that vanished: the file is already verified and saved.
+    socket.end()
+    await new Promise((resolve) => {
+      const timer = setTimeout(resolve, 5000)
+      socket.once('close', () => {
+        clearTimeout(timer)
+        resolve(undefined)
+      })
+    })
   } catch (err) {
     progress.close()
     console.error(`[swarm-receive] ${describeError(err)}`)

@@ -37,6 +37,14 @@
 //                         destroying one we did not create.
 //   ERR_PROTOCOL          unknown tag, oversize frame, out-of-order frame.
 //   ERR_CONNECTION        the socket closed before the transfer finished.
+//                         On the sender, "finished" means the receiver's
+//                         RESULT arrived: a close after the last byte was
+//                         sent but before RESULT carries `phase: 'result'`,
+//                         and means the receiver's outcome is unknown.
+//   ERR_RECEIVER_FAILED   the receiver got every byte and could not keep
+//                         the file -- its digest disagreed, or landing it
+//                         failed. Reported to the sender in RESULT{error};
+//                         `.peerReason` is the receiver's own sentence.
 //   ERR_NO_PEER           join timed out having seen nobody.
 //   ERR_NO_HANDSHAKE      join timed out having seen peers that never
 //                         completed the handshake. A different

@@ -172,6 +172,10 @@ const OUTCOME_BY_CODE = {
   ERR_HASH_MISMATCH: 'hash-mismatch',
   ERR_SIZE_MISMATCH: 'size-mismatch',
   ERR_CONNECTION: 'connection-lost',
+  ERR_STALLED: 'stalled',
+  // Sender only: the receiver had every byte and said, in RESULT, that it
+  // could not keep the file. Its own record for the trial says why.
+  ERR_RECEIVER_FAILED: 'receiver-failed',
   ERR_UNSAFE_NAME: 'unsafe-name',
   ERR_MANIFEST_INVALID: 'manifest-invalid',
   ERR_PROTOCOL: 'protocol-error',
@@ -258,8 +262,16 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       onManifest: (m) => { manifest = m },
       onProgress: (p) => { bytesReceived = p.bytes }
     })
+    // RESULT is written but only locally flushed, and the finally below
+    // destroys the swarm. So wait for the sender's end in reply, as
+    // cli/src/swarm-receive.js does; the file is already verified, so the
+    // timer can cost the sender its confirmation but never this trial.
     phase = 'end'
-    await new Promise((resolve) => socket.end(resolve))
+    socket.end()
+    await Promise.race([
+      new Promise((resolve) => socket.once('close', resolve)),
+      sleep(5000)
+    ])
 
     // A CROSS-CHECK, no longer the integrity check itself.
     //
@@ -314,12 +326,13 @@ async function runSenderTrial (i, budgetMs) {
   let candidateAt = null
   let dropped = 0
   let badConfirmations = 0
-  // How the post-send wait ENDED, which the sender's 'ok' cannot see.
-  // sendFile resolves once the last chunk is handed to the transport, so a
-  // trial whose close wait ran out ('timer') had swarm.destroy() called
-  // while the receiver may still have been draining -- the suspected cause
-  // of a receiver-side "connection reset by peer" on a sender-side 'ok'.
-  // Compare `destroyAtEpochMs` with the receiver's `failedAtEpochMs`.
+  // How the post-send wait ended. This used to be the only evidence
+  // against a false 'ok': sendFile resolved on hand-off, and all six of the
+  // proofv2-3 run's receiver-side resets were among its nine 'timer'
+  // trials, none among the 91 that closed. sendFile now resolves only
+  // on the receiver's RESULT, so 'ok' here means delivered and verified,
+  // and a 'timer' now only means the receiver was slow to close after
+  // confirming. Kept because a rise in timers would still be worth seeing.
   /** @type {'closed' | 'timer' | null} */
   let closeWait = null
   let closeWaitMs = null
@@ -383,12 +396,17 @@ async function runSenderTrial (i, budgetMs) {
       candidateMs: candidateAt,
       droppedCandidates: dropped,
       badConfirmations,
-      error: err.message
+      error: err.message,
+      // 'send' or 'result': whether the receiver was lost while bytes were
+      // still going out, or after they all had and before it confirmed.
+      // The second is the case the receiver's own record has to settle.
+      phase: (err && err.phase) || null,
+      failedAtEpochMs: Date.now()
     }
   } finally {
-    // Stamped immediately before the destroy, because the destroy is the
-    // event under suspicion: it is what would reset a receiver still
-    // draining after a 'timer' close wait.
+    // Stamped immediately before the destroy, so it can be lined up with
+    // the receiver's `failedAtEpochMs`. This destroy was what reset
+    // receivers still draining, before sendFile waited for RESULT.
     if (out) out.destroyAtEpochMs = Date.now()
     await swarm.destroy().catch(() => {})
   }
@@ -436,17 +454,17 @@ function summarise (results) {
   // worth a line of its own -- it means peers reached the nameplate
   // without the secret, i.e. a version skew between the two hosts or
   // somebody else on the topic.
-  // A sender-side 'ok' means "handed to the transport", not "delivered".
-  // Each 'timer' below is a trial where this side destroyed the swarm
-  // without seeing the receiver close -- check the receiver's result for
-  // the same trial before believing the 'ok'.
+  // A sender-side 'ok' now means the receiver's RESULT confirmed the same
+  // digest, so the two roles' rates should agree. A 'timer' is a receiver
+  // that confirmed and was then slow to close: harmless to the file.
   const timerWaits = ok.filter((r) => r.closeWait === 'timer').length
   if (role === 'sender' && ok.length) {
-    log(`close wait: ${ok.length - timerWaits} closed by receiver, ${timerWaits} ended by the 5s timer`)
-    if (timerWaits) {
-      log('   a "timer" trial was destroyed before the receiver confirmed; its receiver may')
-      log('   have been reset mid-transfer. The receiver\'s summary is the authoritative rate.')
-    }
+    log(`close wait: ${ok.length - timerWaits} closed by receiver, ${timerWaits} ended by the 5s timer (after RESULT)`)
+  }
+  const unconfirmed = results.filter((r) => r.phase === 'result').length
+  if (role === 'sender' && unconfirmed) {
+    log(`   ${unconfirmed} trial(s) sent every byte and never got RESULT; the receiver's`)
+    log('   record for those trials is the only one that knows whether the file landed.')
   }
 
   const badConfirmations = results.reduce((n, r) => n + (r.badConfirmations || 0), 0)

@@ -167,18 +167,16 @@ async function main () {
     // reaching a terminal rather than one rule and an exception.
     console.log(`[swarm-send] done: ${displayName(result.name)}`)
     console.log(`[swarm-send] sha256: ${result.sha256}`)
-    // Honest about what this number is: bytes handed to the transport,
-    // not bytes the receiver has stored and verified. Acknowledgement by
-    // index is resume (W11).
-    console.log(`[swarm-send] sent ${result.size} bytes; the receiver's own "verified" line is the authoritative one`)
+    // sendFile resolves only on the receiver's RESULT carrying this same
+    // digest, so this line is the receiver's claim, not our hope.
+    console.log(`[swarm-send] verified: the receiver confirmed all ${result.size} bytes with the same digest`)
 
-    // End our write side, then wait for the socket to fully close (i.e.,
-    // the receiver has also ended its side, per swarm-receive.js) before
-    // tearing the swarm down. Destroying right after our own end() only
-    // guarantees a *local* flush, not that the receiver actually got the
-    // last bytes -- doing so caused "connection reset by peer" on the
-    // receiver mid-transfer. Falls back to a timeout so a hung close
-    // can't wedge the process.
+    // The file is confirmed, so nothing below can lose data. This wait
+    // used to be the only thing standing between "sent" and "delivered",
+    // and its 5s fallback was the cause of 6 in 100 real transfers
+    // failing on the receiver -- see RESULT_TIMEOUT_MS in
+    // engine/src/transfer.js. It is kept as courtesy: ending cleanly
+    // lets the receiver's own close wait finish now rather than by timer.
     socket.end()
     /** @type {Promise<void>} */
     const closed = new Promise((resolve) => {

@@ -11,10 +11,13 @@ const {
   decodeMessage,
   encodeCancel,
   decodeCancelReason,
+  encodeResult,
+  decodeResult,
   TAG_SIZE,
   TYPE_MANIFEST,
   TYPE_CHUNK,
   TYPE_CANCEL,
+  TYPE_RESULT,
   TYPE_NAMES
 } = require('./message')
 
@@ -75,6 +78,27 @@ const PROGRESS_TIMEOUT_MS = 60000
 // about end() versus waiting for 'close', arrived at from the other side.
 const CANCEL_FLUSH_MS = 250
 
+// How long the sender waits, after its last byte, for the receiver's
+// RESULT.
+//
+// This replaced a fixed 5s close wait in both callers, and the
+// measurement that retired it is worth keeping: 100 trials across a
+// Starlink receiver and a firewalled Comcast sender, where the sender
+// scored 100/100 and the receiver 94. All six failures were trials whose
+// 5s wait ran out -- the sender destroyed the swarm with 0.3 to 4.2 MB of
+// "sent" data still undelivered, and the receiver saw "connection reset by
+// peer". Of the 91 trials whose wait ended in a close, none failed.
+//
+// So this is NOT the drain budget. The sender cannot see delivery, only
+// hand-off, and whatever the transport has buffered drains at the path's
+// rate. The receiver is the side that can see progress, and it already
+// fails ERR_STALLED after PROGRESS_TIMEOUT_MS without any -- then closes,
+// which the sender sees. This timer is only for a receiver that vanished
+// without the transport noticing, so it sits well above that: a transfer
+// still draining legitimately after two minutes would need a backlog of
+// several MB on a path under ~35 KB/s.
+const RESULT_TIMEOUT_MS = 2 * PROGRESS_TIMEOUT_MS
+
 function hashFile (filePath) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256')
@@ -85,33 +109,51 @@ function hashFile (filePath) {
   })
 }
 
-// Writes a CANCEL and waits for it to flush, capped. Never rejects: we are
-// already on a failure path, and a cancel that could not be delivered
-// still has to cancel locally.
+// Writes one frame and waits for it to flush, capped. Never rejects: a
+// CANCEL that could not be delivered still has to cancel locally, and a
+// RESULT that could not be delivered does not change what happened to the
+// file. The sender reports the missing RESULT for itself.
+//
+// "Flushed" is local: handed to the transport, not received. That is
+// enough here only because neither caller destroys the socket right after
+// -- see the close waits in cli/src/swarm-receive.js and swarm-send.js.
 /**
  * @param {any} socket
- * @param {string} reason
+ * @param {Buffer} frame
  * @returns {Promise<void>}
  */
-function writeCancel (socket, reason) {
+function writeFlushed (socket, frame) {
   return new Promise((resolve) => {
     let done = false
     const finish = () => {
       if (done) return
       done = true
       clearTimeout(timer)
+      socket.removeListener('error', finish)
       resolve()
     }
     const timer = setTimeout(finish, CANCEL_FLUSH_MS)
-    // Unref so a cancel on an already-dead socket cannot hold the process
+    // Unref so a write on an already-dead socket cannot hold the process
     // open for the length of the window.
     if (typeof timer.unref === 'function') timer.unref()
+    // The receiver writes RESULT after it has detached its own 'error'
+    // listener, so a socket that dies under this write must not surface
+    // as an uncaught exception.
+    socket.once('error', finish)
     try {
-      socket.write(encodeCancel(reason), finish)
+      socket.write(frame, finish)
     } catch {
       finish()
     }
   })
+}
+
+/**
+ * @param {any} socket
+ * @param {string} reason
+ */
+function writeCancel (socket, reason) {
+  return writeFlushed(socket, encodeCancel(reason))
 }
 
 // Normalizes the engine's progress contract in one place, so both
@@ -146,13 +188,15 @@ function progressReporter (onProgress, total) {
 // a Hyperswarm NoiseSecretStream from the Hyperswarm work onward -- not a
 // Protomux channel, which W10 ruled out; see PROTOCOL.md section 8.2).
 //
-// HONEST LIMIT ON `onProgress` HERE. The sender's `bytes` counts what has
-// been handed to the transport, not what the receiver has stored. The two
-// diverge by whatever is in flight, so a sender's bar can legitimately
-// read 100% while the receiver is still at 90%, and a transfer that dies
-// in that gap dies after the sender looked finished. Nothing in the
-// protocol can close that today: acknowledgement by index is resume (W11). Do
-// not present this number as delivery confirmation.
+// RESOLVING MEANS THE RECEIVER HAS THE FILE. After the last chunk this
+// waits for the receiver's RESULT (PROTOCOL.md section 4.2), and resolves
+// only on {ok} carrying the digest we sent. Before RESULT it resolved on
+// hand-off, and both callers papered over the gap with a 5s close wait
+// that lost 6 of 100 real transfers -- see RESULT_TIMEOUT_MS.
+//
+// `onProgress` is still hand-off, not delivery: the bar can read 100%
+// while the receiver is at 90%. It is this promise, not the bar, that
+// means delivered.
 /**
  * @param {any} socket
  * @param {string} filePath
@@ -160,12 +204,20 @@ function progressReporter (onProgress, total) {
  *   chunkSize?: number,
  *   signal?: AbortSignal,
  *   onProgress?: (p: { bytes: number, total: number }) => void,
- *   pending?: Buffer | null
+ *   pending?: Buffer | null,
+ *   resultTimeout?: number
  * }} [options]
  *   `pending` is any payload the readiness handshake read off the socket
  *   before handing it over -- see connectOnce in ./swarm.js.
+ *   `resultTimeout` is in ms; 0 waits for RESULT indefinitely.
  */
-async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE, signal, onProgress, pending } = {}) {
+async function sendFile (socket, filePath, {
+  chunkSize = DEFAULT_CHUNK_SIZE,
+  signal,
+  onProgress,
+  pending,
+  resultTimeout = RESULT_TIMEOUT_MS
+} = {}) {
   // Before any filesystem work, so an already-cancelled transfer costs
   // nothing and cannot half-open a file.
   if (signal && signal.aborted) throw abortError(0, signal.reason)
@@ -200,6 +252,11 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE, sig
     let settled = false
     /** @type {(() => void) | null} */
     let onDrain = null
+    // Set once the last byte has been handed off. From then on the only
+    // way to succeed is the receiver's RESULT.
+    let awaitingResult = false
+    /** @type {NodeJS.Timeout | null} */
+    let resultTimer = null
 
     // stat, hashFile and createReadStream are three separate reads of a
     // file that nothing stops changing underneath us. Capping the read at
@@ -213,7 +270,11 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE, sig
       : null
 
     const cleanup = () => {
+      if (resultTimer) clearTimeout(resultTimer)
+      resultTimer = null
       socket.removeListener('error', onError)
+      socket.removeListener('end', onClosed)
+      socket.removeListener('close', onClosed)
       if (onDrain) socket.removeListener('drain', onDrain)
       if (signal) signal.removeEventListener('abort', onAbort)
       if (readStream) readStream.destroy()
@@ -237,6 +298,60 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE, sig
 
     const onError = (err) => fail(err)
 
+    // Before RESULT, a sender never listened for the close at all: it had
+    // nothing left to wait for once its writes were accepted. Now a close
+    // before RESULT is the failure the trials measured, and it has to say
+    // which half of the transfer it cut off.
+    function onClosed () {
+      if (settled) return
+      fail(new TransferError(
+        'ERR_CONNECTION',
+        awaitingResult
+          ? 'the receiver disconnected after every byte was sent but before confirming the file; whether it was saved is unknown'
+          : `the receiver disconnected after ${sent} of ${size} bytes were sent`,
+        { bytes: sent, size, phase: awaitingResult ? 'result' : 'send' }
+      ))
+    }
+
+    function awaitResult () {
+      progress.final()
+      awaitingResult = true
+      if (!resultTimeout) return
+      resultTimer = setTimeout(() => {
+        fail(new TransferError(
+          'ERR_STALLED',
+          `the receiver has not confirmed the file ${resultTimeout}ms after the last byte was sent; whether it was saved is unknown`,
+          { bytes: sent, size, phase: 'result' }
+        ))
+      }, resultTimeout)
+      if (typeof resultTimer.unref === 'function') resultTimer.unref()
+    }
+
+    function onResult (body) {
+      if (!awaitingResult) {
+        throw new TransferError('ERR_PROTOCOL', `the receiver sent RESULT after ${sent} of ${size} bytes, before the file was complete`)
+      }
+      const result = decodeResult(body)
+      if ('error' in result) {
+        throw new TransferError(
+          'ERR_RECEIVER_FAILED',
+          result.error ? `the receiver could not keep the file: ${result.error}` : 'the receiver could not keep the file',
+          { peerReason: result.error, bytes: sent }
+        )
+      }
+      // Only a broken or hostile receiver reaches this: an honest one that
+      // computed a different digest refuses the file and says so in
+      // {error}, the branch above.
+      if (result.sha256 !== sha256) {
+        throw new TransferError(
+          'ERR_HASH_MISMATCH',
+          `the receiver confirmed a digest that is not the one sent (sent ${sha256}, receiver reports ${result.sha256})`,
+          { expected: sha256, actual: result.sha256, bytes: sent, reportedBy: 'receiver' }
+        )
+      }
+      done()
+    }
+
     function onAbort () {
       if (settled) return
       // Written before we reject, and given a window to flush, because the
@@ -255,10 +370,14 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE, sig
     const inbound = new FrameDecoder((payload) => {
       if (settled) return
       const { type, body } = decodeMessage(payload)
+      if (type === TYPE_RESULT) {
+        onResult(body)
+        return
+      }
       if (type !== TYPE_CANCEL) {
         throw new TransferError(
           'ERR_PROTOCOL',
-          `receiver sent ${TYPE_NAMES.get(type)} during a transfer; only CANCEL is expected`
+          `receiver sent ${TYPE_NAMES.get(type)} during a transfer; only CANCEL or RESULT is expected`
         )
       }
       const peerReason = decodeCancelReason(body)
@@ -279,12 +398,13 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE, sig
 
     socket.on('error', onError)
     socket.on('data', onData)
+    socket.on('end', onClosed)
+    socket.on('close', onClosed)
     if (signal) signal.addEventListener('abort', onAbort, { once: true })
     if (pending && pending.length > 0) onData(pending)
 
     if (!readStream) {
-      progress.final()
-      done()
+      if (!settled) awaitResult()
       return
     }
 
@@ -312,8 +432,7 @@ async function sendFile (socket, filePath, { chunkSize = DEFAULT_CHUNK_SIZE, sig
         ))
         return
       }
-      progress.final()
-      done()
+      awaitResult()
     })
     readStream.on('error', fail)
   })
@@ -901,18 +1020,28 @@ function receiveFile (socket, outputDir, {
       settled = true
       detach()
 
+      // Every byte is in, so the sender is now waiting on RESULT and on
+      // nothing else. Undo any backpressure pause from handleFrame -- its
+      // resume went with detach() -- or the sender's end never arrives
+      // and the caller's close wait runs out for no reason.
+      if (typeof socket.resume === 'function') socket.resume()
+
+      // Every outcome from here on is told to the sender before it is
+      // reported locally, so the two sides cannot disagree about it.
+      const refuse = (err) => {
+        writeFlushed(socket, encodeResult({ error: err.message })).then(() => reject(err))
+      }
+
       const digest = hash.digest('hex')
       // Unconditional: this is the comparison the data path always
       // specified and nothing in the shipping code ever performed.
       if (digest !== manifest.sha256) {
-        discardPartial().then(
-          () => reject(new TransferError(
-            'ERR_HASH_MISMATCH',
-            `the received file does not match the manifest's digest (expected ${manifest.sha256}, got ${digest})`,
-            { expected: manifest.sha256, actual: digest, bytes: received }
-          )),
-          (err) => reject(err)
+        const mismatch = new TransferError(
+          'ERR_HASH_MISMATCH',
+          `the received file does not match the manifest's digest (expected ${manifest.sha256}, got ${digest})`,
+          { expected: manifest.sha256, actual: digest, bytes: received }
         )
+        discardPartial().then(() => refuse(mismatch), (err) => refuse(err))
         return
       }
 
@@ -922,15 +1051,18 @@ function receiveFile (socket, outputDir, {
         publish(partPath, outputPath, { replace }).then(
           (finalPath) => {
             progress.final()
-            resolve({
+            // After the publish, not after the digest: {ok} tells the
+            // sender the file is on disk under its name, and a publish
+            // that fails must not have been confirmed first.
+            writeFlushed(socket, encodeResult({ ok: true, sha256: digest })).then(() => resolve({
               name: path.basename(finalPath),
               declaredName,
               size: manifest.size,
               sha256: digest,
               path: finalPath
-            })
+            }))
           },
-          (err) => discardPartial().then(() => reject(err), () => reject(err))
+          (err) => discardPartial().then(() => refuse(err), () => refuse(err))
         )
       })
     }
@@ -983,5 +1115,6 @@ module.exports = {
   MAX_CHUNK_SIZE,
   DEFAULT_MAX_SIZE,
   MANIFEST_TIMEOUT_MS,
-  PROGRESS_TIMEOUT_MS
+  PROGRESS_TIMEOUT_MS,
+  RESULT_TIMEOUT_MS
 }

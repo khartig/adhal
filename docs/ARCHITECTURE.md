@@ -241,7 +241,7 @@ comments for detail):
 - **Hyperswarm discards client dial errors, so a failing sender is
   silent.** In `hyperswarm/index.js` `_connect`, the only `'error'`
   handler on an outbound connection sets `peerInfo.forceRelaying` and
-  returns -- the error is never logged, re-emitted or counted. No amount of
+  returns -- the error is never logged, re-emitted, or counted. No amount of
   logging in our own code reveals why a dial failed.
   `engine/scratch-swarm-dial.js` wraps `swarm.dht.connect` to print them,
   and reports the counters Hyperswarm does keep
@@ -290,7 +290,7 @@ comments for detail):
   after it finishes reading, and the sender waits for the socket's
   `'close'` event (both sides ended) before destroying its swarm.
 
-## Manifest, progress and cancel
+## Manifest, progress, and cancel
 
 The earlier milestones got a drop working. This work is about what happens
 when it does not: before it, every failure path was silent, and four of
@@ -442,7 +442,7 @@ mid-send resolved *successfully* having sent short.
 
 `onProgress({ bytes, total })`, one event per chunk, unthrottled, with a
 guaranteed first call at `bytes: 0` and a final call at `bytes === total`.
-No rate, ETA or percentage: those are derivable, and the engine cannot know
+No rate, ETA, or percentage: those are derivable, and the engine cannot know
 whether its consumer is a 10 Hz bar, a test or a log. Presentation lives in
 `cli/src/progress.js` -- an in-place bar on a TTY, whole lines at fixed 25%
 milestones otherwise (milestones rather than a timer, so the line count is
@@ -451,8 +451,9 @@ not load-sensitive and tests asserting on it are not flaky).
 
 **The sender's number is what it handed to the transport, not what the
 receiver stored.** A sender's bar can legitimately read 100% while the
-receiver is at 90%. Closing that gap is the v2 `RESULT` message (W11); the
-receiver's `verified:` line is the authoritative one.
+receiver is at 90%. The bar is not the confirmation: `sendFile` resolves
+only on the receiver's `RESULT` carrying the same digest (PROTOCOL.md
+§4.2), and that is what the sender's `verified:` line reports.
 
 ### Cancel
 
@@ -547,9 +548,9 @@ Two pieces of the split are worth naming, because they are the design
 rather than the list:
 
 - **`engine/src/names.js` owns both sinks.** A peer-supplied name reaches
-  a terminal and a filesystem, and those had separate, unequal defences
+  a terminal and a filesystem, and those had separate, unequal defenses
   until the moment a name was *refused* — at which point the refusal
-  message printed the hostile name raw. Display sanitises and never
+  message printed the hostile name raw. Display sanitizes and never
   throws; writing refuses or transforms and says which. A display path
   that can throw turns one error into two, and the moment we most need to
   print a name is when we are rejecting it.
@@ -648,7 +649,7 @@ given the announce-propagation race below -- but that is LAN-discovery work (Sta
 the `QUAY2` version prefix is what buys the room to add it without a format
 break. An unknown scheme is reported with a **direction**: a version this
 build knows to be older (`QUAY1:`) says "redeploy both sides", and anything
-unrecognised says "newer version". v1 conflated the two and told a `QUAY1:`
+unrecognized says "newer version". v1 conflated the two and told a `QUAY1:`
 holder their code came from a newer version, which sends someone looking
 for an upgrade that does not exist.
 
@@ -660,7 +661,7 @@ Two details are load-bearing rather than cosmetic:
   version of headroom, and that headroom is spent on error correction
   rather than on a smaller symbol: a bigger symbol would work against the
   cheap Android cameras spike 5 was worried about, so the trade buys
-  robustness against glare, moire and poor focus instead of size.
+  robustness against glare, moire, and poor focus instead of size.
   `parseCode` is case-insensitive, so a scan still round-trips.
 
   **v2's shorter code bought a free ECC upgrade.** Re-measured when the
@@ -728,7 +729,7 @@ Data path step D3. `engine/src/handshake.js` holds the parameter mapping,
 `engine/src/cpace.js` the primitive, and `engine/src/swarm.js` the
 exchange. **v1's HMAC code proof is gone** — `engine/src/proof.js` is
 deleted — and [`PROTOCOL.md`](PROTOCOL.md) §9 keeps it documented so a v2
-build can recognise a v1 peer and say so rather than reporting corruption.
+build can recognize a v1 peer and say so rather than reporting corruption.
 
 **The hole v1 could not close.** A v1 topic was `hash(code || app-salt)`,
 and a receiver must *announce* its topic to be findable at all — so the

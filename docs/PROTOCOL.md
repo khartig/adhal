@@ -6,9 +6,9 @@ security-core pass.**
 
 What W11 shipped: §2's code split, §3's handshake, §5's AEAD channel
 (built and tested but not yet carrying the transfer), §4's message
-numbers, and §6's attempt cap. What it deliberately did not: manifest v2,
-the ACCEPT/DECLINE gate, `RESULT`, streaming and resume. Those are one
-further pass, and the capability tokens in §3.2 are what let it ship
+numbers, §4.2's `RESULT`, and §6's attempt cap. What it deliberately did
+not: manifest v2, the ACCEPT/DECLINE gate, streaming and resume. Those are
+one further pass, and the capability tokens in §3.2 are what let it ship
 without a third wire break. §3.1 carries an amendment W11 found while
 implementing it.
 
@@ -367,6 +367,20 @@ an fsync, and the right frequency is a tuning decision, not a protocol one.
 now the sender printed its own hash and the receiver printed its own, and
 "both sides show the same hash" was something a human checked by eye
 across two terminals. `RESULT` makes it an assertion the protocol makes.
+
+It is also what makes the sender's "done" mean delivered. The receiver
+sends it after the file is verified **and published**, so `{ok}` means
+the file is on disk under its name, and `{error}` for a digest mismatch
+or a publish that failed. The sender succeeds only on `{ok}` carrying the
+digest it sent. A close, a timeout or an unparseable `RESULT` after the
+last byte is a failure whose outcome on the receiver is unknown, never a
+success. A `RESULT` before the last byte is a protocol error.
+
+Measured, not assumed: before `RESULT`, the sender treated hand-off as
+done and destroyed the connection after a 5s close wait. Across 100
+trials from a firewalled Comcast sender to a Starlink receiver, the
+sender scored 100/100 and the receiver 94. All six failures were trials
+where that wait ran out with 0.3–4.2 MB still undelivered.
 
 ### 4.3 `size: null` and END — not optional
 

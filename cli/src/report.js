@@ -63,6 +63,10 @@ function describeError (err) {
         : 'the peer cancelled the transfer.'
 
     case 'ERR_HASH_MISMATCH':
+      if (err.reportedBy === 'receiver') {
+        return `FAILED: the receiver confirmed a digest that is not the one sent (sent ${err.expected}, it reports ${err.actual}). ` +
+          'An honest receiver refuses a file that does not match; this one claimed it kept it. Treat the receiving side as broken.'
+      }
       return `FAILED: the received file does not match the sender's digest, so it was discarded and nothing was saved. ` +
         `Expected ${err.expected}, computed ${err.actual}. This is corruption or a bug, not a network timeout -- do not retry blindly.`
 
@@ -88,7 +92,27 @@ function describeError (err) {
       return `FAILED: protocol error. ${err.message}`
 
     case 'ERR_CONNECTION':
+      // The sender's two cases. `phase` is only set there; the receiver's
+      // wording below predates it and still describes the receiver.
+      if (err.phase === 'result') {
+        return 'FAILED: every byte was sent, but the receiver disconnected before confirming the file. ' +
+          'Whether it was saved is unknown -- check the receiver\'s output before sending again.'
+      }
+      if (err.phase === 'send') {
+        return `FAILED: the receiver disconnected after ${err.bytes} of ${err.size} bytes were sent.`
+      }
       return `FAILED: the connection closed before the transfer finished (${err.bytes} bytes received). The partial file was discarded.`
+
+    case 'ERR_RECEIVER_FAILED':
+      return err.peerReason
+        ? `FAILED: the receiver got every byte but could not keep the file: ${err.peerReason}`
+        : 'FAILED: the receiver got every byte but could not keep the file.'
+
+    case 'ERR_STALLED':
+      if (err.phase === 'result') {
+        return `FAILED: ${err.message}. Check the receiver's output before sending again.`
+      }
+      return `FAILED: ${err.message}.`
 
     case 'ERR_ATTEMPT_CAP':
       // THE ONLY CASE IN THIS FILE THAT MEANS SOMEONE WAS GUESSING.
