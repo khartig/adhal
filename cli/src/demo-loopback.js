@@ -39,17 +39,27 @@ async function main () {
     stdio: ['ignore', 'pipe', 'inherit']
   })
 
-  const boundPort = await new Promise((resolve, reject) => {
+  // The port and the drop code arrive on separate lines, possibly in
+  // separate chunks, so this matches against everything seen so far.
+  const { boundPort, code } = await new Promise((resolve, reject) => {
+    let seen = ''
     receiveProc.stdout.on('data', (chunk) => {
       const text = chunk.toString('utf8')
       process.stdout.write(text)
-      const match = text.match(/listening on 127\.0\.0\.1:(\d+)/)
-      if (match) resolve(match[1])
+      seen += text
+      const port = seen.match(/listening on 127\.0\.0\.1:(\d+)/)
+      const drop = seen.match(/\[receive\] code: (\S+)/)
+      if (port && drop) resolve({ boundPort: port[1], code: drop[1] })
     })
     receiveProc.once('error', reject)
   })
 
-  const sendProc = spawn(process.execPath, [SEND_SCRIPT, boundPort, sourcePath], { stdio: 'inherit' })
+  // The code goes in on stdin (`-`), the form ./read-code.js recommends,
+  // rather than on the command line where `ps` can see it.
+  const sendProc = spawn(process.execPath, [SEND_SCRIPT, boundPort, '-', sourcePath], {
+    stdio: ['pipe', 'inherit', 'inherit']
+  })
+  sendProc.stdin.end(`${code}\n`)
 
   await Promise.all([
     waitForExit(sendProc, 'send'),

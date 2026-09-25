@@ -5,8 +5,10 @@
 security-core pass.**
 
 What W11 shipped: §2's code split, §3's handshake, §5's AEAD channel
-(built and tested but not yet carrying the transfer), §4's message
-numbers, §4.2's `RESULT`, and §6's attempt cap. What it deliberately did
+(carrying every frame of the transfer, with no unsealed mode), §4's
+message numbers, §4.2's `RESULT`, and §6's attempt cap. The loopback CLI
+runs the same handshake over plain TCP with no Noise underneath, which is
+§3.3's claim exercised end to end. What it deliberately did
 not: manifest v2, the ACCEPT/DECLINE gate, streaming and resume. Those are
 one further pass, and the capability tokens in §3.2 are what let it ship
 without a third wire break. §3.1 carries an amendment W11 found while
@@ -450,11 +452,14 @@ No new dependency is needed for this: Node ships `chacha20-poly1305` in
 `crypto.getCiphers()` with a 16-byte `authTagLength`, verified on the
 Node 24 this was written against.
 
-v1's equivalent is already correct and worth keeping as the pattern:
-`MAX_CHUNK_SIZE = DEFAULT_MAX_FRAME_SIZE - TAG_SIZE`
-(`engine/src/transfer.js:39`) — derived, never a second literal. A
-chunk of exactly 1 MiB is still refused, which
-`engine/scratch-cancel-latency.js` rediscovered by trying it.
+The implementation keeps v1's pattern — derived, never a second
+literal. `maxChunkSize()` in `engine/src/channel.js` is the equation
+above, and `MAX_CHUNK_SIZE` in `engine/src/transfer.js` is defined as
+its value rather than restated, so the manifest's `chunkSize` bound and
+the channel's seal bound cannot drift apart. `sendFile` refuses a
+larger `chunkSize` before it opens the file. A chunk of exactly 1 MiB is
+still refused, which `engine/scratch-cancel-latency.js` rediscovered by
+trying it.
 
 ---
 

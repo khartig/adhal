@@ -44,15 +44,19 @@ locally -- no publishing step needed during development.
 Two terminals, from the repo root:
 
 ```bash
-# terminal 1
+# terminal 1 -- prints a drop code
 node cli/src/receive.js 5000 /tmp/quay-received
 
-# terminal 2
-node cli/src/send.js 5000 /path/to/some/file
+# terminal 2 -- paste the code at the prompt
+node cli/src/send.js 5000 - /path/to/some/file
 ```
 
-Both processes print a `sha256:` line; they should match. Port `0` in
-place of `5000` asks the OS for a free port (the demo script uses this).
+The two sides run the same CPace handshake as the swarm CLIs, over plain
+TCP, and every frame after it is sealed under the keys it derives
+(`docs/PROTOCOL.md` §3.3–3.4). The code can also be passed in place of
+`-`, at the cost of leaving it in shell history. Both processes print a
+`sha256:` line; they should match. Port `0` in place of `5000` asks the
+OS for a free port (the demo script uses this).
 
 ## TypeScript (checkJs, no build step)
 

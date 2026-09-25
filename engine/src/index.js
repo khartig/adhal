@@ -14,5 +14,6 @@ module.exports = {
   ...require('./reader'),
   ...require('./cpace'),
   ...require('./handshake'),
-  ...require('./swarm')
+  ...require('./swarm'),
+  ...require('./stream-handshake')
 }

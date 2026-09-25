@@ -25,8 +25,9 @@ const os = require('node:os')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 
-const { sendFile, receiveFile, encodeMessage, TYPE_MANIFEST, TYPE_CHUNK } = require('@quay/engine')
+const { sendFile, receiveFile, TYPE_MANIFEST, TYPE_CHUNK } = require('@quay/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
+const { channelKeys, sealedSender } = require('../test-helpers/sealed')
 
 async function tmpDir (t, label) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
@@ -34,8 +35,8 @@ async function tmpDir (t, label) {
   return dir
 }
 
-function manifestFrame (manifest) {
-  return encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8'))
+function manifestBody (manifest) {
+  return Buffer.from(JSON.stringify(manifest), 'utf8')
 }
 
 function manifestFor (body, overrides = {}) {
@@ -81,10 +82,10 @@ test('a file whose bytes do not match the manifest is refused and left nowhere',
   // flight, a lying peer, and a framing bug all present exactly like this.
   const lying = manifestFor(body, { sha256: 'b'.repeat(64) })
 
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
-  peer.write(manifestFrame(lying))
-  peer.write(encodeMessage(TYPE_CHUNK, body))
+  const { peer, socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
+  send(TYPE_MANIFEST, manifestBody(lying))
+  send(TYPE_CHUNK, body)
 
   await rejectsWith(received, 'ERR_HASH_MISMATCH', (err) => {
     assert.equal(err.expected, 'b'.repeat(64))
@@ -105,11 +106,11 @@ test('a partial is visible only under .part, never under the final name, until i
   const finalPath = path.join(outputDir, 'payload.bin')
   const partPath = `${finalPath}.part`
 
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
+  const { peer, socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
 
-  peer.write(manifestFrame(manifest))
-  peer.write(encodeMessage(TYPE_CHUNK, body.subarray(0, 1024)))
+  send(TYPE_MANIFEST, manifestBody(manifest))
+  send(TYPE_CHUNK, body.subarray(0, 1024))
 
   // Mid-stream: the transfer is under way and incomplete.
   await waitFor(() => fs.existsSync(partPath), 'the .part file to appear')
@@ -119,7 +120,7 @@ test('a partial is visible only under .part, never under the final name, until i
   // to find this exact file again to resume it.
   assert.equal(path.basename(partPath), 'payload.bin.part')
 
-  peer.write(encodeMessage(TYPE_CHUNK, body.subarray(1024)))
+  send(TYPE_CHUNK, body.subarray(1024))
   const result = await received
 
   assert.equal(result.path, finalPath)
@@ -132,9 +133,9 @@ test('an empty file still verifies and lands under its real name', async (t) => 
   const outputDir = await tmpDir(t, 'verify-empty')
   const body = Buffer.alloc(0)
 
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir, {})
-  peer.write(manifestFrame(manifestFor(body, { name: 'empty.bin' })))
+  const { socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
+  send(TYPE_MANIFEST, manifestBody(manifestFor(body, { name: 'empty.bin' })))
 
   const result = await received
   assert.equal(result.size, 0)
@@ -149,10 +150,10 @@ test('a sender that sends more than it declared is refused, not silently truncat
   // correct sender cannot over-read its own manifest, so trimming hides a
   // real bug -- and means accepting an unbounded number of bytes from a
   // peer that proved it knows the code but is not thereby well-behaved.
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
-  peer.write(manifestFrame(manifestFor(body)))
-  peer.write(encodeMessage(TYPE_CHUNK, Buffer.concat([body, crypto.randomBytes(1)])))
+  const { peer, socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
+  send(TYPE_MANIFEST, manifestBody(manifestFor(body)))
+  send(TYPE_CHUNK, Buffer.concat([body, crypto.randomBytes(1)]))
 
   await rejectsWith(received, 'ERR_SIZE_MISMATCH', (err) => {
     assert.equal(err.size, 1024)
@@ -165,10 +166,10 @@ test('a sender that vanishes mid-transfer fails the receive instead of hanging i
   const outputDir = await tmpDir(t, 'verify-earlyclose')
   const body = crypto.randomBytes(8192)
 
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
-  peer.write(manifestFrame(manifestFor(body)))
-  peer.write(encodeMessage(TYPE_CHUNK, body.subarray(0, 100)))
+  const { peer, socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
+  send(TYPE_MANIFEST, manifestBody(manifestFor(body)))
+  send(TYPE_CHUNK, body.subarray(0, 100))
 
   // The vanish. No FIN negotiation, no error -- the far side simply stops
   // existing, which is what a dead hole punch looks like.
@@ -200,6 +201,7 @@ test('the sender leaves no listeners behind on the socket it was lent', async (t
   await fs.promises.writeFile(sourcePath, crypto.randomBytes(256 * 1024))
 
   const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
   const before = {
     error: txSocket.listenerCount('error'),
     drain: txSocket.listenerCount('drain'),
@@ -207,8 +209,8 @@ test('the sender leaves no listeners behind on the socket it was lent', async (t
   }
 
   const [sent] = await Promise.all([
-    sendFile(txSocket, sourcePath),
-    receiveFile(rxSocket, outputDir)
+    sendFile(txSocket, sourcePath, { ...keys.sender }),
+    receiveFile(rxSocket, outputDir, { ...keys.receiver })
   ])
   assert.equal(sent.size, 256 * 1024)
 
@@ -224,8 +226,8 @@ test('the sender leaves no listeners behind on the socket it was lent', async (t
 
 test('a sender that disconnects before sending anything says so plainly', async (t) => {
   const outputDir = await tmpDir(t, 'verify-nomanifest')
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
+  const { peer, socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
   peer.end()
 
   await rejectsWith(received, 'ERR_CONNECTION', (err) => {

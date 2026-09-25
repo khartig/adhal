@@ -137,17 +137,17 @@ test('a peer that connects and vanishes without proving itself does not consume 
   const sendSwarm = createSwarm({ bootstrap: testnet.bootstrap })
   t.after(() => sendSwarm.destroy())
 
-  const [{ socket: rxSocket, pending }, { socket: txSocket }] = await Promise.all([
+  const [rx, tx] = await Promise.all([
     accepted,
     connectOnce(sendSwarm, topic, { ...splitCode(code), timeout: 60000 })
   ])
 
-  rxSocket.on('error', () => {})
-  txSocket.on('error', () => {})
+  rx.socket.on('error', () => {})
+  tx.socket.on('error', () => {})
 
   const [received, sent] = await Promise.all([
-    receiveFile(rxSocket, outputDir, { pending }),
-    sendFile(txSocket, sourcePath)
+    receiveFile(rx.socket, outputDir, { sendKey: rx.sendKey, receiveKey: rx.receiveKey, pending: rx.pending }),
+    sendFile(tx.socket, sourcePath, { sendKey: tx.sendKey, receiveKey: tx.receiveKey })
   ])
 
   assert.equal(sent.sha256, expected)

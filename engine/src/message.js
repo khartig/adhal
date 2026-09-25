@@ -32,15 +32,18 @@ const { TransferError } = require('./errors')
 // ./transfer.js never calls encodeFrame directly, which is what makes
 // "every frame is typed" true without the framer having to enforce it.
 //
-// Cost: one byte per 64 KB chunk, and encodeMessage does the length
-// prefix, the tag and the copy in a single allocation, so a chunk still
-// costs exactly one copy -- the same as before the tag existed.
+// UNDER v2 THE TAG MOVED INSIDE THE SEAL (PROTOCOL.md section 5), so the
+// tag and body are built by ./channel.js and encrypted together; only the
+// length prefix stays outside. encodeMessage below is v1's cleartext
+// shape and nothing on the transfer path calls it any more. It stays for
+// the tests that pin the tag vocabulary, and as the thing a sealed frame
+// is asserted NOT to look like.
 
 // The tag's own width, exported because it is the term that was missing
 // from the frame-size budget. `encodeMessage` declares a frame length of
 // `TAG_SIZE + body.length`, so a chunk of exactly the frame cap produces a
-// frame one byte over it. See MAX_CHUNK_SIZE in ./transfer.js, which is
-// now derived from this rather than stated independently.
+// frame one byte over it. See maxChunkSize in ./channel.js, which derives
+// the chunk budget from this rather than stating it independently.
 const TAG_SIZE = 1
 
 // 0x00 is reserved and always invalid. That is the point of it: a stream
@@ -156,12 +159,18 @@ function sanitizeReason (reason) {
   return capped.trim()
 }
 
+// A BODY, NOT A FRAME, and the name says so on purpose. These used to be
+// encodeCancel/encodeResult and returned a complete cleartext frame; under
+// v2 the frame is ./channel.js's to build, because the type tag goes
+// inside the seal. Renamed rather than changed in place, so that anything
+// still writing the old return value straight onto a socket fails to
+// resolve the name instead of putting a body on the wire unframed.
 /**
  * @param {string} [reason]
- * @returns {Buffer} a complete CANCEL frame
+ * @returns {Buffer} a CANCEL body, for Channel#seal(TYPE_CANCEL, ...)
  */
-function encodeCancel (reason = '') {
-  return encodeMessage(TYPE_CANCEL, Buffer.from(JSON.stringify({ reason: sanitizeReason(reason) }), 'utf8'))
+function cancelBody (reason = '') {
+  return Buffer.from(JSON.stringify({ reason: sanitizeReason(reason) }), 'utf8')
 }
 
 /**
@@ -191,13 +200,13 @@ const SHA256_HEX = /^[0-9a-f]{64}$/
 
 /**
  * @param {{ ok: true, sha256: string } | { error: string }} result
- * @returns {Buffer} a complete RESULT frame
+ * @returns {Buffer} a RESULT body, for Channel#seal(TYPE_RESULT, ...)
  */
-function encodeResult (result) {
+function resultBody (result) {
   const body = 'error' in result
     ? { error: sanitizeReason(result.error) }
     : { ok: true, sha256: result.sha256 }
-  return encodeMessage(TYPE_RESULT, Buffer.from(JSON.stringify(body), 'utf8'))
+  return Buffer.from(JSON.stringify(body), 'utf8')
 }
 
 /**
@@ -227,9 +236,9 @@ function decodeResult (body) {
 module.exports = {
   encodeMessage,
   decodeMessage,
-  encodeCancel,
+  cancelBody,
   decodeCancelReason,
-  encodeResult,
+  resultBody,
   decodeResult,
   sanitizeReason,
   TAG_SIZE,

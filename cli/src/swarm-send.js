@@ -107,7 +107,7 @@ async function main () {
   console.log(`[swarm-send] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
-    const { socket, peerInfo, pending } = await connectOnce(swarm, topic, {
+    const { socket, peerInfo, pending, sendKey, receiveKey } = await connectOnce(swarm, topic, {
       // Proves the peer knows the drop secret before we transmit a byte of
       // the file to it. The topic alone is public once the receiver
       // announces -- it commits to the nameplate, which is a rendezvous
@@ -154,6 +154,11 @@ async function main () {
     socket.on('error', (err) => { socketError = err })
 
     const result = await sendFile(socket, filePathArg, {
+      // The channel keys the handshake just derived. Every frame from here
+      // on is sealed under them, so authentication no longer rests on the
+      // Noise session that happens to carry the bytes.
+      sendKey,
+      receiveKey,
       // Anything the receiver coalesced after its proof. Ordinarily
       // empty, but a CANCEL could be in there, and dropping it would lose
       // exactly the message the CANCEL frame exists to deliver.

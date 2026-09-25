@@ -24,12 +24,11 @@ const {
   receiveFile,
   safeOutputName,
   displayName,
-  encodeMessage,
   TYPE_MANIFEST,
   TYPE_CHUNK,
   DEFAULT_MAX_SIZE
 } = require('@quay/engine')
-const { duplexPair } = require('../test-helpers/duplex-pair')
+const { sealedSender } = require('../test-helpers/sealed')
 
 async function tmpDir (t, label) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
@@ -50,10 +49,10 @@ function manifestFor (body, overrides = {}) {
 }
 
 function offer (outputDir, manifest, body = null, options = {}) {
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir, options)
-  peer.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8')))
-  if (body) peer.write(encodeMessage(TYPE_CHUNK, body))
+  const { peer, socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys, ...options })
+  send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8'))
+  if (body) send(TYPE_CHUNK, body)
   return { received, peer, socket }
 }
 
@@ -273,13 +272,13 @@ test('a transfer larger than the free disk is refused before anything is opened'
 
 test('a peer that proves the code and then sends no manifest is timed out', async (t) => {
   const outputDir = await tmpDir(t, 'harden-loris-manifest')
-  const [peer, socket] = duplexPair()
+  const { peer, socket, keys } = sealedSender()
 
   // The slow loris. Costs the attacker one proven connection and holds
   // the receiver open indefinitely: before this there was no timer at
   // all once acceptOnce handed the socket over, so the receiver simply
   // sat there forever.
-  const received = receiveFile(socket, outputDir, { manifestTimeout: 150 })
+  const received = receiveFile(socket, outputDir, { ...keys, manifestTimeout: 150 })
   await rejectsWith(received, 'ERR_STALLED', (err) => {
     assert.match(err.message, /never sent a manifest/)
   })
@@ -307,10 +306,10 @@ test('a peer that sends a manifest and then stops mid-file is timed out', async 
 test('a healthy transfer is not killed by the stall timers', async (t) => {
   const outputDir = await tmpDir(t, 'harden-no-false-stall')
   const body = crypto.randomBytes(256 * 1024)
-  const [peer, socket] = duplexPair()
+  const { socket, keys, send } = sealedSender()
 
-  const received = receiveFile(socket, outputDir, { manifestTimeout: 2000, progressTimeout: 200 })
-  peer.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifestFor(body)), 'utf8')))
+  const received = receiveFile(socket, outputDir, { ...keys, manifestTimeout: 2000, progressTimeout: 200 })
+  send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifestFor(body)), 'utf8'))
 
   // Chunks spaced at 60ms against a 200ms budget: slow, but never
   // stalled. The timer must rearm on every chunk, or a merely slow link
@@ -318,7 +317,7 @@ test('a healthy transfer is not killed by the stall timers', async (t) => {
   const chunk = 32 * 1024
   for (let offset = 0; offset < body.length; offset += chunk) {
     await new Promise((r) => setTimeout(r, 60))
-    peer.write(encodeMessage(TYPE_CHUNK, body.subarray(offset, offset + chunk)))
+    send(TYPE_CHUNK, body.subarray(offset, offset + chunk))
   }
 
   const result = await received
@@ -333,19 +332,19 @@ test('a receiver slower than its sender pauses the socket instead of buffering w
   // Comfortably past the write stream's high-water mark, so the disk
   // genuinely falls behind rather than absorbing everything.
   const body = crypto.randomBytes(4 * 1024 * 1024)
-  const [peer, socket] = duplexPair()
+  const { socket, keys, send } = sealedSender()
 
   let pauses = 0
   const realPause = socket.pause.bind(socket)
   socket.pause = function () { pauses++; return realPause() }
 
-  const received = receiveFile(socket, outputDir)
-  peer.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifestFor(body)), 'utf8')))
+  const received = receiveFile(socket, outputDir, { ...keys })
+  send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifestFor(body)), 'utf8'))
   // Everything at once: the sender's whole file handed over as fast as
   // the stream will take it.
   const chunk = 64 * 1024
   for (let offset = 0; offset < body.length; offset += chunk) {
-    peer.write(encodeMessage(TYPE_CHUNK, body.subarray(offset, offset + chunk)))
+    send(TYPE_CHUNK, body.subarray(offset, offset + chunk))
   }
 
   const result = await received

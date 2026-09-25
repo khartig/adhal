@@ -3,17 +3,15 @@
 const fs = require('fs')
 const path = require('path')
 const crypto = require('crypto')
-const { FrameDecoder, DEFAULT_MAX_FRAME_SIZE } = require('./frame')
+const { DEFAULT_MAX_FRAME_SIZE } = require('./frame')
+const { Channel, maxChunkSize } = require('./channel')
 const { TransferError, abortError } = require('./errors')
 const { displayName, safeWriteName } = require('./names')
 const {
-  encodeMessage,
-  decodeMessage,
-  encodeCancel,
+  cancelBody,
   decodeCancelReason,
-  encodeResult,
+  resultBody,
   decodeResult,
-  TAG_SIZE,
   TYPE_MANIFEST,
   TYPE_CHUNK,
   TYPE_CANCEL,
@@ -39,7 +37,13 @@ const DEFAULT_CHUNK_SIZE = 64 * 1024
 //
 // Writing it as a subtraction means the two constants cannot drift apart
 // again: raise the frame cap and this follows.
-const MAX_CHUNK_SIZE = DEFAULT_MAX_FRAME_SIZE - TAG_SIZE
+//
+// v2 added a term: every frame is now sealed, and the Poly1305
+// authenticator costs 16 bytes of the same budget. So this is no longer
+// `DEFAULT_MAX_FRAME_SIZE - TAG_SIZE` (1048575) but ./channel.js's
+// equation, 1048559 at the 1 MiB default -- taken from there rather than
+// restated here, which is the same lesson applied to the new term.
+const MAX_CHUNK_SIZE = maxChunkSize(DEFAULT_MAX_FRAME_SIZE)
 
 // An absurdity ceiling on a declared size, applied when the caller names
 // no policy of its own. It is NOT the product's size limit -- that is an
@@ -150,10 +154,39 @@ function writeFlushed (socket, frame) {
 
 /**
  * @param {any} socket
+ * @param {InstanceType<typeof Channel>} channel
  * @param {string} reason
  */
-function writeCancel (socket, reason) {
-  return writeFlushed(socket, encodeCancel(reason))
+function writeCancel (socket, channel, reason) {
+  return writeFlushed(socket, channel.seal(TYPE_CANCEL, cancelBody(reason)))
+}
+
+// EVERY FRAME AFTER THE HANDSHAKE IS SEALED (PROTOCOL.md section 3.4), and
+// both halves of the transfer build their channel here so that neither
+// can be called without one.
+//
+// Required, not defaulted, for the same reason acceptOnce requires a
+// secret: the failure mode of quietly carrying on without keys is the
+// hole this exists to close. There is no cleartext mode to fall back to,
+// so a caller that was not updated for v2 fails here, loudly, before it
+// touches the file or the socket -- rather than writing frames its peer
+// cannot open, or, worse, frames nobody had to authenticate.
+//
+// The keys are this side's view, as acceptOnce/connectOnce (./swarm.js)
+// and acceptStream/connectStream (./stream-handshake.js) return them.
+/**
+ * @param {{ sendKey?: Buffer, receiveKey?: Buffer }} keys
+ * @param {(type: number, body: Buffer) => void} onMessage
+ * @returns {InstanceType<typeof Channel>}
+ */
+function openChannel ({ sendKey, receiveKey }, onMessage) {
+  if (sendKey === undefined || receiveKey === undefined) {
+    throw new TypeError(
+      'sendKey and receiveKey are required: every v2 frame is sealed under the ' +
+      'channel keys the handshake derives, and there is no unsealed mode'
+    )
+  }
+  return new Channel({ sendKey, receiveKey, onMessage })
 }
 
 // Normalizes the engine's progress contract in one place, so both
@@ -197,27 +230,56 @@ function progressReporter (onProgress, total) {
 // `onProgress` is still hand-off, not delivery: the bar can read 100%
 // while the receiver is at 90%. It is this promise, not the bar, that
 // means delivered.
+//
+// Every frame in both directions goes through one Channel, sealed under
+// k_s2r and opened under k_r2s. The order frames are sealed in is the
+// order they are written in -- seal and write are adjacent and
+// synchronous at every call site below -- which is what keeps the nonce
+// counter in step with the peer's.
 /**
  * @param {any} socket
  * @param {string} filePath
  * @param {{
+ *   sendKey: Buffer,
+ *   receiveKey: Buffer,
  *   chunkSize?: number,
  *   signal?: AbortSignal,
  *   onProgress?: (p: { bytes: number, total: number }) => void,
  *   pending?: Buffer | null,
  *   resultTimeout?: number
  * }} [options]
+ *   `sendKey`/`receiveKey` are this side's channel keys, as connectOnce
+ *   returns them; see openChannel.
  *   `pending` is any payload the readiness handshake read off the socket
  *   before handing it over -- see connectOnce in ./swarm.js.
  *   `resultTimeout` is in ms; 0 waits for RESULT indefinitely.
  */
 async function sendFile (socket, filePath, {
+  sendKey,
+  receiveKey,
   chunkSize = DEFAULT_CHUNK_SIZE,
   signal,
   onProgress,
   pending,
   resultTimeout = RESULT_TIMEOUT_MS
-} = {}) {
+} = /** @type {any} */ ({})) {
+  // The inbound handler is installed once the transfer is under way; until
+  // then nothing can arrive, because nothing is being read.
+  /** @type {(type: number, body: Buffer) => void} */
+  let onInbound = () => {}
+  // First, before the abort check and any filesystem work, so a caller
+  // without keys is told so rather than succeeding at a cancel.
+  const channel = openChannel({ sendKey, receiveKey }, (type, body) => onInbound(type, body))
+
+  // The receiver refuses a manifest declaring more than MAX_CHUNK_SIZE, and
+  // the channel refuses to seal a larger body -- so a chunk size above it
+  // cannot produce a working transfer, and is refused here, where the
+  // caller can see it, rather than from inside the read stream's 'data'
+  // handler, where a throw has no one to reach.
+  if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0 || chunkSize > MAX_CHUNK_SIZE) {
+    throw new RangeError(`chunkSize must be 1..${MAX_CHUNK_SIZE}, got ${chunkSize}`)
+  }
+
   // Before any filesystem work, so an already-cancelled transfer costs
   // nothing and cannot half-open a file.
   if (signal && signal.aborted) throw abortError(0, signal.reason)
@@ -237,7 +299,7 @@ async function sendFile (socket, filePath, {
 
   if (signal && signal.aborted) throw abortError(0, signal.reason)
 
-  socket.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8')))
+  socket.write(channel.seal(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8')))
 
   const progress = progressReporter(onProgress, size)
   let sent = 0
@@ -359,7 +421,7 @@ async function sendFile (socket, filePath, {
       // Teardown stays the caller's job -- this function does not own the
       // socket it was handed.
       const bytes = sent
-      writeCancel(socket, (signal && typeof signal.reason === 'string') ? signal.reason : 'cancelled by sender')
+      writeCancel(socket, channel, (signal && typeof signal.reason === 'string') ? signal.reason : 'cancelled by sender')
         .then(() => fail(abortError(bytes, signal && signal.reason)))
     }
 
@@ -367,9 +429,11 @@ async function sendFile (socket, filePath, {
     // from the receiver has to be distinguishable from the socket dying,
     // and that is the whole point of the item. See ./swarm.js connectOnce,
     // which hands back `pending` for exactly this reason.
-    const inbound = new FrameDecoder((payload) => {
+    //
+    // A frame that fails to open throws out of channel.push, and onData
+    // turns that into a failed send: a forged RESULT is not a verdict.
+    onInbound = (type, body) => {
       if (settled) return
-      const { type, body } = decodeMessage(payload)
       if (type === TYPE_RESULT) {
         onResult(body)
         return
@@ -386,11 +450,11 @@ async function sendFile (socket, filePath, {
         peerReason ? `the receiver cancelled: ${peerReason}` : 'the receiver cancelled the transfer',
         { peerReason, bytes: sent }
       )
-    })
+    }
 
     function onData (chunk) {
       try {
-        inbound.push(chunk)
+        channel.push(chunk)
       } catch (err) {
         fail(err)
       }
@@ -402,6 +466,14 @@ async function sendFile (socket, filePath, {
     socket.on('close', onClosed)
     if (signal) signal.addEventListener('abort', onAbort, { once: true })
     if (pending && pending.length > 0) onData(pending)
+    // A handshake that paused the socket to hold the gap before this
+    // listener existed -- connectStream does -- left it paused, and
+    // attaching a 'data' listener does NOT resume a stream that was
+    // explicitly paused. Without this the sender never reads RESULT and
+    // waits out RESULT_TIMEOUT_MS on a transfer that succeeded. connectOnce
+    // never paused, which is why this was not needed until there were two
+    // handshakes; receiveFile has always done the same.
+    if (typeof socket.resume === 'function') socket.resume()
 
     if (!readStream) {
       if (!settled) awaitResult()
@@ -410,7 +482,17 @@ async function sendFile (socket, filePath, {
 
     readStream.on('data', (/** @type {Buffer} */ chunk) => {
       if (settled) return
-      const ok = socket.write(encodeMessage(TYPE_CHUNK, chunk))
+      /** @type {Buffer} */
+      let frame
+      try {
+        frame = channel.seal(TYPE_CHUNK, chunk)
+      } catch (err) {
+        // chunkSize is validated above, so this is the counter-exhaustion
+        // assertion or a bug -- either way a failed send, not a crash.
+        fail(err)
+        return
+      }
+      const ok = socket.write(frame)
       sent += chunk.length
       progress.emit(sent)
       if (!ok) {
@@ -722,10 +804,19 @@ async function checkFreeSpace (dir, size) {
 //     receiver never did.
 //   - A peer that proves and then goes silent is timed out rather than
 //     waited on forever.
+//
+// And under v2, every frame is opened by a Channel keyed from the PAKE
+// transcript before anything above sees it. A frame that fails to
+// authenticate -- altered, replayed, reordered, or from anyone who did not
+// complete the handshake -- fails the receive as ERR_PROTOCOL at that
+// frame, rather than being written to the partial and caught at the end
+// as a hash mismatch.
 /**
  * @param {any} socket
  * @param {string} outputDir
  * @param {{
+ *   sendKey: Buffer,
+ *   receiveKey: Buffer,
  *   onManifest?: (manifest: any) => void,
  *   pending?: Buffer | null,
  *   signal?: AbortSignal,
@@ -737,6 +828,8 @@ async function checkFreeSpace (dir, size) {
  *   progressTimeout?: number,
  *   checkSpace?: boolean
  * }} [options]
+ *   `sendKey`/`receiveKey` are this side's channel keys, as acceptOnce
+ *   returns them; see openChannel.
  *   `pending` is any payload the readiness handshake read off the socket
  *   before handing it over -- see acceptOnce in ./swarm.js, which pauses
  *   the socket and returns leftover bytes rather than swallowing them.
@@ -745,6 +838,8 @@ async function checkFreeSpace (dir, size) {
  * @returns {Promise<{ name: string, declaredName: string, size: number, sha256: string, path: string }>}
  */
 function receiveFile (socket, outputDir, {
+  sendKey,
+  receiveKey,
   onManifest,
   pending,
   signal,
@@ -755,8 +850,12 @@ function receiveFile (socket, outputDir, {
   manifestTimeout = MANIFEST_TIMEOUT_MS,
   progressTimeout = PROGRESS_TIMEOUT_MS,
   checkSpace = true
-} = {}) {
+} = /** @type {any} */ ({})) {
   return new Promise((resolve, reject) => {
+    // First, as in sendFile: a caller without keys is refused before the
+    // abort check or any listener, and the throw becomes this rejection.
+    const channel = openChannel({ sendKey, receiveKey }, onMessage)
+
     /** @type {any} */
     let manifest = null
     /** @type {fs.WriteStream | null} */
@@ -782,7 +881,7 @@ function receiveFile (socket, outputDir, {
     // needs it -- see the comment there.
     /** @type {Promise<void> | null} */
     let openingPromise = null
-    /** @type {Buffer[]} */
+    /** @type {Array<{ type: number, body: Buffer }>} */
     const deferred = []
     /** @type {{ emit: (n: number) => void, final: () => void }} */
     let progress = { emit: () => {}, final: () => {} }
@@ -893,11 +992,11 @@ function receiveFile (socket, outputDir, {
     function onAbort () {
       if (settled) return
       const bytes = received
-      writeCancel(socket, (signal && typeof signal.reason === 'string') ? signal.reason : 'cancelled by receiver')
+      writeCancel(socket, channel, (signal && typeof signal.reason === 'string') ? signal.reason : 'cancelled by receiver')
         .then(() => fail(abortError(bytes, signal && signal.reason)))
     }
 
-    // Paired with the pause in handleFrame: the receiver's disk is now
+    // Paired with the pause in handleMessage: the receiver's disk is now
     // allowed to push back on the network, which is the same contract the
     // sender has honoured since the Hyperswarm work and the receiver never did.
     function onWriteDrain () {
@@ -919,10 +1018,12 @@ function receiveFile (socket, outputDir, {
       progress = progressReporter(onProgress, parsed.size)
     }
 
-    function handleFrame (payload) {
+    /**
+     * @param {number} type
+     * @param {Buffer} body
+     */
+    function handleMessage (type, body) {
       if (settled) return
-
-      const { type, body } = decodeMessage(payload)
 
       if (type === TYPE_CANCEL) {
         const peerReason = decodeCancelReason(body)
@@ -968,7 +1069,10 @@ function receiveFile (socket, outputDir, {
             opening = false
             if (onManifest) onManifest(manifest)
             try {
-              while (deferred.length > 0 && !settled) handleFrame(deferred.shift())
+              while (deferred.length > 0 && !settled) {
+                const next = /** @type {{ type: number, body: Buffer }} */ (deferred.shift())
+                handleMessage(next.type, next.body)
+              }
             } catch (err) {
               fail(err)
               return
@@ -1021,7 +1125,7 @@ function receiveFile (socket, outputDir, {
       detach()
 
       // Every byte is in, so the sender is now waiting on RESULT and on
-      // nothing else. Undo any backpressure pause from handleFrame -- its
+      // nothing else. Undo any backpressure pause from handleMessage -- its
       // resume went with detach() -- or the sender's end never arrives
       // and the caller's close wait runs out for no reason.
       if (typeof socket.resume === 'function') socket.resume()
@@ -1029,7 +1133,7 @@ function receiveFile (socket, outputDir, {
       // Every outcome from here on is told to the sender before it is
       // reported locally, so the two sides cannot disagree about it.
       const refuse = (err) => {
-        writeFlushed(socket, encodeResult({ error: err.message })).then(() => reject(err))
+        writeFlushed(socket, channel.seal(TYPE_RESULT, resultBody({ error: err.message }))).then(() => reject(err))
       }
 
       const digest = hash.digest('hex')
@@ -1054,7 +1158,7 @@ function receiveFile (socket, outputDir, {
             // After the publish, not after the digest: {ok} tells the
             // sender the file is on disk under its name, and a publish
             // that fails must not have been confirmed first.
-            writeFlushed(socket, encodeResult({ ok: true, sha256: digest })).then(() => resolve({
+            writeFlushed(socket, channel.seal(TYPE_RESULT, resultBody({ ok: true, sha256: digest }))).then(() => resolve({
               name: path.basename(finalPath),
               declaredName,
               size: manifest.size,
@@ -1067,20 +1171,28 @@ function receiveFile (socket, outputDir, {
       })
     }
 
-    const decoder = new FrameDecoder((payload) => {
+    // Called by the channel once per frame that opened, in order. A frame
+    // that did not open never reaches here: channel.push throws, and
+    // onData turns that into fail().
+    /**
+     * @param {number} type
+     * @param {Buffer} body
+     */
+    function onMessage (type, body) {
       if (settled) return
       if (opening) {
-        // Copied, not referenced: the decoder hands out subarrays of a
-        // buffer it goes on to replace, and these outlive this tick.
-        deferred.push(Buffer.from(payload))
+        // Held by reference, which is safe now and was not under v1: the
+        // body is a slice of the freshly decrypted plaintext, not of the
+        // frame decoder's buffer, so nothing reuses it after this tick.
+        deferred.push({ type, body })
         return
       }
-      handleFrame(payload)
-    })
+      handleMessage(type, body)
+    }
 
     function onData (chunk) {
       try {
-        decoder.push(chunk)
+        channel.push(chunk)
       } catch (err) {
         fail(err)
       }

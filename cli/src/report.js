@@ -101,6 +101,17 @@ function describeError (err) {
       if (err.phase === 'send') {
         return `FAILED: the receiver disconnected after ${err.bytes} of ${err.size} bytes were sent.`
       }
+      // A single-connection handshake (engine/src/stream-handshake.js).
+      // The sender cannot see the receiver's confirmation check -- the
+      // receiver verifies first and hangs up on a mismatch -- so from this
+      // side a mistyped code looks exactly like this, and saying so is
+      // what points a human at the right fix.
+      if (err.phase === 'handshake') {
+        return err.role === 'sender'
+          ? 'FAILED: the receiver hung up during the handshake, before any file byte moved. ' +
+            'The likeliest cause is a mistyped code -- check the receiver\'s output.'
+          : 'FAILED: the sender hung up during the handshake, before any file byte moved.'
+      }
       return `FAILED: the connection closed before the transfer finished (${err.bytes} bytes received). The partial file was discarded.`
 
     case 'ERR_RECEIVER_FAILED':

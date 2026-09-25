@@ -27,6 +27,7 @@ const { spawn } = require('node:child_process')
 const { sendFile, receiveFile } = require('@quay/engine')
 const { slow } = require('../test-helpers/tiers')
 const { duplexPair } = require('../test-helpers/duplex-pair')
+const { channelKeys } = require('../test-helpers/sealed')
 const { createProgressReporter } = require('../src/progress')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
@@ -68,10 +69,11 @@ test('both directions report progress that starts at 0, never goes backwards, an
   const sendEvents = []
   const receiveEvents = []
   const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
 
   await Promise.all([
-    sendFile(txSocket, sourcePath, { onProgress: (p) => sendEvents.push(p) }),
-    receiveFile(rxSocket, outputDir, { onProgress: (p) => receiveEvents.push(p) })
+    sendFile(txSocket, sourcePath, { ...keys.sender, onProgress: (p) => sendEvents.push(p) }),
+    receiveFile(rxSocket, outputDir, { ...keys.receiver, onProgress: (p) => receiveEvents.push(p) })
   ])
 
   for (const { side, events } of [{ side: 'send', events: sendEvents }, { side: 'receive', events: receiveEvents }]) {
@@ -94,9 +96,10 @@ test('a zero-byte file still reports a complete transfer exactly once', async (t
 
   const events = []
   const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
   await Promise.all([
-    sendFile(txSocket, sourcePath, { onProgress: (p) => events.push(p) }),
-    receiveFile(rxSocket, outputDir)
+    sendFile(txSocket, sourcePath, { ...keys.sender, onProgress: (p) => events.push(p) }),
+    receiveFile(rxSocket, outputDir, { ...keys.receiver })
   ])
 
   // "First call at 0" and "final call at total" are the same call here,
@@ -199,9 +202,18 @@ test('the CLI prints progress and still prints the exact lines the rest of the s
     }, 20)
   })
   const port = receiveOut.stdout.match(/listening on 127\.0\.0\.1:(\d+)/)[1]
+  // Printed on the line after the port, in the same write or the next.
+  const code = receiveOut.stdout.match(/\[receive\] code: (\S+)/)?.[1] ??
+    await new Promise((resolve) => receiveProc.stdout.on('data', () => {
+      const m = receiveOut.stdout.match(/\[receive\] code: (\S+)/)
+      if (m) resolve(m[1])
+    }))
 
-  const sendProc = spawn(process.execPath, [SEND_SCRIPT, port, sourcePath])
+  // The loopback CLI runs the v2 handshake, so it needs the code; stdin
+  // keeps it out of argv, as ./read-code.js recommends.
+  const sendProc = spawn(process.execPath, [SEND_SCRIPT, port, '-', sourcePath])
   const sendOut = capture(sendProc)
+  sendProc.stdin.end(`${code}\n`)
   await Promise.all([waitForExit(sendProc), waitForExit(receiveProc)])
 
   // Spawned with pipes, so both children see a non-TTY stdout.

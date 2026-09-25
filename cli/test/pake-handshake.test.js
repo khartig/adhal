@@ -751,9 +751,11 @@ test('a peer with the nameplate but not the secret is rejected, and the receiver
   assert.deepEqual(rx.receiveKey, tx.sendKey, 'k_s2r must agree across a real connection')
   assert.deepEqual(rx.caps.sort(), ['resume', 'stream'])
 
+  // And the transfer runs sealed under exactly those keys. If either side
+  // passed the wrong half, the first frame would fail to open.
   const [received, sent] = await Promise.all([
-    receiveFile(rx.socket, outputDir, { pending: rx.pending }),
-    sendFile(tx.socket, sourcePath)
+    receiveFile(rx.socket, outputDir, { sendKey: rx.sendKey, receiveKey: rx.receiveKey, pending: rx.pending }),
+    sendFile(tx.socket, sourcePath, { sendKey: tx.sendKey, receiveKey: tx.receiveKey })
   ])
 
   assert.equal(sent.sha256, expected)

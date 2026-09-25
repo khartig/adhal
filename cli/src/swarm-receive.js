@@ -157,7 +157,7 @@ async function main () {
   console.log(`[swarm-receive] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
-    const { socket, peerInfo, pending } = await acceptOnce(swarm, topic, {
+    const { socket, peerInfo, pending, sendKey, receiveKey } = await acceptOnce(swarm, topic, {
       // Announcing the topic makes the NAMEPLATE public; the secret stays
       // private, and it is what proves a peer is the intended one rather
       // than a stranger who walked the DHT. Without it we would accept a
@@ -225,6 +225,10 @@ async function main () {
     socket.on('error', (err) => { socketError = err })
 
     const result = await receiveFile(socket, outputDir, {
+      // The channel keys the handshake derived; every frame is opened
+      // under them. See swarm-send.js.
+      sendKey,
+      receiveKey,
       // Bytes the handshake read alongside the ACK, if the sender
       // coalesced them; dropping these would corrupt the first frame.
       pending,

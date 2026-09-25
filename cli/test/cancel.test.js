@@ -34,12 +34,12 @@ const {
   topicFromNameplate,
   splitCode,
   generateCode,
-  encodeMessage,
   TYPE_MANIFEST
 } = require('@quay/engine')
 const { slow } = require('../test-helpers/tiers')
 const { interrupt } = require('../test-helpers/interrupt')
 const { duplexPair } = require('../test-helpers/duplex-pair')
+const { channelKeys, sealedPeer } = require('../test-helpers/sealed')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
@@ -63,6 +63,7 @@ async function settle (promise) {
 test('a receiver that cancels makes the sender report a cancellation, not a network error', async (t) => {
   const { sourcePath, outputDir } = await fixture(t, 'cancel-rx')
   const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
   const controller = new AbortController()
 
   // Cancel once the transfer is genuinely under way, so this is a
@@ -76,8 +77,8 @@ test('a receiver that cancels makes the sender report a cancellation, not a netw
   }
 
   const [sent, received] = await Promise.all([
-    settle(sendFile(txSocket, sourcePath)),
-    settle(receiveFile(rxSocket, outputDir, { signal: controller.signal, onProgress }))
+    settle(sendFile(txSocket, sourcePath, { ...keys.sender })),
+    settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, signal: controller.signal, onProgress }))
   ])
 
   // THE HEADLINE ASSERTION FOR THIS ITEM. Not ECONNRESET, not EPIPE, not
@@ -99,6 +100,7 @@ test('a receiver that cancels makes the sender report a cancellation, not a netw
 test('a sender that cancels makes the receiver report a cancellation, not a truncated file', async (t) => {
   const { sourcePath, outputDir } = await fixture(t, 'cancel-tx')
   const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
   const controller = new AbortController()
 
   const onProgress = ({ bytes, total }) => {
@@ -106,8 +108,8 @@ test('a sender that cancels makes the receiver report a cancellation, not a trun
   }
 
   const [sent, received] = await Promise.all([
-    settle(sendFile(txSocket, sourcePath, { signal: controller.signal, onProgress })),
-    settle(receiveFile(rxSocket, outputDir))
+    settle(sendFile(txSocket, sourcePath, { ...keys.sender, signal: controller.signal, onProgress })),
+    settle(receiveFile(rxSocket, outputDir, { ...keys.receiver }))
   ])
 
   assert.equal(sent.ok, false)
@@ -129,16 +131,18 @@ test('an already-aborted signal rejects before a single byte moves', async (t) =
   controller.abort('never mind')
 
   const [txSocket, rxSocket] = duplexPair()
+
+  const keys = channelKeys()
   let bytesSeen = 0
   rxSocket.on('data', (c) => { bytesSeen += c.length })
 
-  const sent = await settle(sendFile(txSocket, sourcePath, { signal: controller.signal }))
+  const sent = await settle(sendFile(txSocket, sourcePath, { ...keys.sender, signal: controller.signal }))
   assert.equal(sent.ok, false)
   assert.equal(sent.error.name, 'AbortError')
   assert.equal(bytesSeen, 0, 'not even a manifest should be written')
 
   // Same on the receiving side, and without creating anything on disk.
-  const received = await settle(receiveFile(rxSocket, outputDir, { signal: controller.signal }))
+  const received = await settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, signal: controller.signal }))
   assert.equal(received.ok, false)
   assert.equal(received.error.name, 'AbortError')
   assert.deepEqual(await fs.promises.readdir(outputDir), [])
@@ -147,6 +151,7 @@ test('an already-aborted signal rejects before a single byte moves', async (t) =
 test('a simultaneous cancel settles both sides, each reporting its own', async (t) => {
   const { sourcePath, outputDir } = await fixture(t, 'cancel-both')
   const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
   const txController = new AbortController()
   const rxController = new AbortController()
 
@@ -159,8 +164,8 @@ test('a simultaneous cancel settles both sides, each reporting its own', async (
   }
 
   const [sent, received] = await Promise.all([
-    settle(sendFile(txSocket, sourcePath, { signal: txController.signal, onProgress: bothCancel })),
-    settle(receiveFile(rxSocket, outputDir, { signal: rxController.signal }))
+    settle(sendFile(txSocket, sourcePath, { ...keys.sender, signal: txController.signal, onProgress: bothCancel })),
+    settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, signal: rxController.signal }))
   ])
 
   // What is deterministic, and what is not.
@@ -245,12 +250,13 @@ test('a cancel landing while the partial is still opening leaves nothing behind'
 
   for (let attempt = 0; attempt < 40; attempt++) {
     const [txSocket, rxSocket] = duplexPair()
+    const keys = channelKeys()
     const controller = new AbortController()
-    const received = settle(receiveFile(rxSocket, outputDir, { signal: controller.signal }))
+    const received = settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, signal: controller.signal }))
 
     // Accepting the manifest is what starts the asynchronous open, and
     // the abort is queued for the next macrotask -- which is inside it.
-    txSocket.write(encodeMessage(TYPE_MANIFEST, manifest))
+    sealedPeer(txSocket, keys.sender).send(TYPE_MANIFEST, manifest)
     setTimeout(() => controller.abort('receiver quit'), 0)
 
     const outcome = await received
@@ -271,6 +277,7 @@ test('a cancel landing while the partial is still opening leaves nothing behind'
 test('a cancel reason chosen by the peer cannot smuggle escape sequences into a terminal', async (t) => {
   const { sourcePath, outputDir } = await fixture(t, 'cancel-hostile')
   const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
   const controller = new AbortController()
 
   const hostile = `\u001b[2K\r[swarm-receive] verified: totally fine\n${'x'.repeat(1000)}`
@@ -279,8 +286,8 @@ test('a cancel reason chosen by the peer cannot smuggle escape sequences into a 
   }
 
   const [sent] = await Promise.all([
-    settle(sendFile(txSocket, sourcePath)),
-    settle(receiveFile(rxSocket, outputDir, { signal: controller.signal, onProgress }))
+    settle(sendFile(txSocket, sourcePath, { ...keys.sender })),
+    settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, signal: controller.signal, onProgress }))
   ])
 
   assert.equal(sent.error.code, 'ERR_CANCELLED_PEER')
@@ -295,11 +302,12 @@ test('a cancel reason chosen by the peer cannot smuggle escape sequences into a 
 test('a transfer that is never cancelled is unaffected by having been given a signal', async (t) => {
   const { sourcePath, outputDir } = await fixture(t, 'cancel-none', 512 * 1024)
   const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
   const controller = new AbortController()
 
   const [sent, received] = await Promise.all([
-    sendFile(txSocket, sourcePath, { signal: controller.signal }),
-    receiveFile(rxSocket, outputDir, { signal: controller.signal })
+    sendFile(txSocket, sourcePath, { ...keys.sender, signal: controller.signal }),
+    receiveFile(rxSocket, outputDir, { ...keys.receiver, signal: controller.signal })
   ])
 
   assert.equal(received.sha256, sent.sha256)

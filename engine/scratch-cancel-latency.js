@@ -63,9 +63,9 @@ const trials = Number(flag('trials', 5))
 // 64 KB is the default both CLIs use and the only size in production
 // today; the others are here to show the trend, not because anything
 // ships them. The top of the sweep is MAX_CHUNK_SIZE rather than a round
-// 1 MiB, because 1 MiB is one byte too many -- the frame cap has to hold
-// the chunk plus its type tag, and a run at exactly 1 MiB is refused with
-// ERR_MANIFEST_INVALID. That is PROTOCOL.md section 5's worked example,
+// 1 MiB, because 1 MiB is too many -- the frame cap has to hold the chunk
+// plus its type tag and, since v2 sealed every frame, a 16-byte
+// authenticator. A run at exactly 1 MiB is refused. That is PROTOCOL.md section 5's worked example,
 // still true and now load-bearing for this sweep.
 const CHUNK_SIZES = [16 * 1024, DEFAULT_CHUNK_SIZE, 256 * 1024, MAX_CHUNK_SIZE]
 
@@ -119,7 +119,15 @@ async function runOnce ({ chunkSize, canceller, filePath, outDir }) {
   /** @type {{ err: any, at: bigint }} */ let recvResult
   const stamp = (/** @type {any} */ err) => ({ err, at: process.hrtime.bigint() })
 
+  // Random rather than handshake-derived: both ends are in this process,
+  // and what is measured here is cancel latency, not authentication. The
+  // seal IS on the path, so its cost is in the numbers.
+  const k1 = crypto.randomBytes(32)
+  const k2 = crypto.randomBytes(32)
+
   const sending = sendFile(client, filePath, {
+    sendKey: k1,
+    receiveKey: k2,
     chunkSize,
     signal: canceller === 'sender' ? controller.signal : undefined,
     onProgress: ({ bytes }) => {
@@ -129,6 +137,8 @@ async function runOnce ({ chunkSize, canceller, filePath, outDir }) {
   }).then(() => stamp(null), stamp)
 
   const receiving = receiveFile(serverSocket, outDir, {
+    sendKey: k2,
+    receiveKey: k1,
     signal: canceller === 'receiver' ? controller.signal : undefined,
     checkSpace: false,
     onProgress: ({ bytes }) => {

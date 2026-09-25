@@ -132,8 +132,8 @@ comments for detail):
   network path where a freshly generated topic connected in 9s.
   `createSwarm` now sets `maxParallel: 16`.
 - **An unexplained transient, recorded because it cost a day and was not a
-  bug.** After the readiness-handshake fix landed, a Starlink -> Comcast drop failed
-  repeatedly with *no candidate logged on either side* -- no connection
+  bug.** After the readiness-handshake fix landed, a Starlink → Comcast drop failed
+  repeatedly with *no candidate logged on either side* – no connection
   formed at all. During that window `scratch-lookup.js --connect` and
   `scratch-swarm-dial.js` both connected from the same machine to the same
   peer within seconds, so discovery and hole punching were demonstrably
@@ -297,6 +297,13 @@ when it does not: before it, every failure path was silent, and four of
 them were live bugs.
 
 ### The wire format, and the second break
+
+> **Superseded by v2's sealed channel.** The layout below is v1's, and
+> the type tag and body are unchanged in v2 -- but they now travel
+> *inside* a ChaCha20-Poly1305 seal keyed from the PAKE transcript
+> (`engine/src/channel.js`, [`PROTOCOL.md`](PROTOCOL.md) §3.4 and §5).
+> Only the length prefix is still in the clear, so it can be bounded
+> before buffering. `transfer.js` has no unsealed mode.
 
 ```
 frame   = [4-byte BE length][payload]      <- engine/src/frame.js

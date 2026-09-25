@@ -237,7 +237,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
   let bytesReceived = 0
 
   try {
-    const { socket, pending } = await acceptOnce(swarm, topic, {
+    const { socket, pending, sendKey, receiveKey } = await acceptOnce(swarm, topic, {
       nameplate,
       secret,
       timeout: budgetMs,
@@ -258,6 +258,8 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
 
     phase = 'receive'
     const result = await receiveFile(socket, outDir, {
+      sendKey,
+      receiveKey,
       pending,
       onManifest: (m) => { manifest = m },
       onProgress: (p) => { bytesReceived = p.bytes }
@@ -343,7 +345,7 @@ async function runSenderTrial (i, budgetMs) {
   let out
 
   try {
-    const { socket, pending } = await connectOnce(swarm, topic, {
+    const { socket, pending, sendKey, receiveKey } = await connectOnce(swarm, topic, {
       nameplate,
       secret,
       timeout: budgetMs,
@@ -360,7 +362,7 @@ async function runSenderTrial (i, budgetMs) {
     // `pending` is anything the receiver coalesced after its proof.
     // Ordinarily empty, but sendFile reads now (for CANCEL), so dropping
     // it would lose a message rather than merely skipping a no-op.
-    const result = await sendFile(socket, filePath, { pending })
+    const result = await sendFile(socket, filePath, { sendKey, receiveKey, pending })
     sentAtEpochMs = Date.now()
     socket.on('error', (err) => { if (!socketErrorAfterSend) socketErrorAfterSend = err.message })
     socket.end()

@@ -20,8 +20,8 @@ const os = require('node:os')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 
-const { receiveFile, safeOutputName, encodeMessage, encodeFrame, TYPE_MANIFEST, TYPE_CHUNK } = require('@quay/engine')
-const { duplexPair } = require('../test-helpers/duplex-pair')
+const { receiveFile, safeOutputName, encodeFrame, TYPE_MANIFEST, TYPE_CHUNK } = require('@quay/engine')
+const { sealedSender } = require('../test-helpers/sealed')
 
 async function tmpDir (t, label) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
@@ -45,10 +45,10 @@ function manifestFor (body, overrides = {}) {
 // are about the shipping code path rather than about a validator called in
 // isolation.
 function offer (outputDir, manifest, body = null, options = {}) {
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir, options)
-  peer.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8')))
-  if (body) peer.write(encodeMessage(TYPE_CHUNK, body))
+  const { peer, socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys, ...options })
+  send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8'))
+  if (body) send(TYPE_CHUNK, body)
   return { received, peer }
 }
 
@@ -213,17 +213,17 @@ test('a manifest field that fails validation is refused before any filesystem ca
 
 test('a manifest that is not JSON at all is refused as a manifest problem, not a crash', async (t) => {
   const outputDir = await tmpDir(t, 'manifest-json')
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
-  peer.write(encodeMessage(TYPE_MANIFEST, Buffer.from('{ not json', 'utf8')))
+  const { socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
+  send(TYPE_MANIFEST, Buffer.from('{ not json', 'utf8'))
   await rejectsWith(received, 'ERR_MANIFEST_INVALID')
 })
 
 test('a chunk before the manifest is a protocol error', async (t) => {
   const outputDir = await tmpDir(t, 'manifest-order')
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
-  peer.write(encodeMessage(TYPE_CHUNK, Buffer.from('bytes with nowhere to go')))
+  const { socket, keys, send } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
+  send(TYPE_CHUNK, Buffer.from('bytes with nowhere to go'))
   await rejectsWith(received, 'ERR_PROTOCOL', (err) => {
     assert.match(err.message, /MANIFEST frame first/)
   })
@@ -234,9 +234,9 @@ test('the optional maxSize is enforced when given and absent by default', async 
   const body = crypto.randomBytes(4096)
   const manifest = manifestFor(body)
 
-  const [peerA, socketA] = duplexPair()
-  const capped = receiveFile(socketA, outputDir, { maxSize: 1024 })
-  peerA.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8')))
+  const { socket: socketA, keys: keysA, send: sendA } = sealedSender()
+  const capped = receiveFile(socketA, outputDir, { ...keysA, maxSize: 1024 })
+  sendA(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8'))
   await rejectsWith(capped, 'ERR_MANIFEST_INVALID', (err) => assert.equal(err.field, 'size'))
 
   // The 50 MB v1 cap is product policy for the accept screen, not
@@ -247,23 +247,28 @@ test('the optional maxSize is enforced when given and absent by default', async 
 
 // --- version skew --------------------------------------------------------
 
-test('an untagged manifest from a pre-item-5 build says to redeploy, not that the file is corrupt', async (t) => {
+test('a cleartext frame -- v1\'s, or a pre-item-5 build\'s -- never reaches the manifest parser', async (t) => {
+  // THIS TEST USED TO ASSERT THE "REDEPLOY" DIAGNOSIS, and the diagnosis
+  // moved rather than disappeared. Under v2 every frame is sealed, so an
+  // old build's cleartext frame fails to authenticate before its type byte
+  // is ever read -- and in practice an old build never gets this far at
+  // all, because the handshake's version byte names the skew first (see
+  // "a wire-version skew is named" in pake-handshake.test.js). What is
+  // left to pin here is the part that matters for safety: bare JSON on the
+  // wire is not a manifest, whatever it says.
   const outputDir = await tmpDir(t, 'manifest-skew')
-  const [peer, socket] = duplexPair()
-  const received = receiveFile(socket, outputDir)
+  const { peer, socket, keys } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
 
   // Exactly what an older sender put on the wire: a length-prefixed frame
-  // whose payload is bare manifest JSON, with no type tag in front of it.
+  // whose payload is bare manifest JSON, with no type tag and no seal.
   const legacy = Buffer.from(JSON.stringify({
     type: 'manifest', name: 'source.bin', size: 5, chunkSize: 65536, sha256: 'a'.repeat(64)
   }), 'utf8')
   peer.write(encodeFrame(legacy))
 
   await rejectsWith(received, 'ERR_PROTOCOL', (err) => {
-    // The distinction worth paying for: "your two machines are on
-    // different builds" sends someone to `git pull`, where "unknown type
-    // 0x7b" sends them hunting a corruption bug that does not exist.
-    assert.match(err.message, /pre-item-5 build/)
-    assert.match(err.message, /[Rr]edeploy both sides/)
+    assert.match(err.message, /failed to authenticate/)
   })
+  assert.deepEqual(await fs.promises.readdir(outputDir), [], 'an unauthenticated manifest must not create anything')
 })

@@ -123,8 +123,9 @@ defensible claim is "healthy and comfortably usable", not "proven >=75%". See [`
 -- single runs cannot distinguish a flaky path from a broken one, and
 assuming they can cost this project a day.
 
-Not yet implemented: resume, LAN discovery, relay, and the v2 protocol
-(PAKE-based codes, AEAD channel, streaming). See
+Not yet implemented: the rest of the v2 message set (the accept gate,
+streaming, resume), LAN discovery, and relay. v2's PAKE-based codes and
+its AEAD channel are in. See
 [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md).
 
 ## Project layout

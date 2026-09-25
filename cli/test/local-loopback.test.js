@@ -5,6 +5,10 @@ const { slow } = require('../test-helpers/tiers')
 // "Node CLI: two processes on one machine, localhost pipe, send 10 MB,
 // print SHA-256 both sides." Zero NAT, zero Hyperswarm -- just proves the
 // chunking/hashing pipeline works before the DHT transport adds.
+//
+// Since v2 it also proves PROTOCOL.md section 3.3's claim end to end: the
+// two processes run the CPace handshake over plain TCP, with no Noise
+// underneath, and the transfer is sealed under the keys it derives.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -83,9 +87,12 @@ test('two local processes transfer a 10 MB file over a loopback TCP pipe and agr
 
   const listeningMatch = await waitForPattern(receiveOutput, /listening on 127\.0\.0\.1:(\d+)/)
   const boundPort = listeningMatch[1]
+  const code = (await waitForPattern(receiveOutput, /\[receive\] code: (\S+)/))[1]
 
-  const sendProc = spawn(process.execPath, [SEND_SCRIPT, boundPort, sourcePath])
+  // On stdin, the way ./read-code.js recommends, rather than in argv.
+  const sendProc = spawn(process.execPath, [SEND_SCRIPT, boundPort, '-', sourcePath])
   const sendOutput = captureOutput(sendProc)
+  sendProc.stdin.end(`${code}\n`)
 
   await Promise.all([waitForExit(sendProc), waitForExit(receiveProc)])
 
@@ -96,6 +103,9 @@ test('two local processes transfer a 10 MB file over a loopback TCP pipe and agr
   assert.ok(receiveMatch, `receive.js should print a sha256 line, got:\n${receiveOutput.stdout}\n${receiveOutput.stderr}`)
   assert.equal(sendMatch[1], expectedHash)
   assert.equal(receiveMatch[1], expectedHash)
+  // Both sides say the handshake completed before any file byte moved.
+  assert.match(sendOutput.stdout, /\[send\] handshake confirmed/)
+  assert.match(receiveOutput.stdout, /\[receive\] handshake confirmed/)
 
   const receivedFilePath = path.join(outputDir, 'source.bin')
   const receivedHash = await sha256File(receivedFilePath)

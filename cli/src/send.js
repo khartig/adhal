@@ -2,21 +2,36 @@
 'use strict'
 
 // Loopback sender half: "send 10 MB, print SHA-256."
-// Usage: send.js <port> <filePath>
+// Usage: send.js <port> <code|-> <filePath>
+//
+// <code> is the drop code receive.js printed. Pass `-` to read it from
+// stdin instead, which keeps it out of the shell history and `ps` -- see
+// ./read-code.js. The handshake is the same CPace exchange swarm-send.js
+// runs, over plain TCP; see receive.js for why.
 
 const net = require('net')
-const { sendFile } = require('@quay/engine')
+const { sendFile, connectStream, resolveCode } = require('@quay/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError } = require('./report')
+const { readCode } = require('./read-code')
 
 async function main () {
-  const [, , portArg, filePathArg] = process.argv
+  const [, , portArg, codeArg, filePathArg] = process.argv
   const port = portArg === undefined ? NaN : Number(portArg)
 
-  if (Number.isNaN(port) || !filePathArg) {
-    console.error('Usage: send.js <port> <filePath>')
+  if (Number.isNaN(port) || !codeArg || !filePathArg) {
+    console.error('Usage: send.js <port> <code|-> <filePath>')
+    process.exitCode = 1
+    return
+  }
+
+  let nameplate, secret
+  try {
+    ({ nameplate, secret } = resolveCode(await readCode({ argvCode: codeArg, label: 'send' })))
+  } catch (err) {
+    console.error(`[send] ${err.message}`)
     process.exitCode = 1
     return
   }
@@ -28,7 +43,12 @@ async function main () {
   socket.on('connect', async () => {
     console.log(`[send] connected to 127.0.0.1:${port}`)
     try {
+      const { pending, sendKey, receiveKey } = await connectStream(socket, { nameplate, secret, signal: cancel.signal })
+      console.log('[send] handshake confirmed; the channel is sealed')
       const result = await sendFile(socket, filePathArg, {
+        sendKey,
+        receiveKey,
+        pending,
         signal: cancel.signal,
         onProgress: progress.onProgress
       })
@@ -49,6 +69,8 @@ async function main () {
     }
   })
 
+  // Also the sink for the gap between connectStream and sendFile, when
+  // neither has a listener attached -- see receive.js.
   socket.on('error', (err) => {
     console.error('[send] socket error:', err.message)
     process.exitCode = 1

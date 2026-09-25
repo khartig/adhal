@@ -23,12 +23,11 @@ const {
   DEFAULT_MAX_FRAME_SIZE,
   encodeMessage,
   decodeMessage,
-  encodeCancel,
+  cancelBody,
   decodeCancelReason,
   sanitizeReason,
   TYPE_MANIFEST,
-  TYPE_CHUNK,
-  TYPE_CANCEL
+  TYPE_CHUNK
 } = require('@quay/engine')
 
 // Collects whole payloads out of a decoder, so each test asserts on
@@ -183,12 +182,9 @@ test('an untagged pre-item-5 manifest is named as version skew', () => {
 })
 
 test('a cancel reason round-trips, and a hostile one is defanged', () => {
-  const frame = encodeCancel('changed my mind')
-  const { frames, decoder } = collector()
-  decoder.push(frame)
-  const { type, body } = decodeMessage(frames[0])
-  assert.equal(type, TYPE_CANCEL)
-  assert.equal(decodeCancelReason(body), 'changed my mind')
+  // A body, not a frame: under v2 the frame is sealed by the channel, so
+  // what message.js owns is the reason's encoding and nothing around it.
+  assert.equal(decodeCancelReason(cancelBody('changed my mind')), 'changed my mind')
 
   // The reason is printed straight into a terminal, so it is untrusted
   // input in the place that is easiest to forget.

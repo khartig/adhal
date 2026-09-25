@@ -39,7 +39,7 @@ relay code exists.
 **2. Protocol-first.** A published, versioned spec with test vectors and a
 conformance suite ([`PROTOCOL.md`](PROTOCOL.md), W12). Both competitors
 are applications that happen to contain an engine. This is the property
-that lets a second implementation exist, and therefore the one that lets a
+that lets a second implementation exist and therefore the one that lets a
 solo project outlive its author.
 
 **3. Ephemeral-by-construction privacy.** No accounts, no persistent
@@ -52,11 +52,11 @@ retrofit once linkage exists in records other people hold.
 **4. Streaming and scripting.** `tar c dir | quay send -`,
 `quay recv | tar x`, stable `--json` events. Blob-addressed designs must
 hash before they can address, so they cannot stream an unknown length.
-Serves developers, CI and headless boxes — and aligns exactly with
+Serves developers, CI, and headless boxes — and aligns exactly with
 macOS/Linux-first (§7).
 
 **5. Published, reproducible reliability numbers.** Evidence, not a
-slogan. `scratch-trials.js` already exists, classifies by `err.code` and
+slogan. `scratch-trials.js` already exists, classifies by, and
 reports Wilson-honest rates.
 
 ### Deliberately not building
@@ -72,7 +72,7 @@ reports Wilson-honest rates.
 ## 3. Competitors
 
 **Provenance, stated because it changes how much weight this deserves:**
-the table below is derived from the competitors' own READMEs as summarised
+the table below is derived from the competitors' own READMEs as summarized
 during the September 2026 review. Nobody here has run either tool, read
 their source, or measured them. Treat every row as a claim to verify, not
 a fact.
@@ -89,7 +89,7 @@ a fact.
 
 **The correction that matters.** The old plan called MeshDrop "Android
 only", "fragile", "a tiny same-stack competitor, not the market". Per its
-own README it ships on four platforms with a relay, resume and an approval
+own README it ships on four platforms with a relay, resume, and an approval
 gate, and its drop-code design is close to our data path. "Not the market"
 is true of *traction* and false of *feature parity*: **on features, Quay
 is currently behind it.** "Fragile" may still be true — that is what W14
@@ -146,7 +146,7 @@ why it is a single break rather than three:
 - **`size: null` + `END{sha256}`** for streaming. Not optional: without
   it, differentiator #4 costs a third wire break.
 
-The window for a cheap break closes at first release.
+The window for an inexpensive break closes at the first release.
 
 ---
 
@@ -173,7 +173,7 @@ Full boundary in [`THREAT-MODEL.md`](THREAT-MODEL.md) §8.
 This is a correction. The old plan led with Windows, and the code still
 carries comments justifying decisions with "Windows ships first" — which
 was never true of where the work happens. macOS and Linux are where
-development, testing and every measurement to date have run, and they are
+development, testing, and every measurement to date have run, and they are
 where differentiator #4 (pipes, scripting, CI, headless) lands naturally.
 
 **iOS is a potential differentiator, not an afterthought.** Both
@@ -209,7 +209,7 @@ covered by a test.
 1. **`connectOnce` silently ignored its `AbortSignal`.** It accepted
    `signal`, defined `onAbort`, and removed it in `finish()` — but never
    registered it. Measured: aborting at 500 ms against a 5000 ms budget,
-   `acceptOnce` rejected at 502 ms and `connectOnce` ran the full 5001 ms.
+   `acceptOnce` rejected at 502 ms, and `connectOnce` ran the full 5001 ms.
    On the real sender that is up to two minutes of Ctrl-C doing nothing,
    while `README.md`, `ARCHITECTURE.md` and `swarm-send.js` all documented
    the opposite as shipped. It survived because **there was no sender-side
@@ -297,7 +297,7 @@ arithmetic and argon2id. W10 decides on that real footing.
   that makes other clients possible.
 - **W13 — Streaming/pipe contract + `--json` events** (differentiator #4),
   built on the existing error codes.
-- **W14 — Head-to-head reliability** against MeshDrop, DashBeam and
+- **W14 — Head-to-head reliability** against MeshDrop, DashBeam, and
   LocalSend on identical network pairs, including **CGNAT↔CGNAT** and
   symmetric NAT. Reuse `scratch-trials.js`. **This single experiment tests
   the central thesis and decides how much the relay matters.** Read

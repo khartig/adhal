@@ -13,7 +13,9 @@
 // reduced to a stream.
 //
 // The hand-rolled receiver here plays the peer, so each test can hold
-// RESULT back, garble it, or never send it.
+// RESULT back, garble it, or never send it. It speaks the sealed v2
+// channel (../test-helpers/sealed.js), because that is all sendFile will
+// open.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -25,15 +27,13 @@ const crypto = require('node:crypto')
 const {
   sendFile,
   receiveFile,
-  encodeMessage,
-  encodeResult,
-  decodeMessage,
-  FrameDecoder,
+  resultBody,
   TYPE_MANIFEST,
   TYPE_CHUNK,
   TYPE_RESULT
 } = require('@quay/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
+const { channelKeys, sealedPeer } = require('../test-helpers/sealed')
 
 async function fixture (t, label, size = 256 * 1024) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
@@ -52,45 +52,56 @@ async function settle (promise) {
   return promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }))
 }
 
-// Reads the sender's frames off `peer` and resolves once every byte the
-// manifest declared has arrived -- the moment the sender starts waiting
-// for RESULT.
-function readAll (peer) {
-  return new Promise((resolve, reject) => {
-    let manifest = null
-    let received = 0
-    const decoder = new FrameDecoder((payload) => {
-      const { type, body } = decodeMessage(payload)
+// Plays the receiver against a real sendFile: returns the socket and keys
+// to hand sendFile, a `reply` that seals a message back, and `allIn`, which
+// resolves once every byte the manifest declared has arrived -- the moment
+// the sender starts waiting for RESULT.
+function receiverPeer () {
+  const [txSocket, peer] = duplexPair()
+  const keys = channelKeys()
+  let manifest = null
+  let received = 0
+  /** @type {(m: any) => void} */
+  let done
+  const allIn = new Promise((resolve) => { done = resolve })
+  const rx = sealedPeer(peer, keys.receiver, {
+    onMessage: (type, body) => {
       if (type === TYPE_MANIFEST) manifest = JSON.parse(body.toString('utf8'))
       if (type === TYPE_CHUNK) received += body.length
-      if (manifest && received === manifest.size) resolve(manifest)
-    })
-    peer.on('data', (chunk) => {
-      try { decoder.push(chunk) } catch (err) { reject(err) }
-    })
+      if (manifest && received === manifest.size) done(manifest)
+    }
   })
+  return {
+    txSocket,
+    peer,
+    keys: keys.sender,
+    allIn,
+    /** @param {Buffer} body */
+    reply: (body) => rx.send(TYPE_RESULT, body)
+  }
 }
 
-// Collects the frames receiveFile writes back, for the receiver-side tests.
-function framesFrom (peer) {
+// Plays the sender against a real receiveFile: `send` seals a message at
+// it, and `frames` collects what it writes back, JSON-decoded.
+function senderPeer () {
+  const [peer, rxSocket] = duplexPair()
+  const keys = channelKeys()
   /** @type {{ type: number, body: any }[]} */
   const frames = []
-  const decoder = new FrameDecoder((payload) => {
-    const { type, body } = decodeMessage(payload)
-    frames.push({ type, body: JSON.parse(body.toString('utf8')) })
+  const tx = sealedPeer(peer, keys.sender, {
+    onMessage: (type, body) => frames.push({ type, body: JSON.parse(body.toString('utf8')) })
   })
-  peer.on('data', (chunk) => decoder.push(chunk))
-  return frames
+  return { rxSocket, keys: keys.receiver, frames, send: tx.send }
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 test('a receiver that closes after every byte but before RESULT fails the send, not passes it', async (t) => {
   const { sourcePath } = await fixture(t, 'result-close')
-  const [txSocket, peer] = duplexPair()
+  const { txSocket, peer, keys, allIn } = receiverPeer()
 
-  const sent = settle(sendFile(txSocket, sourcePath))
-  await readAll(peer)
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
+  await allIn
   // The proofv2-3 trials, reduced: every byte handed off, then the
   // connection goes away. This used to resolve as a success.
   peer.end()
@@ -103,26 +114,26 @@ test('a receiver that closes after every byte but before RESULT fails the send, 
 
 test('the sender does not resolve on hand-off, only on RESULT', async (t) => {
   const { sourcePath, sha256 } = await fixture(t, 'result-wait')
-  const [txSocket, peer] = duplexPair()
+  const { txSocket, keys, allIn, reply } = receiverPeer()
 
   let resolved = false
-  const sent = sendFile(txSocket, sourcePath).then((r) => { resolved = true; return r })
-  await readAll(peer)
+  const sent = sendFile(txSocket, sourcePath, { ...keys }).then((r) => { resolved = true; return r })
+  await allIn
   await tick()
   assert.equal(resolved, false, 'every byte was handed off, but nothing has confirmed them')
 
-  peer.write(encodeResult({ ok: true, sha256 }))
+  reply(resultBody({ ok: true, sha256 }))
   const result = await sent
   assert.equal(result.sha256, sha256)
 })
 
 test('RESULT{error} fails the send with the receiver\'s own reason', async (t) => {
   const { sourcePath } = await fixture(t, 'result-error')
-  const [txSocket, peer] = duplexPair()
+  const { txSocket, keys, allIn, reply } = receiverPeer()
 
-  const sent = settle(sendFile(txSocket, sourcePath))
-  await readAll(peer)
-  peer.write(encodeResult({ error: 'disk full\u001b[2J' }))
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
+  await allIn
+  reply(resultBody({ error: 'disk full\u001b[2J' }))
 
   const outcome = await sent
   assert.equal(outcome.ok, false)
@@ -134,11 +145,11 @@ test('RESULT{error} fails the send with the receiver\'s own reason', async (t) =
 
 test('an {ok} RESULT carrying a different digest is not a success', async (t) => {
   const { sourcePath, sha256 } = await fixture(t, 'result-wrong-digest')
-  const [txSocket, peer] = duplexPair()
+  const { txSocket, keys, allIn, reply } = receiverPeer()
 
-  const sent = settle(sendFile(txSocket, sourcePath))
-  await readAll(peer)
-  peer.write(encodeResult({ ok: true, sha256: '0'.repeat(64) }))
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
+  await allIn
+  reply(resultBody({ ok: true, sha256: '0'.repeat(64) }))
 
   const outcome = await sent
   assert.equal(outcome.ok, false)
@@ -149,11 +160,13 @@ test('an {ok} RESULT carrying a different digest is not a success', async (t) =>
 
 test('a RESULT the sender cannot parse is a protocol error, never a success', async (t) => {
   const { sourcePath } = await fixture(t, 'result-garbled')
-  const [txSocket, peer] = duplexPair()
+  const { txSocket, keys, allIn, reply } = receiverPeer()
 
-  const sent = settle(sendFile(txSocket, sourcePath))
-  await readAll(peer)
-  peer.write(encodeMessage(TYPE_RESULT, Buffer.from('{"ok":true}', 'utf8')))
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
+  await allIn
+  // Sealed properly, so this reaches decodeResult: it is the verdict that
+  // is unreadable, not the frame.
+  reply(Buffer.from('{"ok":true}', 'utf8'))
 
   const outcome = await sent
   assert.equal(outcome.ok, false)
@@ -164,10 +177,10 @@ test('a RESULT before the last byte is refused', async (t) => {
   // Large enough that the sender cannot finish in the tick it takes the
   // manifest to arrive.
   const { sourcePath, sha256 } = await fixture(t, 'result-early', 4 * 1024 * 1024)
-  const [txSocket, peer] = duplexPair()
+  const { txSocket, peer, keys, reply } = receiverPeer()
 
-  const sent = settle(sendFile(txSocket, sourcePath))
-  peer.once('data', () => peer.write(encodeResult({ ok: true, sha256 })))
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
+  peer.once('data', () => reply(resultBody({ ok: true, sha256 })))
 
   const outcome = await sent
   assert.equal(outcome.ok, false)
@@ -176,10 +189,10 @@ test('a RESULT before the last byte is refused', async (t) => {
 
 test('a receiver that never answers times out as unconfirmed rather than hanging the sender', async (t) => {
   const { sourcePath } = await fixture(t, 'result-timeout')
-  const [txSocket, peer] = duplexPair()
+  const { txSocket, keys, allIn } = receiverPeer()
 
-  const sent = settle(sendFile(txSocket, sourcePath, { resultTimeout: 100 }))
-  await readAll(peer)
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys, resultTimeout: 100 }))
+  await allIn
 
   const outcome = await sent
   assert.equal(outcome.ok, false)
@@ -189,9 +202,9 @@ test('a receiver that never answers times out as unconfirmed rather than hanging
 
 test('a receiver that vanishes mid-send is reported as the send phase', async (t) => {
   const { sourcePath } = await fixture(t, 'result-midsend', 4 * 1024 * 1024)
-  const [txSocket, peer] = duplexPair()
+  const { txSocket, peer, keys } = receiverPeer()
 
-  const sent = settle(sendFile(txSocket, sourcePath))
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
   peer.once('data', () => peer.end())
 
   const outcome = await sent
@@ -202,14 +215,13 @@ test('a receiver that vanishes mid-send is reported as the send phase', async (t
 
 test('the receiver sends {ok, sha256} only once the file is under its real name', async (t) => {
   const { body, sha256, outputDir } = await fixture(t, 'result-rx-ok', 1024)
-  const [peer, rxSocket] = duplexPair()
-  const frames = framesFrom(peer)
+  const { rxSocket, keys, frames, send } = senderPeer()
 
-  const received = receiveFile(rxSocket, outputDir)
-  peer.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify({
+  const received = receiveFile(rxSocket, outputDir, { ...keys })
+  send(TYPE_MANIFEST, Buffer.from(JSON.stringify({
     v: 1, type: 'manifest', name: 'payload.bin', size: body.length, chunkSize: 64 * 1024, sha256
-  }), 'utf8')))
-  peer.write(encodeMessage(TYPE_CHUNK, body))
+  }), 'utf8'))
+  send(TYPE_CHUNK, body)
 
   const result = await received
   assert.deepEqual(frames, [{ type: TYPE_RESULT, body: { ok: true, sha256 } }])
@@ -221,14 +233,13 @@ test('the receiver sends {ok, sha256} only once the file is under its real name'
 
 test('a receiver that refuses the file on its digest tells the sender why', async (t) => {
   const { body, outputDir } = await fixture(t, 'result-rx-mismatch', 1024)
-  const [peer, rxSocket] = duplexPair()
-  const frames = framesFrom(peer)
+  const { rxSocket, keys, frames, send } = senderPeer()
 
-  const received = settle(receiveFile(rxSocket, outputDir))
-  peer.write(encodeMessage(TYPE_MANIFEST, Buffer.from(JSON.stringify({
+  const received = settle(receiveFile(rxSocket, outputDir, { ...keys }))
+  send(TYPE_MANIFEST, Buffer.from(JSON.stringify({
     v: 1, type: 'manifest', name: 'payload.bin', size: body.length, chunkSize: 64 * 1024, sha256: 'f'.repeat(64)
-  }), 'utf8')))
-  peer.write(encodeMessage(TYPE_CHUNK, body))
+  }), 'utf8'))
+  send(TYPE_CHUNK, body)
 
   const outcome = await received
   assert.equal(outcome.ok, false)
@@ -239,30 +250,11 @@ test('a receiver that refuses the file on its digest tells the sender why', asyn
   assert.equal('ok' in frames[0].body, false)
 })
 
-test('end to end, a mismatch on the receiver surfaces on the sender as ERR_RECEIVER_FAILED', async (t) => {
-  // The honest-receiver path through both halves of the engine: the
-  // sender's file changes between hashing and the receiver's check is not
-  // reproducible here, so tamper with the bytes in transit instead.
-  const { sourcePath, outputDir } = await fixture(t, 'result-e2e-mismatch', 64 * 1024)
-  const [txSocket, rxSocket] = duplexPair()
-  const write = rxSocket.push.bind(rxSocket)
-  let flipped = false
-  rxSocket.push = (chunk) => {
-    // Flip one byte of the first CHUNK body, past its 5-byte header.
-    if (chunk && !flipped && chunk.length > 5 && chunk[4] === TYPE_CHUNK) {
-      chunk = Buffer.from(chunk)
-      chunk[5] ^= 0xff
-      flipped = true
-    }
-    return write(chunk)
-  }
-
-  const [sent, received] = await Promise.all([
-    settle(sendFile(txSocket, sourcePath)),
-    settle(receiveFile(rxSocket, outputDir))
-  ])
-  assert.equal(flipped, true)
-  assert.equal(received.error.code, 'ERR_HASH_MISMATCH')
-  assert.equal(sent.error.code, 'ERR_RECEIVER_FAILED')
-  assert.match(sent.error.peerReason, /does not match/)
-})
+// There used to be an end-to-end test here that flipped a CHUNK byte in
+// transit to produce a digest mismatch on the receiver. Under v2 that is
+// no longer reachable: the altered frame fails to authenticate and the
+// receive stops at that frame, before the digest is ever compared. The
+// test moved to sealed-transfer.test.js and now asserts that instead. The
+// sender's half of a digest refusal is still covered above, by
+// "RESULT{error} fails the send", and the receiver's half by the test
+// before this note.

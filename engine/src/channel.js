@@ -21,11 +21,10 @@ const { decodeMessage, TAG_SIZE } = require('./message')
 // transcript instead means the relay is a pipe and cannot be a party, and
 // there is one property to reason about rather than one per transport.
 //
-// NOT YET WIRED INTO ./transfer.js. Shipped tested and unused, following
-// ./cpace.js's precedent: the W11 security-core pass stops before the
-// transfer path, so transfer.js still writes cleartext frames over Noise
-// and all of its duplex-pair tests stay green. W11's later pass is what
-// puts this under the manifest and the chunks.
+// WIRED INTO ./transfer.js, which builds one per transfer and has no
+// unsealed mode: sendFile and receiveFile both refuse to start without the
+// keys. It shipped a commit earlier tested and unused, following
+// ./cpace.js's precedent, and that gap is now closed.
 
 // The length prefix is OUTSIDE the seal, deliberately, and section 5 is
 // explicit about why: the decoder has to be able to reject an absurd
@@ -344,8 +343,9 @@ class Channel {
       // accident, reported as a hash mismatch rather than as tampering.
       // Against a forged CANCEL or CHECKPOINT it is a no-op.
       //
-      // Both current FrameDecoder callers do treat a throw as fatal, so
-      // the latch changes nothing today. It exists because that is a
+      // Both callers -- sendFile's and receiveFile's onData in
+      // ./transfer.js -- do treat a throw as fatal, so the latch changes
+      // nothing today. It exists because that is a
       // caller convention and this is a security boundary: the natural
       // next edit -- a per-frame try/catch added to tolerate an
       // unexpected-but-benign message type, of which v2 has just added

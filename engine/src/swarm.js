@@ -300,8 +300,8 @@ function timeoutError (phase, timeout, candidates) {
  *   sendKey: Buffer, receiveKey: Buffer, caps: string[]
  * }>}
  *   `sendKey`/`receiveKey` are this side's directional channel keys
- *   (k_r2s and k_s2r respectively for a receiver). NOTHING IS SEALED WITH
- *   THEM YET -- see the note where they are resolved.
+ *   (k_r2s and k_s2r respectively for a receiver). Pass both to
+ *   receiveFile, which seals every frame under them.
  */
 function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onAnnounced, onCandidate, onCandidateDropped }) {
   // Validated up front rather than per connection, and required rather
@@ -492,16 +492,8 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
         // those until our CONFIRM arrives -- but handing leftovers back
         // rather than swallowing them is the contract receiveFile's
         // `pending` was built on, and it stays honest if that order ever
-        // changes.
-        //
-        // THE CHANNEL IS NOT SEALED YET, and the keys below must not be
-        // read as saying otherwise. This commit puts v2's handshake on the
-        // wire; ./transfer.js still writes cleartext frames over Noise, so
-        // the posture is v1's channel under strictly stronger
-        // authentication. sendKey/receiveKey are derived, returned, and
-        // unused until ./channel.js is wired into transfer.js in W11's
-        // second pass. Nothing is released between commits, so this costs
-        // no compatibility.
+        // changes. Those leftovers would be sealed frames: everything after
+        // CONFIRM is, so receiveFile opens them under the keys below.
         resolve({
           socket,
           peerInfo,
@@ -604,7 +596,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   sendKey: Buffer, receiveKey: Buffer, caps: string[]
  * }>}
  *   For a sender, `sendKey` is k_s2r and `receiveKey` is k_r2s -- the
- *   mirror of acceptOnce's view. Nothing is sealed with them yet.
+ *   mirror of acceptOnce's view. Pass both to sendFile.
  */
 function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onCandidate, onCandidateDropped }) {
   // See acceptOnce: required rather than defaulted, and validated up
@@ -807,9 +799,6 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
         // almost always empty -- but "almost always" is not a contract,
         // and swallowing a coalesced CANCEL would lose precisely the
         // message this item exists to deliver.
-        //
-        // See acceptOnce: the keys are derived and returned, and nothing is
-        // sealed with them until ./channel.js is wired into transfer.js.
         resolve({
           socket,
           peerInfo,
@@ -861,4 +850,4 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 // timeoutMessage is exported for tests: asserting both of its branches
 // end to end would mean racing a real peer against a real timeout, which
 // is exactly the kind of timing-dependent test that fails only under load.
-module.exports = { createSwarm, acceptOnce, connectOnce, timeoutMessage, timeoutError }
+module.exports = { createSwarm, acceptOnce, connectOnce, timeoutMessage, timeoutError, HANDSHAKE_TIMEOUT_MS }
