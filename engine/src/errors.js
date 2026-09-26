@@ -48,9 +48,10 @@
 //   ERR_DECLINED          the receiver refused the offer before any file
 //                         byte moved: an unsafe name, too large, no
 //                         space, or a person or policy said no. Sent to
-//                         the sender as DECLINE{reason}; `.peerReason` is
-//                         the receiver's sentence. The receiver itself
-//                         reports the specific code it declined for.
+//                         the sender as DECLINE{reason, code}; `.peerReason`
+//                         is the receiver's sentence and `.declineCode` its
+//                         code, for automation to switch on. The receiver
+//                         itself reports the specific code it declined for.
 //   ERR_NO_PEER           join timed out having seen nobody.
 //   ERR_NO_HANDSHAKE      join timed out having seen peers that never
 //                         completed the handshake. A different

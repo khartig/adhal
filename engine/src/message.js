@@ -266,17 +266,52 @@ function decodeAccept (body) {
   return { resumeFrom: parsed.resumeFrom }
 }
 
+// DECLINE carries two things for two readers: `reason`, a sentence for the
+// person at the sender, and `code`, for anything automated that has to
+// act on WHY -- retry after freeing space, rename, or give up. PROTOCOL.md
+// section 10 is the rule this follows: nothing may match on the prose, so
+// a refusal that software should branch on needs a code beside it.
+//
+// The codes a receiver sends are the ones it rejected the offer with
+// (DECLINE_CODES below). A decoder accepts any code of the same SHAPE, not
+// only those, so a later receiver's new code reaches the sender's
+// automation intact; the character class is what keeps a hostile peer from
+// putting an escape sequence in a field a CLI may print.
+const DECLINE_CODES = [
+  'ERR_MANIFEST_INVALID', // a manifest field failed validation
+  'ERR_UNSAFE_NAME', // the name is not one the receiver will write
+  'ERR_NO_SPACE', // the declared size does not fit
+  'ERR_EXISTS', // no partial could be opened without destroying a file
+  'ERR_DECLINED', // a person or policy (onOffer) said no
+  'ERR_RECEIVER_FAILED' // a local fault; the reason names only its errno
+]
+const DECLINE_CODE_SHAPE = /^ERR_[A-Z0-9_]{1,48}$/
+
 /**
  * @param {string} [reason]
+ * @param {string | null} [code] one of DECLINE_CODES
  * @returns {Buffer} a DECLINE body, for Channel#seal(TYPE_DECLINE, ...)
  */
-function declineBody (reason = '') {
-  return Buffer.from(JSON.stringify({ reason: sanitizeReason(reason) }), 'utf8')
+function declineBody (reason = '', code = null) {
+  const body = code === null ? { reason: sanitizeReason(reason) } : { reason: sanitizeReason(reason), code }
+  return Buffer.from(JSON.stringify(body), 'utf8')
 }
 
-// Never throws, for CANCEL's reason rather than ACCEPT's: a DECLINE whose
-// reason is garbled has still said no, and that is the part that matters.
-const decodeDeclineReason = decodeCancelReason
+/**
+ * Never throws, for CANCEL's reason rather than ACCEPT's: a DECLINE whose
+ * body is garbled has still said no, and that is the part that matters. A
+ * missing or malformed code comes back as null, never as a guess.
+ * @param {Buffer} body
+ * @returns {{ reason: string, code: string | null }}
+ */
+function decodeDecline (body) {
+  let parsed = null
+  try {
+    parsed = JSON.parse(body.toString('utf8'))
+  } catch {}
+  const code = parsed && typeof parsed.code === 'string' && DECLINE_CODE_SHAPE.test(parsed.code) ? parsed.code : null
+  return { reason: sanitizeReason(parsed && parsed.reason), code }
+}
 
 // CHECKPOINT is the receiver's durable offset (PROTOCOL.md sections 4.1
 // and 8.3): every byte below it has been fsynced. Sent periodically, not
@@ -349,7 +384,8 @@ module.exports = {
   acceptBody,
   decodeAccept,
   declineBody,
-  decodeDeclineReason,
+  decodeDecline,
+  DECLINE_CODES,
   checkpointBody,
   decodeCheckpoint,
   endBody,

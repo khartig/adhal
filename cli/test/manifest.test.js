@@ -224,6 +224,7 @@ test('a manifest field that fails validation is refused before any filesystem ca
     const reply = await answer
     assert.equal(reply.type, TYPE_DECLINE, `${JSON.stringify(override)} should be declined, not dropped`)
     assert.match(reply.body.reason, new RegExp(`manifest field ${field} is invalid`))
+    assert.equal(reply.body.code, 'ERR_MANIFEST_INVALID')
   }
 
   assert.deepEqual(await fs.promises.readdir(outputDir), [], 'a refused manifest must not create anything')

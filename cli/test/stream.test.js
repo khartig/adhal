@@ -188,6 +188,7 @@ test('a stream offered without the capability negotiated is declined, by name', 
     const reply = await offer(streamManifest())
     assert.equal(reply.type, TYPE_DECLINE)
     assert.match(reply.body.reason, /"stream" capability/)
+    assert.equal(reply.body.code, 'ERR_MANIFEST_INVALID')
     const outcome = await received
     assert.equal(outcome.error.code, 'ERR_MANIFEST_INVALID')
     assert.equal(outcome.error.field, 'size')

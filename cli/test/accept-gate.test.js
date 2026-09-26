@@ -140,6 +140,49 @@ test('a DECLINE fails the send with the receiver\'s reason, before any file byte
   assert.deepEqual(frames.map((f) => f.type), [TYPE_MANIFEST], 'a declined file is never sent')
 })
 
+test('a DECLINE code reaches the sender as .declineCode, and only in a safe shape', async (t) => {
+  // The code is what automation switches on (PROTOCOL.md section 10:
+  // nothing may match on prose). A code this build does not know still
+  // passes, so a later receiver's new one is not lost; one that is not
+  // shaped like a code is dropped to null, because a CLI may print it and
+  // the peer chose it. The decline itself is honoured in every case.
+  const { sourcePath } = await fixture(t, 'gate-decline-code')
+
+  for (const [body, expected] of [
+    [declineBody('disk full', 'ERR_NO_SPACE'), 'ERR_NO_SPACE'],
+    [declineBody('over quota', 'ERR_QUOTA_EXCEEDED'), 'ERR_QUOTA_EXCEEDED'],
+    [declineBody('no code at all'), null],
+    [Buffer.from(JSON.stringify({ reason: 'x', code: 'ERR_X\u001b[2J' })), null],
+    [Buffer.from(JSON.stringify({ reason: 'x', code: 'err_lowercase' })), null],
+    [Buffer.from(JSON.stringify({ reason: 'x', code: 42 })), null],
+    [Buffer.from('not json'), null]
+  ]) {
+    const { txSocket, keys, manifest, answer } = receiverPeer()
+    const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
+    await manifest
+    answer(TYPE_DECLINE, /** @type {Buffer} */ (body))
+    const outcome = await sent
+    assert.equal(outcome.error.code, 'ERR_DECLINED', 'the sender\'s own outcome is always ERR_DECLINED')
+    assert.equal(outcome.error.declineCode, expected, `for ${body.toString()}`)
+  }
+})
+
+test('a receiver that cannot open any partial declines with ERR_EXISTS', async (t) => {
+  // Every candidate .part name taken: the one refusal that comes from
+  // opening the file rather than from checking the offer.
+  const { outputDir, body } = await fixture(t, 'gate-exists', 16)
+  const base = path.join(outputDir, 'payload.bin.part')
+  await fs.promises.writeFile(base, '')
+  for (let n = 1; n <= 1000; n++) await fs.promises.writeFile(`${base}.${n}`, '')
+  const { socket, keys, offer } = sealedSender()
+
+  const received = settle(receiveFile(socket, outputDir, { ...keys }))
+  const reply = await offer(manifestFor(body), body)
+  assert.equal(reply.type, TYPE_DECLINE)
+  assert.equal(reply.body.code, 'ERR_EXISTS')
+  assert.equal((await received).error.code, 'ERR_EXISTS')
+})
+
 test('an answer that is neither ACCEPT nor DECLINE is a protocol error, named', async (t) => {
   const { sourcePath, sha256 } = await fixture(t, 'gate-wrong-answer')
 
@@ -273,6 +316,7 @@ test('onOffer can decline, with or without a reason, and nothing is created', as
     const reply = await offer(manifestFor(body), body)
     assert.equal(reply.type, TYPE_DECLINE, `${JSON.stringify(verdict)} must decline`)
     assert.equal(reply.body.reason, reason)
+    assert.equal(reply.body.code, 'ERR_DECLINED', 'a policy refusal is coded as one')
 
     const outcome = await received
     assert.equal(outcome.error.code, 'ERR_DECLINED')
@@ -291,6 +335,7 @@ test('onOffer is only asked about an offer the engine would take', async (t) => 
 
   assert.equal(reply.type, TYPE_DECLINE)
   assert.match(reply.body.reason, /resolves outside|separator|refusing the peer's filename/)
+  assert.equal(reply.body.code, 'ERR_UNSAFE_NAME')
   assert.equal((await received).error.code, 'ERR_UNSAFE_NAME')
   assert.equal(asked, 0, 'a person must never be asked to approve a name the engine refuses anyway')
 })
@@ -363,6 +408,9 @@ test('a decline for a local fault tells the peer its code, not the receiver\'s p
 
   assert.equal(reply.type, TYPE_DECLINE)
   assert.match(reply.body.reason, /EACCES/)
+  // The errno is prose. The code is the protocol's own, and says only
+  // that the fault was the receiver's.
+  assert.equal(reply.body.code, 'ERR_RECEIVER_FAILED')
   assert.equal(reply.body.reason.includes(outputDir), false, `the reason leaked a local path: ${reply.body.reason}`)
   assert.equal(reply.body.reason.includes(os.userInfo().username), false)
   // The receiver's own report keeps the full detail; only the peer's copy
@@ -385,6 +433,7 @@ test('a size the disk cannot hold is declined without saying how full the disk i
   assert.equal(outcome.error.code, 'ERR_NO_SPACE')
   assert.equal(reply.type, TYPE_DECLINE)
   assert.equal(reply.body.reason, `the receiver does not have ${size} bytes free`)
+  assert.equal(reply.body.code, 'ERR_NO_SPACE')
 })
 
 // --- end to end -----------------------------------------------------------
@@ -402,6 +451,7 @@ test('end to end: a receiver that declines is reported by the sender with its re
 
   assert.equal(sent.error.code, 'ERR_DECLINED')
   assert.equal(sent.error.peerReason, 'only photos, please')
+  assert.equal(sent.error.declineCode, 'ERR_DECLINED')
   assert.equal(received.error.code, 'ERR_DECLINED')
   assert.equal(progressed, 0, 'no byte of a declined file was handed off')
   assert.deepEqual(await fs.promises.readdir(outputDir), [])

@@ -15,7 +15,8 @@ const {
   acceptBody,
   decodeAccept,
   declineBody,
-  decodeDeclineReason,
+  decodeDecline,
+  DECLINE_CODES,
   checkpointBody,
   decodeCheckpoint,
   endBody,
@@ -162,6 +163,15 @@ function reasonForPeer (err) {
     return err.message
   }
   return `the receiver could not take the file (${err && typeof err.code === 'string' ? err.code : 'internal error'})`
+}
+
+// The DECLINE code for the same error: its own code when it is one the
+// receiver declines with, and ERR_RECEIVER_FAILED for everything else. A
+// local fault's errno stays in the prose only (reasonForPeer), because
+// "EACCES" is an operating system's vocabulary, not this protocol's.
+/** @param {any} err */
+function declineCodeFor (err) {
+  return err instanceof TransferError && DECLINE_CODES.includes(err.code) ? err.code : 'ERR_RECEIVER_FAILED'
 }
 
 function hashFile (filePath) {
@@ -654,11 +664,15 @@ async function offerAndSend (socket, {
           return
         }
         if (type === TYPE_DECLINE) {
-          const peerReason = decodeDeclineReason(body)
+          // `.code` stays ERR_DECLINED: section 10's codes say how THIS
+          // side's drop ended, and the sender's file was not an unsafe
+          // name or a full disk. The receiver's reason for it is
+          // `.declineCode`, for anything automated to switch on.
+          const { reason: peerReason, code: declineCode } = decodeDecline(body)
           throw new TransferError(
             'ERR_DECLINED',
             peerReason ? `the receiver declined the file: ${peerReason}` : 'the receiver declined the file',
-            { peerReason, bytes: 0 }
+            { peerReason, declineCode, bytes: 0 }
           )
         }
         throw new TransferError(
@@ -1476,7 +1490,7 @@ function receiveFile (socket, outputDir, {
       /** @type {Buffer | null} */
       let notice = null
       try {
-        notice = channel.seal(TYPE_DECLINE, declineBody(reasonForPeer(err)))
+        notice = channel.seal(TYPE_DECLINE, declineBody(reasonForPeer(err), declineCodeFor(err)))
       } catch {
         // The counter-exhaustion assertion: nothing can be sealed, so the
         // sender is told nothing and sees the close.
