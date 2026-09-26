@@ -21,6 +21,9 @@ const {
   decodeCheckpoint,
   endBody,
   decodeEnd,
+  prefixBody,
+  decodePrefix,
+  PREFIX_BOUNDARY,
   sanitizeReason,
   TYPE_MANIFEST,
   TYPE_CHUNK,
@@ -30,6 +33,7 @@ const {
   TYPE_CHECKPOINT,
   TYPE_RESULT,
   TYPE_END,
+  TYPE_PREFIX,
   TYPE_NAMES
 } = require('./message')
 
@@ -175,11 +179,40 @@ function declineCodeFor (err) {
 }
 
 function hashFile (filePath) {
+  return hashFileWithPrefixes(filePath).then(({ sha256 }) => sha256)
+}
+
+// The whole-file digest the manifest carries, and on the same single read
+// the digest of every PREFIX_BOUNDARY-aligned prefix: `prefixes[k - 1]` is
+// the SHA-256 of the first k * PREFIX_BOUNDARY bytes. These are what the
+// sender answers a resume's PREFIX from (PROTOCOL.md section 7.5), so a
+// resumed transfer never re-reads the part of the file it skips. 32 bytes
+// per MiB: 256 KB at the 8 GiB default cap.
+//
+// A read chunk does not respect the boundaries, so it is split at them;
+// `hash.copy()` finalises a snapshot without disturbing the running state.
+/**
+ * @param {string} filePath
+ * @returns {Promise<{ sha256: string, prefixes: Buffer[] }>}
+ */
+function hashFileWithPrefixes (filePath) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256')
+    /** @type {Buffer[]} */
+    const prefixes = []
+    let position = 0
     const stream = fs.createReadStream(filePath)
-    stream.on('data', (chunk) => hash.update(chunk))
-    stream.on('end', () => resolve(hash.digest('hex')))
+    stream.on('data', (/** @type {Buffer} */ chunk) => {
+      let offset = 0
+      while (offset < chunk.length) {
+        const take = Math.min(chunk.length - offset, PREFIX_BOUNDARY - (position % PREFIX_BOUNDARY))
+        hash.update(chunk.subarray(offset, offset + take))
+        offset += take
+        position += take
+        if (position % PREFIX_BOUNDARY === 0) prefixes.push(hash.copy().digest())
+      }
+    })
+    stream.on('end', () => resolve({ sha256: hash.digest('hex'), prefixes }))
     stream.on('error', reject)
   })
 }
@@ -305,10 +338,13 @@ function progressReporter (onProgress, total) {
 // attached. Now a refusal is DECLINE{reason}, it arrives before the read
 // stream is even opened, and the sender reports it as ERR_DECLINED.
 //
-// Three phases, in order, and every inbound message is judged against the
+// Four phases, in order, and every inbound message is judged against the
 // one we are in:
 //
 //   offer    MANIFEST sent; only ACCEPT, DECLINE or CANCEL may arrive
+//   prefix   the receiver proposed a resume and we sent PREFIX (section
+//            7.5); only its final ACCEPT, DECLINE or CANCEL may arrive.
+//            Skipped when the first ACCEPT says 0
 //   send     accepted; only CANCEL may arrive
 //   result   every byte handed off; only RESULT or CANCEL may arrive
 //
@@ -359,10 +395,15 @@ async function sendFile (socket, filePath, options = /** @type {any} */ ({})) {
   return offerAndSend(socket, options, async () => {
     const stat = await fs.promises.stat(filePath)
     const size = stat.size
+    const { sha256, prefixes } = await hashFileWithPrefixes(filePath)
     return {
       name: path.basename(filePath),
       size,
-      sha256: await hashFile(filePath),
+      sha256,
+      // What PREFIX carries for a resumeFrom the sender has already checked
+      // is on a boundary or is the whole file (onAccept). The whole file's
+      // prefix digest is the manifest's own.
+      prefixDigest: (/** @type {number} */ n) => n === size ? Buffer.from(sha256, 'hex') : prefixes[n / PREFIX_BOUNDARY - 1],
       // stat, hashFile and createReadStream are three separate reads of a
       // file that nothing stops changing underneath us. Capping the read at
       // the size we hashed and declared means a file that GREW mid-send is
@@ -438,7 +479,7 @@ async function sendStream (socket, readable, options) {
 /**
  * @param {any} socket
  * @param {any} options see sendFile and sendStream
- * @param {() => Promise<{ name: string, size: number | null, sha256: string | null, open: (start: number) => import('stream').Readable }>} describe
+ * @param {() => Promise<{ name: string, size: number | null, sha256: string | null, prefixDigest?: (n: number) => Buffer, open: (start: number) => import('stream').Readable }>} describe
  * @returns {Promise<{ name: string, size: number, sha256: string, resumedFrom: number }>}
  */
 async function offerAndSend (socket, {
@@ -509,7 +550,7 @@ async function offerAndSend (socket, {
     let settled = false
     /** @type {(() => void) | null} */
     let onDrain = null
-    /** @type {'offer' | 'send' | 'result'} */
+    /** @type {'offer' | 'prefix' | 'send' | 'result'} */
     let phase = 'offer'
     // One timer, for whichever wait we are in: the offer's answer, then
     // the RESULT. Never both, because the phases do not overlap.
@@ -565,6 +606,7 @@ async function offerAndSend (socket, {
       if (settled) return
       const message = {
         offer: 'the receiver disconnected before answering the offer; no file bytes were sent',
+        prefix: 'the receiver disconnected while checking the prefix it asked to resume from; no file bytes were sent',
         send: streamed
           ? `the receiver disconnected after ${sent} bytes of the stream were sent`
           : `the receiver disconnected after ${sent} of ${size} bytes were sent`,
@@ -575,6 +617,22 @@ async function offerAndSend (socket, {
 
     function onAccept (body) {
       const { resumeFrom } = decodeAccept(body)
+
+      // The receiver's final answer, after checking our PREFIX (PROTOCOL.md
+      // section 7.5): the offset it proposed if its prefix matched, 0 if it
+      // did not and it has discarded it. Nothing else -- in particular not
+      // a different non-zero offset, which would be a prefix nobody checked.
+      if (phase === 'prefix') {
+        if (resumeFrom !== resumedFrom && resumeFrom !== 0) {
+          throw new TransferError(
+            'ERR_PROTOCOL',
+            `the receiver answered its prefix check with resumeFrom ${resumeFrom}; only ${resumedFrom} (a match) or 0 (start over) is valid`
+          )
+        }
+        beginSend(resumeFrom)
+        return
+      }
+
       // A non-zero offset is the receiver saying it already holds that
       // prefix (PROTOCOL.md section 7). Honoured only where resume can
       // mean something, and refused -- never ignored -- everywhere else:
@@ -590,12 +648,38 @@ async function offerAndSend (socket, {
         if (resumeFrom > /** @type {number} */ (size)) {
           throw new TransferError('ERR_PROTOCOL', `the receiver asked to resume from byte ${resumeFrom}, past the ${size} bytes offered`)
         }
+        // Section 7.5's alignment rule, which is what lets PREFIX be
+        // answered from the digests recorded while hashing.
+        if (resumeFrom % PREFIX_BOUNDARY !== 0 && resumeFrom !== size) {
+          throw new TransferError(
+            'ERR_PROTOCOL',
+            `the receiver asked to resume from byte ${resumeFrom}, which is neither a multiple of ${PREFIX_BOUNDARY} nor the whole file`
+          )
+        }
+        // Not yet: the offset is a proposal until the receiver has checked
+        // it against our own prefix. The phase changes BEFORE the write, so
+        // an answer delivered inside socket.write is judged as one.
+        resumedFrom = resumeFrom
+        phase = 'prefix'
+        armTimer(acceptTimeout, () => new TransferError(
+          'ERR_STALLED',
+          `the receiver has not answered its prefix check after ${acceptTimeout}ms; no file bytes were sent`,
+          { bytes: 0, size, phase: 'prefix' }
+        ))
+        const digest = /** @type {(n: number) => Buffer} */ (source.prefixDigest)(resumeFrom)
+        socket.write(channel.seal(TYPE_PREFIX, prefixBody({ sha256: digest.toString('hex') })))
+        return
       }
-      resumedFrom = resumeFrom
-      durable = resumeFrom
+      beginSend(0)
+    }
+
+    /** @param {number} from */
+    function beginSend (from) {
+      resumedFrom = from
+      durable = from
       clearTimer()
       phase = 'send'
-      startSending(resumeFrom)
+      startSending(from)
     }
 
     function awaitResult () {
@@ -658,7 +742,7 @@ async function offerAndSend (socket, {
           { peerReason, bytes: sent }
         )
       }
-      if (phase === 'offer') {
+      if (phase === 'offer' || phase === 'prefix') {
         if (type === TYPE_ACCEPT) {
           onAccept(body)
           return
@@ -677,7 +761,9 @@ async function offerAndSend (socket, {
         }
         throw new TransferError(
           'ERR_PROTOCOL',
-          `receiver sent ${TYPE_NAMES.get(type)} before answering the offer; only ACCEPT, DECLINE or CANCEL is expected`
+          phase === 'prefix'
+            ? `receiver sent ${TYPE_NAMES.get(type)} before answering its prefix check; only ACCEPT, DECLINE or CANCEL is expected`
+            : `receiver sent ${TYPE_NAMES.get(type)} before answering the offer; only ACCEPT, DECLINE or CANCEL is expected`
         )
       }
       if (type === TYPE_CHECKPOINT) {
@@ -1106,11 +1192,21 @@ async function openPartial (outputPath) {
  *   - no longer than the offer: a longer file is not a prefix of this one.
  *
  * What survives is re-hashed into a fresh SHA-256 whose state the transfer
- * carries forward. That does NOT prove the prefix belongs to this file --
- * a whole-file digest cannot vouch for a prefix -- so a partial that was
- * not ours is caught by the final comparison, which discards it. The file
- * is never published wrong; the cost of a foreign partial is one failed
- * transfer, after which the retry starts clean.
+ * carries forward -- but only up to `length`, the largest PREFIX_BOUNDARY
+ * multiple it holds, or the whole file if it holds every byte. That is the
+ * offset ACCEPT proposes, and PROTOCOL.md section 7.5 restricts it so the
+ * sender can answer PREFIX without re-reading. Whatever lies past `length`
+ * is cut off when the transfer adopts the partial, never before.
+ *
+ * Re-hashing does NOT prove the prefix belongs to this file; a whole-file
+ * digest cannot vouch for a prefix. The sender's PREFIX does, checked in
+ * receiveFile before the partial is adopted, and a prefix that fails it is
+ * truncated to nothing and the transfer starts at zero. The final digest
+ * comparison still runs regardless.
+ *
+ * `length` may be 0: a partial under one boundary is still the primary
+ * `.part`, reused and truncated rather than left beside a fresh `.part.1`
+ * that no later offer would look for.
  *
  * Windows has no O_NOFOLLOW, and there an lstat on the path is the
  * fallback: racy against another process, and still right about a link
@@ -1136,16 +1232,22 @@ async function reopenPartial (outputPath, size) {
       await handle.close()
       return null
     }
+    const length = stat.size === size ? size : stat.size - (stat.size % PREFIX_BOUNDARY)
     const hash = crypto.createHash('sha256')
-    const buffer = Buffer.allocUnsafe(1024 * 1024)
+    const buffer = Buffer.allocUnsafe(PREFIX_BOUNDARY)
     let position = 0
-    while (position < stat.size) {
-      const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, stat.size - position), position)
-      if (bytesRead === 0) break
+    while (position < length) {
+      const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, length - position), position)
+      // Shorter than it said: not a partial worth a proposal. Starting from
+      // what was read would propose an offset off the boundary.
+      if (bytesRead === 0) {
+        await handle.close()
+        return null
+      }
       hash.update(buffer.subarray(0, bytesRead))
       position += bytesRead
     }
-    return { handle, partPath, length: position, hash }
+    return { handle, partPath, length, hash }
   } catch {
     await handle.close().catch(() => {})
     return null
@@ -1264,7 +1366,8 @@ async function checkFreeSpace (dir, size) {
  *   `onManifest` is a notification, after the offer is accepted, with
  *   `{ resumeFrom }` as its second argument.
  *   `caps` containing `resume` also makes a declared-size transfer
- *   resumable: an earlier `<name>.part` is re-hashed and continued, a
+ *   resumable: an earlier `<name>.part` is re-hashed, checked against the
+ *   sender's PREFIX, and continued on a match or restarted on a miss, a
  *   CHECKPOINT is sent every `checkpointInterval` ms, and an interrupted
  *   transfer keeps its partial (reported as `err.partial`).
  *   `pending` is any payload the readiness handshake read off the socket
@@ -1317,6 +1420,10 @@ function receiveFile (socket, outputDir, {
     // under the accept gate a chunk in that window is a protocol error.
     let offered = false
     let accepted = false
+    // ACCEPT{resumeFrom > 0} has gone out and the sender's PREFIX has not
+    // yet come back (PROTOCOL.md section 7.5). The offer is still not
+    // answered: the partial is still the earlier attempt's.
+    let awaitingPrefix = false
     // The open, as something cleanup can wait on -- see discardPartial.
     /** @type {Promise<void> | null} */
     let openingPromise = null
@@ -1414,6 +1521,9 @@ function receiveFile (socket, outputDir, {
             writeStream.once('close', done)
             writeStream.destroy()
           })
+        } else if (!writeStream && fileHandle) {
+          // Not adopted, so no stream owns the descriptor yet.
+          await fileHandle.close().catch(() => {})
         }
         return
       }
@@ -1607,26 +1717,93 @@ function receiveFile (socket, outputDir, {
           throw err
         }
       }
+      progress = progressReporter(onProgress, parsed.size)
       if (prior) {
+        // Opened and re-hashed, not yet adopted: no stream, and nothing
+        // written or truncated, until the offer is finally answered. See
+        // adopt.
         reusedPartial = true
         fileHandle = prior.handle
         partPath = prior.partPath
         resumeFrom = prior.length
         hash = prior.hash
-        writeStream = prior.handle.createWriteStream({ start: prior.length })
-      } else {
-        const opened = await openPartial(safe.outputPath)
-        fileHandle = opened.handle
-        partPath = opened.partPath
-        hash = crypto.createHash('sha256')
-        writeStream = opened.stream
+        return
       }
+      const opened = await openPartial(safe.outputPath)
+      fileHandle = opened.handle
+      partPath = opened.partPath
+      hash = crypto.createHash('sha256')
+      attachWriteStream(opened.stream)
+    }
+
+    /** @param {fs.WriteStream} stream */
+    function attachWriteStream (stream) {
+      writeStream = stream
       received = resumeFrom
       durable = resumeFrom
       writeStream.on('error', (err) => fail(err))
       writeStream.on('drain', onWriteDrain)
-      progress = progressReporter(onProgress, parsed.size)
       progress.emit(received)
+    }
+
+    // The reopened partial becomes this transfer's, from `from`: the
+    // offset the sender's PREFIX confirmed, or 0 when it did not match (or
+    // the partial held less than one boundary). Truncated first, on the
+    // descriptor that passed reopenPartial's checks, so a tail past the
+    // confirmed prefix -- or a whole prefix that was not this file's --
+    // can never sit behind the bytes about to be written.
+    /** @param {number} from */
+    async function adopt (from) {
+      const handle = /** @type {fs.promises.FileHandle} */ (fileHandle)
+      await handle.truncate(from)
+      if (from === 0) hash = crypto.createHash('sha256')
+      resumeFrom = from
+      attachWriteStream(handle.createWriteStream({ start: from }))
+    }
+
+    // The offer's final answer: ACCEPT{from}, with everything that follows
+    // from it. Synchronous for a fresh partial, so nothing changes about
+    // when a fresh transfer's ACCEPT goes out.
+    /** @param {number} from */
+    function commit (from) {
+      if (settled) return
+      if (reusedPartial) {
+        openingPromise = adopt(from)
+        openingPromise.then(() => answerAccept(from), (err) => decline(err))
+        return
+      }
+      answerAccept(from)
+    }
+
+    /** @param {number} from */
+    function answerAccept (from) {
+      if (settled) return
+      accepted = true
+      socket.write(channel.seal(TYPE_ACCEPT, acceptBody({ resumeFrom: from })))
+      armStall(progressTimeout, 'sent nothing further')
+      if (resumable && checkpointInterval) {
+        checkpointTimer = setInterval(checkpoint, checkpointInterval)
+        if (typeof checkpointTimer.unref === 'function') checkpointTimer.unref()
+      }
+      if (onManifest) onManifest(manifest, { resumeFrom: from })
+      // An empty file, or a prefix that already holds every byte.
+      if (received === manifest.size) finalize(manifest.sha256)
+    }
+
+    // Section 7.5: the sender's digest of its own first resumeFrom bytes,
+    // against ours. A match adopts the prefix; anything else starts over,
+    // silently -- a stale or planted partial is not the person's doing and
+    // not an error to show them. Compared in constant time as a matter of
+    // hygiene: the digest is not secret from the sender, but nothing about
+    // the receiver's partial should leak through how long a check took.
+    /** @param {Buffer} body */
+    function onPrefix (body) {
+      const theirs = Buffer.from(decodePrefix(body).sha256, 'hex')
+      awaitingPrefix = false
+      // Our work from here, not the sender's stall.
+      armStall(0, '')
+      const ours = /** @type {crypto.Hash} */ (hash).copy().digest()
+      commit(crypto.timingSafeEqual(ours, theirs) ? resumeFrom : 0)
     }
 
     // Section 8.3: every CHECKPOINT_INTERVAL_MS of transfer, fsync what has
@@ -1668,6 +1845,16 @@ function receiveFile (socket, outputDir, {
       }
 
       if (!accepted) {
+        if (awaitingPrefix && type === TYPE_PREFIX) {
+          onPrefix(body)
+          return
+        }
+        if (awaitingPrefix) {
+          throw new TransferError(
+            'ERR_PROTOCOL',
+            `the sender sent ${TYPE_NAMES.get(type)} while a resume was being checked; only PREFIX or CANCEL is expected`
+          )
+        }
         if (offered) {
           throw new TransferError(
             'ERR_PROTOCOL',
@@ -1686,16 +1873,17 @@ function receiveFile (socket, outputDir, {
         consider(body).then(
           () => {
             if (settled) return
-            accepted = true
-            socket.write(channel.seal(TYPE_ACCEPT, acceptBody({ resumeFrom })))
-            armStall(progressTimeout, 'sent nothing further')
-            if (resumable && checkpointInterval) {
-              checkpointTimer = setInterval(checkpoint, checkpointInterval)
-              if (typeof checkpointTimer.unref === 'function') checkpointTimer.unref()
+            if (resumeFrom === 0) {
+              commit(0)
+              return
             }
-            if (onManifest) onManifest(manifest, { resumeFrom })
-            // An empty file, or a prefix that already holds every byte.
-            if (received === manifest.size) finalize(manifest.sha256)
+            // A proposal, not yet a resume: the prefix is trusted only once
+            // the sender's PREFIX has vouched for it. The state changes
+            // BEFORE the write, so a PREFIX delivered inside socket.write
+            // is judged as one.
+            awaitingPrefix = true
+            armStall(progressTimeout, 'never sent the PREFIX its resume needs')
+            socket.write(channel.seal(TYPE_ACCEPT, acceptBody({ resumeFrom })))
           },
           (err) => decline(err)
         )
@@ -1791,9 +1979,11 @@ function receiveFile (socket, outputDir, {
       // Unconditional: this is the comparison the data path always
       // specified and nothing in the shipping code ever performed.
       if (digest !== expected) {
-        // After a resume this is also how a partial that was not ours is
-        // caught: a whole-file digest cannot vouch for a prefix, so the
-        // prefix is trusted only as far as this comparison. Discarding it
+        // A prefix that was not ours no longer reaches here: the sender's
+        // PREFIX caught it before a byte was sent (section 7.5). What is
+        // left is a remainder that did not match -- a file that changed
+        // on the sender mid-send, or a sender that lied in PREFIX -- and
+        // this comparison stays unconditional for exactly that. Discarding
         // below is what makes the retry start clean.
         const mismatch = new TransferError(
           'ERR_HASH_MISMATCH',

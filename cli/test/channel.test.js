@@ -393,11 +393,11 @@ test('the v2 message types are named rather than reported as unknown', () => {
   // the same frame as "receiver sent ACCEPT during a transfer" -- accurate
   // about a version skew instead of blaming the framing.
   assert.deepEqual(
-    [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08].map((t) => TYPE_NAMES.get(t)),
-    ['MANIFEST', 'CHUNK', 'CANCEL', 'ACCEPT', 'DECLINE', 'CHECKPOINT', 'RESULT', 'END']
+    [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09].map((t) => TYPE_NAMES.get(t)),
+    ['MANIFEST', 'CHUNK', 'CANCEL', 'ACCEPT', 'DECLINE', 'CHECKPOINT', 'RESULT', 'END', 'PREFIX']
   )
   assert.equal(TYPE_NAMES.has(TYPE_RESERVED), false, '0x00 must stay nameless and invalid')
-  assert.equal(TYPE_NAMES.has(0x09), false, 'the space above END is still unassigned')
+  assert.equal(TYPE_NAMES.has(0x0a), false, 'the space above PREFIX is still unassigned')
 })
 
 test('frames arriving split or coalesced are reassembled by byte count', () => {

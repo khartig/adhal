@@ -14,6 +14,11 @@
 // are the ones that matter most: a .part is a predictable name in a
 // directory other things can write to, so each way of planting one --
 // symlink, hard link, foreign bytes -- is tried against a real receiver.
+//
+// And a prefix is checked before it is resumed (section 7.5): ACCEPT
+// proposes a PREFIX_BOUNDARY-aligned offset, the sender answers with
+// PREFIX{sha256} of its own first bytes, and the receiver's second ACCEPT
+// is that offset on a match or 0 after discarding its partial.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -30,10 +35,16 @@ const {
   acceptBody,
   resultBody,
   checkpointBody,
+  prefixBody,
+  declineBody,
+  PREFIX_BOUNDARY,
   TYPE_MANIFEST,
   TYPE_CHUNK,
   TYPE_ACCEPT,
-  TYPE_CHECKPOINT
+  TYPE_DECLINE,
+  TYPE_CHECKPOINT,
+  TYPE_RESULT,
+  TYPE_PREFIX
 } = require('@quay/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
@@ -59,6 +70,47 @@ async function settle (promise) {
 }
 
 const tick = (ms = 20) => new Promise((resolve) => setTimeout(resolve, ms))
+
+const sha = (/** @type {Buffer} */ bytes) => crypto.createHash('sha256').update(bytes).digest('hex')
+const accepts = (/** @type {Array<{ type: number, body: Buffer }>} */ frames) =>
+  frames.filter((f) => f.type === TYPE_ACCEPT).map((f) => JSON.parse(f.body.toString('utf8')).resumeFrom)
+
+/**
+ * @param {() => boolean} ready
+ * @param {string} what
+ */
+async function until (ready, what) {
+  for (let i = 0; i < 250; i++) {
+    if (ready()) return
+    await tick(10)
+  }
+  throw new Error(`timed out waiting for ${what}`)
+}
+
+// A real receiveFile against a hand-rolled sender, for the tests that must
+// send what an honest sendFile never would.
+function receiverUnderTest (outputDir, options = {}) {
+  const [peer, socket] = duplexPair()
+  const keys = channelKeys()
+  const tx = sealedPeer(peer, keys.sender)
+  const received = settle(receiveFile(socket, outputDir, { ...keys.receiver, caps: RESUME, ...options }))
+  return { peer, tx, received }
+}
+
+// A hand-rolled receiver that proposes `from` and then answers the sender's
+// PREFIX through `answer`, so a test can see exactly what the sender sends.
+function senderUnderTest (sourcePath, from, answer, options = {}) {
+  const [txSocket, peer] = duplexPair()
+  const keys = channelKeys()
+  const rx = sealedPeer(peer, keys.receiver, {
+    onMessage: (type, body) => {
+      if (type === TYPE_MANIFEST) rx.send(TYPE_ACCEPT, acceptBody({ resumeFrom: from }))
+      if (type === TYPE_PREFIX) answer(rx, JSON.parse(body.toString('utf8')).sha256)
+    }
+  })
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys.sender, caps: RESUME, ...options }))
+  return { rx, sent }
+}
 
 // One complete sendFile/receiveFile pair under fresh keys: a drop.
 function drop (sourcePath, outputDir, { sender = {}, receiver = {} } = {}) {
@@ -100,35 +152,46 @@ test('an interrupted transfer keeps its partial, and a re-paired one resumes fro
   assert.deepEqual(onDisk, body.subarray(0, onDisk.length), 'what was kept is exactly a prefix of the file')
 
   // A second drop: new keys, as a new code would give. Found by name.
+  // Resumed from the last whole boundary it held (section 7.5): the bytes
+  // past it are cut off and sent again.
+  const boundary = onDisk.length - (onDisk.length % PREFIX_BOUNDARY)
   const second = drop(sourcePath, outputDir)
   const [sent, received] = [await second.sent, await second.received]
   assert.equal(received.ok, true, received.error && received.error.message)
-  assert.equal(sent.value.resumedFrom, onDisk.length)
-  assert.equal(received.value.resumedFrom, onDisk.length)
+  assert.equal(sent.value.resumedFrom, boundary)
+  assert.equal(received.value.resumedFrom, boundary)
   assert.equal(received.value.sha256, sha256)
   assert.equal(received.value.size, body.length)
   assert.deepEqual(await fs.promises.readFile(received.value.path), body)
   assert.deepEqual(await fs.promises.readdir(outputDir), ['payload.bin'], 'the partial became the file')
 })
 
-test('a resumed sender reads the file from resumeFrom and nothing before it', async (t) => {
-  const { sourcePath, body, sha256 } = await fixture(t, 'resume-sender', 256 * 1024)
-  const [txSocket, peer] = duplexPair()
-  const keys = channelKeys()
-  const from = 100000
-  const rx = sealedPeer(peer, keys.receiver, {
-    onMessage: (type) => { if (type === TYPE_MANIFEST) rx.send(TYPE_ACCEPT, acceptBody({ resumeFrom: from })) }
-  })
+test('a resumed sender proves its prefix, then reads the file from resumeFrom and nothing before it', async (t) => {
+  const { sourcePath, body, sha256 } = await fixture(t, 'resume-sender', 2 * MiB + 12345)
+  const from = 2 * MiB
   /** @type {number[]} */
   const progress = []
+  /** @type {string[]} */
+  const digests = []
+  const { rx, sent } = senderUnderTest(sourcePath, from, (peer, digest) => {
+    digests.push(digest)
+    peer.send(TYPE_ACCEPT, acceptBody({ resumeFrom: from }))
+  }, { onProgress: ({ bytes }) => progress.push(bytes) })
 
-  const sent = sendFile(txSocket, sourcePath, { ...keys.sender, caps: RESUME, onProgress: ({ bytes }) => progress.push(bytes) })
+  await until(() => rx.received.filter((f) => f.type === TYPE_CHUNK).length > 0, 'the first chunk')
   await tick(50)
+  // The digest of the sender's OWN first `from` bytes, recorded while it
+  // hashed the file for the manifest.
+  assert.deepEqual(digests, [sha(body.subarray(0, from))])
+  const types = rx.received.map((f) => f.type)
+  assert.equal(types.indexOf(TYPE_PREFIX), 1, 'PREFIX follows the MANIFEST and precedes every chunk')
   const chunks = rx.received.filter((f) => f.type === TYPE_CHUNK).map((f) => f.body)
   assert.deepEqual(Buffer.concat(chunks), body.subarray(from))
-  rx.send(0x07, resultBody({ ok: true, sha256 }))
+  rx.send(TYPE_RESULT, resultBody({ ok: true, sha256 }))
 
-  const result = await sent
+  const outcome = await sent
+  assert.equal(outcome.ok, true, outcome.error && outcome.error.message)
+  const result = outcome.value
   assert.equal(result.resumedFrom, from)
   assert.equal(result.size, body.length)
   // Starts at 0 as the contract promises, jumps to where it resumed, and
@@ -144,6 +207,8 @@ test('an ACCEPT that asks to resume where it cannot is refused', async (t) => {
   for (const [caps, resumeFrom, stream, why] of [
     [[], 10, false, /did not negotiate resume/],
     [RESUME, body.length + 1, false, /past the 1024 bytes offered/],
+    // Section 7.5: only a boundary multiple or the whole file.
+    [RESUME, 1000, false, /neither a multiple of 1048576 nor the whole file/],
     [['resume', 'stream'], 10, true, /a stream cannot be resumed/]
   ]) {
     const [txSocket, peer] = duplexPair()
@@ -174,27 +239,219 @@ test('a partial that already holds every byte is verified and published with not
 
 // --- the partial is not trusted -------------------------------------------
 
-test('a foreign partial is caught by the final digest, discarded, and the retry starts clean', async (t) => {
-  const { sourcePath, outputDir, body, partPath } = await fixture(t, 'resume-foreign', 256 * 1024)
+test('a foreign partial is caught by the prefix check and the same transfer starts over, with no failure', async (t) => {
+  const { sourcePath, outputDir, body, partPath } = await fixture(t, 'resume-foreign', 3 * MiB)
   // Bytes that are not a prefix of this file, under the name it will look
-  // for: a stale partial of a different file, or a planted one.
-  await fs.promises.writeFile(partPath, crypto.randomBytes(1000))
+  // for: a planted partial, long enough to be proposed.
+  await fs.promises.writeFile(partPath, crypto.randomBytes(2 * MiB + 500))
 
-  const first = drop(sourcePath, outputDir)
-  const [sent, received] = [await first.sent, await first.received]
-  // Never published wrong. A whole-file digest cannot vouch for a prefix,
-  // so this is where a foreign one is caught -- after the transfer, which
-  // is the cost section 7.2 now states.
-  assert.equal(received.error.code, 'ERR_HASH_MISMATCH')
-  assert.equal(received.error.resumedFrom, 1000)
-  assert.match(received.error.message, /resumed from byte 1000.*discarded/)
-  assert.equal(sent.error.code, 'ERR_RECEIVER_FAILED')
-  assert.deepEqual(await fs.promises.readdir(outputDir), [], 'the foreign partial is gone')
+  const d = drop(sourcePath, outputDir)
+  const [sent, received] = [await d.sent, await d.received]
+  // THE CHANGE (section 7.5). This used to fail ERR_HASH_MISMATCH after the
+  // whole remainder had been sent, and the person saw it. Now the mismatch
+  // costs one round trip and is not an error at all.
+  assert.equal(received.ok, true, received.error && received.error.message)
+  assert.equal(sent.ok, true, sent.error && sent.error.message)
+  assert.equal(received.value.resumedFrom, 0)
+  assert.equal(sent.value.resumedFrom, 0)
+  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assert.deepEqual(await fs.promises.readdir(outputDir), ['payload.bin'], 'the foreign partial became this file, from zero')
+})
 
-  const retry = drop(sourcePath, outputDir)
-  const again = await retry.received
-  assert.equal(again.value.resumedFrom, 0)
-  assert.deepEqual(await fs.promises.readFile(again.value.path), body)
+test('a stale partial of an older version of the file is discarded by the prefix check, not resumed', async (t) => {
+  // The everyday case: an interrupted send of an older report.pdf, now
+  // offered again as a newer file under the same name. Same length, same
+  // tail; only its first bytes differ.
+  const { sourcePath, outputDir, body, partPath } = await fixture(t, 'resume-stale', 3 * MiB)
+  const older = Buffer.from(body.subarray(0, 2 * MiB))
+  older[0] ^= 0xff
+  await fs.promises.writeFile(partPath, older)
+
+  const d = drop(sourcePath, outputDir)
+  const [sent, received] = [await d.sent, await d.received]
+  assert.equal(received.ok, true, received.error && received.error.message)
+  assert.equal(sent.value.resumedFrom, 0)
+  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+})
+
+test('a matching prefix with a foreign tail resumes at the boundary, and the tail is cut off', async (t) => {
+  const { sourcePath, outputDir, body, partPath } = await fixture(t, 'resume-tail', 3 * MiB)
+  await fs.promises.writeFile(partPath, Buffer.concat([body.subarray(0, MiB), crypto.randomBytes(300000)]))
+
+  const d = drop(sourcePath, outputDir)
+  const [sent, received] = [await d.sent, await d.received]
+  assert.equal(received.ok, true, received.error && received.error.message)
+  assert.equal(received.value.resumedFrom, MiB)
+  assert.equal(sent.value.resumedFrom, MiB)
+  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+})
+
+test('a partial under one boundary is reused from zero, not left beside a fresh .part.1', async (t) => {
+  const { sourcePath, outputDir, body, partPath } = await fixture(t, 'resume-small', 3 * MiB)
+  await fs.promises.writeFile(partPath, body.subarray(0, 1000))
+
+  const d = drop(sourcePath, outputDir)
+  const [sent, received] = [await d.sent, await d.received]
+  assert.equal(received.value.resumedFrom, 0)
+  assert.equal(sent.value.resumedFrom, 0)
+  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assert.deepEqual(await fs.promises.readdir(outputDir), ['payload.bin'], 'one partial, the primary one, and it became the file')
+})
+
+// --- the prefix check, frame by frame (section 7.5) -----------------------
+
+test('the receiver proposes a boundary, and answers a wrong PREFIX with ACCEPT{0} after truncating its partial', async (t) => {
+  const { outputDir, body, sha256, partPath } = await fixture(t, 'prefix-wrong', 3 * MiB)
+  const prefix = body.subarray(0, 2 * MiB + 777)
+  await fs.promises.writeFile(partPath, prefix)
+  const { tx, received } = receiverUnderTest(outputDir)
+
+  tx.send(TYPE_MANIFEST, Buffer.from(JSON.stringify({ v: 2, name: 'payload.bin', size: body.length, sha256, blockSize: 65536 })))
+  await until(() => accepts(tx.received).length === 1, 'the proposal')
+  assert.deepEqual(accepts(tx.received), [2 * MiB], 'rounded down to the boundary')
+  // Nothing is cut off or adopted while the proposal is outstanding.
+  assert.deepEqual(await fs.promises.readFile(partPath), prefix)
+
+  tx.send(TYPE_PREFIX, prefixBody({ sha256: sha(crypto.randomBytes(16)) }))
+  await until(() => accepts(tx.received).length === 2, 'the final answer')
+  assert.deepEqual(accepts(tx.received), [2 * MiB, 0])
+  assert.equal((await fs.promises.stat(partPath)).size, 0, 'the prefix that did not match is gone before the answer')
+
+  for (let offset = 0; offset < body.length; offset += 65536) tx.send(TYPE_CHUNK, body.subarray(offset, offset + 65536))
+  const outcome = await received
+  assert.equal(outcome.ok, true, outcome.error && outcome.error.message)
+  assert.equal(outcome.value.resumedFrom, 0)
+  assert.deepEqual(await fs.promises.readFile(outcome.value.path), body)
+})
+
+test('the receiver answers a right PREFIX with the offset it proposed, and cuts the tail past it', async (t) => {
+  const { outputDir, body, sha256, partPath } = await fixture(t, 'prefix-right', 3 * MiB)
+  await fs.promises.writeFile(partPath, body.subarray(0, 2 * MiB + 777))
+  const { tx, received } = receiverUnderTest(outputDir)
+
+  tx.send(TYPE_MANIFEST, Buffer.from(JSON.stringify({ v: 2, name: 'payload.bin', size: body.length, sha256, blockSize: 65536 })))
+  await until(() => accepts(tx.received).length === 1, 'the proposal')
+  tx.send(TYPE_PREFIX, prefixBody({ sha256: sha(body.subarray(0, 2 * MiB)) }))
+  await until(() => accepts(tx.received).length === 2, 'the final answer')
+  assert.deepEqual(accepts(tx.received), [2 * MiB, 2 * MiB])
+  assert.equal((await fs.promises.stat(partPath)).size, 2 * MiB)
+
+  for (let offset = 2 * MiB; offset < body.length; offset += 65536) tx.send(TYPE_CHUNK, body.subarray(offset, offset + 65536))
+  const outcome = await received
+  assert.equal(outcome.value.resumedFrom, 2 * MiB)
+  assert.deepEqual(await fs.promises.readFile(outcome.value.path), body)
+})
+
+test('nothing the receiver sends carries a digest of its own partial', async (t) => {
+  // Section 7.5's reason for the direction. A digest of the receiver's
+  // partial would give a peer whose only credential is the code something
+  // to test guesses of it against, offline -- and an HMAC keyed from the
+  // session would not help, because the peer holds the session key too.
+  const { outputDir, body, sha256, partPath } = await fixture(t, 'prefix-no-leak', 3 * MiB)
+  const partial = crypto.randomBytes(2 * MiB)
+  await fs.promises.writeFile(partPath, partial)
+  const { tx, received } = receiverUnderTest(outputDir)
+
+  tx.send(TYPE_MANIFEST, Buffer.from(JSON.stringify({ v: 2, name: 'payload.bin', size: body.length, sha256, blockSize: 65536 })))
+  await until(() => accepts(tx.received).length === 1, 'the proposal')
+  tx.send(TYPE_PREFIX, prefixBody({ sha256: sha(body.subarray(0, 2 * MiB)) }))
+  await until(() => accepts(tx.received).length === 2, 'the final answer')
+  for (let offset = 0; offset < body.length; offset += 65536) tx.send(TYPE_CHUNK, body.subarray(offset, offset + 65536))
+  await received
+
+  const raw = crypto.createHash('sha256').update(partial).digest()
+  for (const frame of tx.received) {
+    assert.equal(frame.body.includes(raw), false, `${frame.type} carries the raw digest`)
+    assert.equal(frame.body.includes(raw.toString('hex')), false, `${frame.type} carries the hex digest`)
+    assert.equal(frame.body.includes(raw.toString('base64')), false, `${frame.type} carries the base64 digest`)
+  }
+})
+
+test('a sender that does not answer the proposal with PREFIX is refused, and the earlier partial is left intact', async (t) => {
+  const { outputDir, body, sha256, partPath } = await fixture(t, 'prefix-refused', 3 * MiB)
+  const prefix = body.subarray(0, 2 * MiB)
+  const manifest = Buffer.from(JSON.stringify({ v: 2, name: 'payload.bin', size: body.length, sha256, blockSize: 65536 }))
+
+  for (const [what, act, code, why] of [
+    ['a CHUNK', (/** @type {any} */ tx) => tx.send(TYPE_CHUNK, body.subarray(2 * MiB, 2 * MiB + 100)), 'ERR_PROTOCOL', /while a resume was being checked; only PREFIX or CANCEL/],
+    ['a malformed PREFIX', (/** @type {any} */ tx) => tx.send(TYPE_PREFIX, Buffer.from('{"sha256":"ABC"}')), 'ERR_PROTOCOL', /PREFIX does not carry a lowercase hex sha256/],
+    ['silence', () => {}, 'ERR_STALLED', /never sent the PREFIX its resume needs/]
+  ]) {
+    await fs.promises.writeFile(partPath, prefix)
+    const { tx, received } = receiverUnderTest(outputDir, { progressTimeout: 100 })
+    tx.send(TYPE_MANIFEST, manifest)
+    await until(() => accepts(tx.received).length === 1, 'the proposal')
+    const misbehave = /** @type {(tx: any) => void} */ (act)
+    misbehave(tx)
+    const outcome = await received
+    assert.equal(outcome.ok, false, /** @type {string} */ (what))
+    assert.equal(outcome.error.code, code, /** @type {string} */ (what))
+    assert.match(outcome.error.message, /** @type {RegExp} */ (why))
+    assert.deepEqual(await fs.promises.readFile(partPath), prefix, `${what} before the final ACCEPT must leave the earlier partial intact`)
+  }
+})
+
+test('a PREFIX nobody asked for is refused', async (t) => {
+  const { outputDir, body, sha256 } = await fixture(t, 'prefix-unsolicited', 64 * 1024)
+  const manifest = Buffer.from(JSON.stringify({ v: 2, name: 'payload.bin', size: body.length, sha256, blockSize: 65536 }))
+
+  // Before any offer, and after an ACCEPT{0} that proposed nothing.
+  for (const afterOffer of [false, true]) {
+    const { tx, received } = receiverUnderTest(outputDir)
+    if (afterOffer) {
+      tx.send(TYPE_MANIFEST, manifest)
+      await until(() => accepts(tx.received).length === 1, 'the answer')
+      assert.deepEqual(accepts(tx.received), [0])
+    }
+    tx.send(TYPE_PREFIX, prefixBody({ sha256 }))
+    const outcome = await received
+    assert.equal(outcome.error.code, 'ERR_PROTOCOL')
+  }
+})
+
+test('the sender starts over from zero when the receiver answers its PREFIX with ACCEPT{0}', async (t) => {
+  const { sourcePath, body, sha256 } = await fixture(t, 'prefix-restart', 2 * MiB + 99)
+  const { rx, sent } = senderUnderTest(sourcePath, MiB, (peer) => peer.send(TYPE_ACCEPT, acceptBody({ resumeFrom: 0 })))
+
+  await until(() => rx.received.filter((f) => f.type === TYPE_CHUNK).reduce((n, f) => n + f.body.length, 0) === body.length, 'every byte')
+  const chunks = rx.received.filter((f) => f.type === TYPE_CHUNK).map((f) => f.body)
+  assert.deepEqual(Buffer.concat(chunks), body, 'the whole file, from byte 0')
+  rx.send(TYPE_RESULT, resultBody({ ok: true, sha256 }))
+  const outcome = await sent
+  assert.equal(outcome.value.resumedFrom, 0)
+})
+
+test('a whole-file proposal is proven with the manifest\'s own digest', async (t) => {
+  const { sourcePath, body, sha256 } = await fixture(t, 'prefix-whole', 2 * MiB)
+  /** @type {string[]} */
+  const digests = []
+  const { rx, sent } = senderUnderTest(sourcePath, body.length, (peer, digest) => {
+    digests.push(digest)
+    peer.send(TYPE_ACCEPT, acceptBody({ resumeFrom: body.length }))
+    peer.send(TYPE_RESULT, resultBody({ ok: true, sha256 }))
+  })
+  const outcome = await sent
+  assert.equal(outcome.ok, true, outcome.error && outcome.error.message)
+  assert.deepEqual(digests, [sha256])
+  assert.equal(rx.received.filter((f) => f.type === TYPE_CHUNK).length, 0)
+})
+
+test('the sender refuses any answer to its PREFIX but the proposed offset, 0, DECLINE or CANCEL', async (t) => {
+  const { sourcePath } = await fixture(t, 'prefix-sender-refuses', 3 * MiB)
+
+  for (const [what, answer, code, why] of [
+    ['a different offset', (/** @type {any} */ peer) => peer.send(TYPE_ACCEPT, acceptBody({ resumeFrom: MiB })), 'ERR_PROTOCOL', /only 2097152 \(a match\) or 0 \(start over\)/],
+    ['a CHECKPOINT', (/** @type {any} */ peer) => peer.send(TYPE_CHECKPOINT, checkpointBody({ offset: 0 })), 'ERR_PROTOCOL', /before answering its prefix check/],
+    ['a DECLINE', (/** @type {any} */ peer) => peer.send(TYPE_DECLINE, declineBody('changed my mind', 'ERR_DECLINED')), 'ERR_DECLINED', /changed my mind/],
+    ['silence', () => {}, 'ERR_STALLED', /has not answered its prefix check/]
+  ]) {
+    const { rx, sent } = senderUnderTest(sourcePath, 2 * MiB, /** @type {any} */ (answer), { acceptTimeout: 100 })
+    const outcome = await sent
+    assert.equal(outcome.ok, false, /** @type {string} */ (what))
+    assert.equal(outcome.error.code, code, /** @type {string} */ (what))
+    assert.match(outcome.error.message, /** @type {RegExp} */ (why))
+    assert.equal(rx.received.filter((f) => f.type === TYPE_CHUNK).length, 0, `no file byte moves after ${what}`)
+  }
 })
 
 test('a planted .part symlink is never followed on resume', { skip: process.platform === 'win32' ? 'symlinks need privileges on Windows' : false }, async (t) => {

@@ -66,7 +66,8 @@ const TYPE_CANCEL = 0x03
 // everything it does not handle.
 //
 // Every one is handled by ./transfer.js as of W11's second pass: ACCEPT
-// and DECLINE by the accept gate, END by streaming, CHECKPOINT by resume.
+// and DECLINE by the accept gate, END by streaming, CHECKPOINT and PREFIX
+// by resume.
 // Naming them here first is still what makes one arriving out of place a
 // named protocol error rather than an unknown type.
 const TYPE_ACCEPT = 0x04 // {resumeFrom} -- the accept step and resume, one message
@@ -74,6 +75,7 @@ const TYPE_DECLINE = 0x05 // {reason}
 const TYPE_CHECKPOINT = 0x06 // {offset} -- R->S, periodic, post-fsync
 const TYPE_RESULT = 0x07 // {ok, sha256} | {error}
 const TYPE_END = 0x08 // {sha256} -- streaming trailer, when size was null
+const TYPE_PREFIX = 0x09 // {sha256} -- S->R, the digest of the prefix ACCEPT asked to resume from
 
 const TYPE_NAMES = new Map([
   [TYPE_MANIFEST, 'MANIFEST'],
@@ -83,7 +85,8 @@ const TYPE_NAMES = new Map([
   [TYPE_DECLINE, 'DECLINE'],
   [TYPE_CHECKPOINT, 'CHECKPOINT'],
   [TYPE_RESULT, 'RESULT'],
-  [TYPE_END, 'END']
+  [TYPE_END, 'END'],
+  [TYPE_PREFIX, 'PREFIX']
 ])
 
 // An untagged manifest from a pre-item-5 build starts with '{' (0x7b),
@@ -237,7 +240,9 @@ function decodeResult (body) {
 // ACCEPT and DECLINE are the receiver's answer to a MANIFEST (PROTOCOL.md
 // section 4), and the sender writes no file byte before one arrives. One
 // message carries both the accept step and resume: `resumeFrom` is the
-// offset the sender starts at, 0 for a fresh transfer.
+// offset the sender starts at, 0 for a fresh transfer. A non-zero one is
+// first a proposal, answered by the sender's PREFIX and then a second
+// ACCEPT (PROTOCOL.md section 7.5).
 /**
  * @param {{ resumeFrom: number }} accept
  * @returns {Buffer} an ACCEPT body, for Channel#seal(TYPE_ACCEPT, ...)
@@ -374,6 +379,50 @@ function decodeEnd (body) {
   return { sha256: parsed.sha256 }
 }
 
+// PREFIX is the sender's half of checking a resume before trusting it
+// (PROTOCOL.md section 7.5): the SHA-256 of the sender's own first
+// resumeFrom bytes, which the receiver compares against the prefix it
+// holds. The sender sends it, and the receiver checks it, on purpose: a
+// digest of the sender's file tells the receiver nothing it is not about
+// to receive anyway, while a digest of the receiver's partial would hand a
+// peer whose only credential is the code something to test guesses
+// against, offline. Nothing of the receiver's partial leaves the receiver.
+//
+// Resume offsets are restricted to PREFIX_BOUNDARY multiples (or the whole
+// file), so the sender can answer from digests it recorded while hashing
+// the file for the manifest rather than re-reading the prefix. A protocol
+// constant, not a tuning knob: both sides have to agree on it without
+// negotiating it.
+const PREFIX_BOUNDARY = 1024 * 1024
+
+/**
+ * @param {{ sha256: string }} prefix
+ * @returns {Buffer} a PREFIX body, for Channel#seal(TYPE_PREFIX, ...)
+ */
+function prefixBody ({ sha256 }) {
+  return Buffer.from(JSON.stringify({ sha256 }), 'utf8')
+}
+
+/**
+ * THROWS, for END's reason: a PREFIX without a readable digest has not
+ * vouched for anything, and an unreadable claim must never be read as a
+ * match.
+ * @param {Buffer} body
+ * @returns {{ sha256: string }}
+ */
+function decodePrefix (body) {
+  let parsed
+  try {
+    parsed = JSON.parse(body.toString('utf8'))
+  } catch (err) {
+    throw new TransferError('ERR_PROTOCOL', `the sender's PREFIX is not valid JSON: ${err.message}`)
+  }
+  if (!parsed || typeof parsed.sha256 !== 'string' || !SHA256_HEX.test(parsed.sha256)) {
+    throw new TransferError('ERR_PROTOCOL', 'the sender\'s PREFIX does not carry a lowercase hex sha256')
+  }
+  return { sha256: parsed.sha256 }
+}
+
 module.exports = {
   encodeMessage,
   decodeMessage,
@@ -390,6 +439,9 @@ module.exports = {
   decodeCheckpoint,
   endBody,
   decodeEnd,
+  prefixBody,
+  decodePrefix,
+  PREFIX_BOUNDARY,
   sanitizeReason,
   TAG_SIZE,
   TYPE_RESERVED,
@@ -401,5 +453,6 @@ module.exports = {
   TYPE_CHECKPOINT,
   TYPE_RESULT,
   TYPE_END,
+  TYPE_PREFIX,
   TYPE_NAMES
 }
