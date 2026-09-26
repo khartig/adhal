@@ -28,12 +28,14 @@ const {
   sendFile,
   receiveFile,
   resultBody,
+  acceptBody,
   TYPE_MANIFEST,
   TYPE_CHUNK,
+  TYPE_ACCEPT,
   TYPE_RESULT
 } = require('@quay/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
-const { channelKeys, sealedPeer } = require('../test-helpers/sealed')
+const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
 
 async function fixture (t, label, size = 256 * 1024) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
@@ -55,7 +57,8 @@ async function settle (promise) {
 // Plays the receiver against a real sendFile: returns the socket and keys
 // to hand sendFile, a `reply` that seals a message back, and `allIn`, which
 // resolves once every byte the manifest declared has arrived -- the moment
-// the sender starts waiting for RESULT.
+// the sender starts waiting for RESULT. It accepts every offer at once, as
+// an honest receiver with nothing to object to does.
 function receiverPeer () {
   const [txSocket, peer] = duplexPair()
   const keys = channelKeys()
@@ -66,7 +69,10 @@ function receiverPeer () {
   const allIn = new Promise((resolve) => { done = resolve })
   const rx = sealedPeer(peer, keys.receiver, {
     onMessage: (type, body) => {
-      if (type === TYPE_MANIFEST) manifest = JSON.parse(body.toString('utf8'))
+      if (type === TYPE_MANIFEST) {
+        manifest = JSON.parse(body.toString('utf8'))
+        rx.send(TYPE_ACCEPT, acceptBody({ resumeFrom: 0 }))
+      }
       if (type === TYPE_CHUNK) received += body.length
       if (manifest && received === manifest.size) done(manifest)
     }
@@ -81,17 +87,13 @@ function receiverPeer () {
   }
 }
 
-// Plays the sender against a real receiveFile: `send` seals a message at
-// it, and `frames` collects what it writes back, JSON-decoded.
+// Plays the sender against a real receiveFile: `offer` sends a manifest
+// and then, once accepted, the chunks; `frames` returns what it wrote
+// back, JSON-decoded.
 function senderPeer () {
-  const [peer, rxSocket] = duplexPair()
-  const keys = channelKeys()
-  /** @type {{ type: number, body: any }[]} */
-  const frames = []
-  const tx = sealedPeer(peer, keys.sender, {
-    onMessage: (type, body) => frames.push({ type, body: JSON.parse(body.toString('utf8')) })
-  })
-  return { rxSocket, keys: keys.receiver, frames, send: tx.send }
+  const tx = sealedSender()
+  const frames = () => tx.received.map(({ type, body }) => ({ type, body: JSON.parse(body.toString('utf8')) }))
+  return { rxSocket: tx.socket, keys: tx.keys, frames, offer: tx.offer }
 }
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 20))
@@ -215,16 +217,16 @@ test('a receiver that vanishes mid-send is reported as the send phase', async (t
 
 test('the receiver sends {ok, sha256} only once the file is under its real name', async (t) => {
   const { body, sha256, outputDir } = await fixture(t, 'result-rx-ok', 1024)
-  const { rxSocket, keys, frames, send } = senderPeer()
+  const { rxSocket, keys, frames, offer } = senderPeer()
 
   const received = receiveFile(rxSocket, outputDir, { ...keys })
-  send(TYPE_MANIFEST, Buffer.from(JSON.stringify({
-    v: 1, type: 'manifest', name: 'payload.bin', size: body.length, chunkSize: 64 * 1024, sha256
-  }), 'utf8'))
-  send(TYPE_CHUNK, body)
+  offer({ v: 2, name: 'payload.bin', size: body.length, sha256, blockSize: 64 * 1024 }, body)
 
   const result = await received
-  assert.deepEqual(frames, [{ type: TYPE_RESULT, body: { ok: true, sha256 } }])
+  assert.deepEqual(frames(), [
+    { type: TYPE_ACCEPT, body: { resumeFrom: 0 } },
+    { type: TYPE_RESULT, body: { ok: true, sha256 } }
+  ])
   // Already published by the time RESULT is out, which is what {ok}
   // promises the sender.
   assert.deepEqual(await fs.promises.readdir(outputDir), ['payload.bin'])
@@ -233,21 +235,20 @@ test('the receiver sends {ok, sha256} only once the file is under its real name'
 
 test('a receiver that refuses the file on its digest tells the sender why', async (t) => {
   const { body, outputDir } = await fixture(t, 'result-rx-mismatch', 1024)
-  const { rxSocket, keys, frames, send } = senderPeer()
+  const { rxSocket, keys, frames, offer } = senderPeer()
 
   const received = settle(receiveFile(rxSocket, outputDir, { ...keys }))
-  send(TYPE_MANIFEST, Buffer.from(JSON.stringify({
-    v: 1, type: 'manifest', name: 'payload.bin', size: body.length, chunkSize: 64 * 1024, sha256: 'f'.repeat(64)
-  }), 'utf8'))
-  send(TYPE_CHUNK, body)
+  offer({ v: 2, name: 'payload.bin', size: body.length, sha256: 'f'.repeat(64), blockSize: 64 * 1024 }, body)
 
   const outcome = await received
   assert.equal(outcome.ok, false)
   assert.equal(outcome.error.code, 'ERR_HASH_MISMATCH')
-  assert.equal(frames.length, 1)
-  assert.equal(frames[0].type, TYPE_RESULT)
-  assert.match(frames[0].body.error, /does not match the manifest's digest/)
-  assert.equal('ok' in frames[0].body, false)
+  const [accept, result, ...rest] = frames()
+  assert.equal(accept.type, TYPE_ACCEPT)
+  assert.deepEqual(rest, [])
+  assert.equal(result.type, TYPE_RESULT)
+  assert.match(result.body.error, /does not match the manifest's digest/)
+  assert.equal('ok' in result.body, false)
 })
 
 // There used to be an end-to-end test here that flipped a CHUNK byte in
@@ -258,3 +259,55 @@ test('a receiver that refuses the file on its digest tells the sender why', asyn
 // sender's half of a digest refusal is still covered above, by
 // "RESULT{error} fails the send", and the receiver's half by the test
 // before this note.
+
+test('a RESULT that arrives the instant the last chunk lands is the verdict, not an early one', async (t) => {
+  // A receiver on a transport that delivers synchronously -- the test
+  // duplex does -- answers inside the sender's own write of the last
+  // chunk. The sender used to enter the RESULT phase only on its read
+  // stream's 'end', a tick later, and refused that answer as "RESULT
+  // before the file was complete". A real socket delivers later, which is
+  // all that kept it latent: the phase has to change before the write
+  // that lets the receiver answer.
+  const { sourcePath, sha256 } = await fixture(t, 'result-sync')
+  const [txSocket, peer] = duplexPair()
+  const keys = channelKeys()
+  let size = 0
+  let received = 0
+  const rx = sealedPeer(peer, keys.receiver, {
+    onMessage: (type, body) => {
+      if (type === TYPE_MANIFEST) {
+        size = JSON.parse(body.toString('utf8')).size
+        rx.send(TYPE_ACCEPT, acceptBody({ resumeFrom: 0 }))
+      }
+      if (type === TYPE_CHUNK) {
+        received += body.length
+        if (received === size) rx.send(TYPE_RESULT, resultBody({ ok: true, sha256 }))
+      }
+    }
+  })
+
+  const result = await sendFile(txSocket, sourcePath, { ...keys.sender })
+  assert.equal(result.sha256, sha256)
+})
+
+test('a file that shrinks after it was offered fails the send instead of passing short', async (t) => {
+  // stat and hash happen before the offer; the read happens after ACCEPT.
+  // Between the two the file is anyone's, and the gate makes that window
+  // as long as the receiver takes to decide.
+  const { sourcePath } = await fixture(t, 'result-shrink')
+  const [txSocket, peer] = duplexPair()
+  const keys = channelKeys()
+  const rx = sealedPeer(peer, keys.receiver, {
+    onMessage: (type) => {
+      if (type !== TYPE_MANIFEST) return
+      fs.truncateSync(sourcePath, 1000)
+      rx.send(TYPE_ACCEPT, acceptBody({ resumeFrom: 0 }))
+    }
+  })
+
+  const outcome = await settle(sendFile(txSocket, sourcePath, { ...keys.sender }))
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.error.code, 'ERR_SIZE_MISMATCH')
+  assert.equal(outcome.error.bytes, 1000)
+  assert.equal(outcome.error.size, 256 * 1024)
+})

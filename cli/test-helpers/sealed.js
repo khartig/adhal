@@ -14,7 +14,7 @@
 // Not in cli/test/ for the reason duplex-pair.js gives.
 
 const crypto = require('node:crypto')
-const { Channel } = require('@quay/engine')
+const { Channel, TYPE_MANIFEST, TYPE_CHUNK, TYPE_ACCEPT, TYPE_DECLINE } = require('@quay/engine')
 const { duplexPair } = require('./duplex-pair')
 
 /**
@@ -84,13 +84,36 @@ function sealedPeer (socket, view, { onMessage } = {}) {
  * The shape most receiver tests want: a stream for receiveFile, the keys to
  * give it, and a hand-rolled sender on the other end. Spread `keys` into
  * receiveFile's options; `send` seals a message at it; `received` collects
- * what it writes back (CANCEL, RESULT).
+ * what it writes back (ACCEPT, DECLINE, CANCEL, RESULT).
+ *
+ * `offer` is the well-behaved sender's opening: MANIFEST, then the chunks
+ * only once the receiver has answered ACCEPT, as the accept gate requires.
+ * It resolves with the answer, `{ type, body }` with the body JSON-decoded.
+ * A test that means to break the gate uses `send` directly.
  */
 function sealedSender () {
   const [peer, socket] = duplexPair()
   const keys = channelKeys()
-  const tx = sealedPeer(peer, keys.sender)
-  return { peer, socket, keys: keys.receiver, send: tx.send, received: tx.received, errors: tx.errors }
+  /** @type {(a: { type: number, body: any }) => void} */
+  let answered = () => {}
+  /** @type {Promise<{ type: number, body: any }>} */
+  const answer = new Promise((resolve) => { answered = resolve })
+  const tx = sealedPeer(peer, keys.sender, {
+    onMessage: (type, body) => {
+      if (type === TYPE_ACCEPT || type === TYPE_DECLINE) answered({ type, body: JSON.parse(body.toString('utf8')) })
+    }
+  })
+  /**
+   * @param {object | Buffer} manifest an object is JSON-encoded; a Buffer is sent as-is
+   * @param {...Buffer} chunks
+   */
+  const offer = async (manifest, ...chunks) => {
+    tx.send(TYPE_MANIFEST, Buffer.isBuffer(manifest) ? manifest : Buffer.from(JSON.stringify(manifest), 'utf8'))
+    const reply = await answer
+    if (reply.type === TYPE_ACCEPT) for (const chunk of chunks) tx.send(TYPE_CHUNK, chunk)
+    return reply
+  }
+  return { peer, socket, keys: keys.receiver, send: tx.send, offer, answer, received: tx.received, errors: tx.errors }
 }
 
 module.exports = { channelKeys, sealedPeer, sealedSender }

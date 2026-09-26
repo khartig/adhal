@@ -157,7 +157,7 @@ async function main () {
   console.log(`[swarm-receive] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
-    const { socket, peerInfo, pending, sendKey, receiveKey } = await acceptOnce(swarm, topic, {
+    const { socket, peerInfo, pending, sendKey, receiveKey, caps } = await acceptOnce(swarm, topic, {
       // Announcing the topic makes the NAMEPLATE public; the secret stays
       // private, and it is what proves a peer is the intended one rather
       // than a stranger who walked the DHT. Without it we would accept a
@@ -229,6 +229,9 @@ async function main () {
       // under them. See swarm-send.js.
       sendKey,
       receiveKey,
+      // What the same handshake negotiated. A streamed offer is declined
+      // unless "stream" is in it.
+      caps,
       // Bytes the handshake read alongside the ACK, if the sender
       // coalesced them; dropping these would corrupt the first frame.
       pending,
@@ -242,12 +245,16 @@ async function main () {
       // number a receiver enforces is visible at the call site and one
       // env var away from being changed for a legitimate large drop.
       maxSize: maxSize(),
-      onManifest: (manifest) => {
+      onManifest: (manifest, { resumeFrom }) => {
         // THE FIRST PEER-CHOSEN STRING THIS PROCESS PRINTS. Straight to a
         // terminal, before anything has validated that it is printable.
         // A name carrying ESC or a bidi override forged whatever it liked
         // on this line until displayName existed.
-        console.log(`[swarm-receive] manifest: ${displayName(manifest.name)} (${manifest.size} bytes)`)
+        console.log(`[swarm-receive] manifest: ${displayName(manifest.name)} (${manifest.size === null ? 'streamed, size unknown until it ends' : `${manifest.size} bytes`})`)
+        // A partial from an interrupted drop was found, re-hashed, and is
+        // being continued. It is verified with the rest at the end: if it
+        // was not this file's, the digest says so and it is discarded.
+        if (resumeFrom > 0) console.log(`[swarm-receive] resuming from byte ${resumeFrom} of an earlier, interrupted attempt`)
       }
     })
 

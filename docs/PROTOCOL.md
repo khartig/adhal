@@ -8,11 +8,11 @@ What W11 shipped: §2's code split, §3's handshake, §5's AEAD channel
 (carrying every frame of the transfer, with no unsealed mode), §4's
 message numbers, §4.2's `RESULT`, and §6's attempt cap. The loopback CLI
 runs the same handshake over plain TCP with no Noise underneath, which is
-§3.3's claim exercised end to end. What it deliberately did
-not: manifest v2, the ACCEPT/DECLINE gate, streaming and resume. Those are
-one further pass, and the capability tokens in §3.2 are what let it ship
-without a third wire break. §3.1 carries an amendment W11 found while
-implementing it.
+§3.3's claim exercised end to end. W11's second pass added §4.0's
+manifest v2, the ACCEPT/DECLINE gate, streaming (§4.3) and resume (§7,
+§8.3), all inside the one v2 wire break, which is what the capability
+tokens in §3.2 were for. §3.1, §4.0 and §7.2 each carry an amendment
+W11 found while implementing them.
 
 §8's decisions are settled, not open: the PAKE suite, the framing, the
 resume strategy and the checkpoint interval each carry the measurement
@@ -335,7 +335,7 @@ Inside the AEAD channel:
 
 ```
 0x00 reserved (desync sentinel, kept from v1)
-0x01 MANIFEST   {v, name, size|null, sha256|null, mode, blockSize, caps}
+0x01 MANIFEST   {v, name, size|null, sha256|null, blockSize}
 0x02 CHUNK      raw bytes
 0x03 CANCEL     {reason}
 0x04 ACCEPT     {resumeFrom}         accept step AND resume, one message
@@ -350,6 +350,82 @@ often presents as a length header taken from the middle of a payload, and
 zero bytes are what padding and lengths are full of. Reserving it makes
 desync fail loudly on the first frame rather than surface later as a hash
 mismatch.
+
+### 4.0 The manifest, and the offer it makes
+
+```
+{ "v": 2, "name": "report.pdf", "size": 1048576,
+  "sha256": "<64 lowercase hex>", "blockSize": 65536 }
+```
+
+| Field | Meaning |
+| --- | --- |
+| `v` | `2`. Checked first, so a v1 manifest is refused on its version and not on its unfamiliar fields. |
+| `name` | What the sender calls the file. The receiver decides what it writes (`safeOutputName`), and may differ. |
+| `size` | Bytes, a non-negative safe integer; `null` for a stream (§4.3). Absent is malformed, not a stream. |
+| `sha256` | Lowercase hex digest of the whole file; `null` exactly when `size` is. |
+| `blockSize` | The largest CHUNK the sender will send, `1..maxChunk` (§5). Enforced: a larger chunk is `ERR_PROTOCOL`. |
+
+The field set is **closed**. A field outside it is refused
+(`ERR_MANIFEST_INVALID`, naming the field), not ignored, because a
+manifest field is forever: a new one is a new `v`. `size` and `sha256`
+are both declared or both `null`, the two shapes §4.3 defines. A length
+without a digest would be a stream that lied about being one.
+
+**Amendment, recorded rather than edited in silently.** As frozen by W10
+this line read `{v, name, size|null, sha256|null, mode, blockSize, caps}`.
+W11 removed two fields while implementing it:
+
+- **`mode` had no definition anywhere in this spec.** The candidates
+  were each wrong. POSIX permission bits do not exist on Windows, an
+  eventual target (Node synthesises `stat.mode` there and `chmod` only
+  toggles read-only), and they would let a peer choose to deliver an
+  executable. A file/stream kind repeats `size: null`, and a repeated
+  fact is two facts that can disagree. A directory kind cannot be a
+  one-word field at all: it needs a list of entries, each needing the
+  traversal and symlink defences one name gets now, which is a different
+  manifest and so a different `v`. A v2 receiver refuses that by version,
+  which is the same clean refusal a `mode` value would have given.
+  Directories travel as a stream (`tar c dir | quay send -`, §4.3). The
+  protocol moves one named sequence of bytes and does not interpret it.
+- **`caps` was a second copy of what the handshake negotiates.** §3.2's
+  trap #3 requires that what a party acts on be a pure function of
+  `caps_r` and `caps_s` *as they appear in the transcript*. A manifest
+  copy is a second source that can disagree, and it is not in the
+  transcript. The receiver checks the manifest against the negotiated set
+  instead. `size: null` without `stream` negotiated is refused, and no
+  field is needed to say so.
+
+**The offer.** A MANIFEST is an offer, and the receiver answers it before
+any file byte moves:
+
+```
+S -> R   MANIFEST
+R -> S   ACCEPT{resumeFrom} | DECLINE{reason}
+S -> R   CHUNK ...              only after ACCEPT, from resumeFrom
+R -> S   RESULT
+```
+
+Between MANIFEST and the answer the sender may send only CANCEL. Anything
+else, including a CHUNK or a second MANIFEST, is `ERR_PROTOCOL`. The
+receiver answers in a fixed order, cheapest first: validate the manifest
+and the name, ask the local policy (a person at an accept screen, a
+script), check free space, open the partial, then ACCEPT. So a declined
+offer creates nothing on disk, and an ACCEPT means the file is already
+open. Every refusal on that path goes to the sender as DECLINE, and the
+sender fails with `ERR_DECLINED`. Before the gate the receiver's only
+refusal was to hang up after the upload had started, and the sender saw
+exactly what a dead hole punch looks like.
+
+A DECLINE or RESULT reason travels to a peer whose only credential is the
+code. It carries a protocol error's own sentence, or for a local fault
+only the error's code (`EACCES`), never its message: the message names
+the receiver's paths, and with them its username. The free-space figure
+is withheld for the same reason.
+
+The receiver does not time the sender out while its own policy decides,
+since that is not the peer stalling. The sender bounds the wait instead
+(`ACCEPT_TIMEOUT_MS`, 5 minutes, sized for a person deciding).
 
 ### 4.1 Why there is no per-chunk ACK
 
@@ -405,6 +481,39 @@ against what it computed. A receiver must not treat a missing `sha256` as
 Blob-addressed designs (Iroh) cannot do this without hashing first,
 because they must know the hash to address the content. That is a
 structural advantage, and it is worth one message.
+
+**As implemented (W11).** `sendStream` in `engine/src/transfer.js` is
+`sendFile` with a different source, sharing one state machine. The rules
+a second implementation has to match:
+
+- **Gated by the handshake, not the manifest.** A sender offers
+  `size: null` only if `stream` is in the negotiated capability set (§3.2),
+  and a receiver declines one otherwise. Both check the transcript's
+  result, per trap #3. This is the first place a capability token changes
+  behaviour.
+- **`END` is valid only on a stream, and only after ACCEPT.** On a
+  transfer that declared its size it is `ERR_PROTOCOL`: the manifest
+  already made that claim, and a second one could only disagree with it.
+  An END whose `sha256` is not lowercase hex is `ERR_PROTOCOL`, never
+  "unverified".
+- **The sender enters the RESULT phase before writing END** (and, for a
+  file, before writing the last chunk). A receiver may answer the instant
+  the final frame arrives. A transport that delivers synchronously would
+  otherwise hand RESULT to a sender that still thinks it is sending, and
+  it would refuse the verdict as early.
+- **Chunks respect `blockSize`.** A pipe yields whatever its producer
+  wrote, so the sender splits to the declared size.
+- **Nothing is read from the source before ACCEPT**, so a declined stream
+  leaves its producer untouched.
+- **The receiver's size limit applies as bytes arrive**, since there is
+  no declared size to check up front, and neither is free space. A stream
+  that passes the limit is stopped with `CANCEL{reason}`: the sender
+  promised no length and is not at fault, so it hears why rather than
+  seeing a hang-up. Locally this is `ERR_SIZE_MISMATCH` with `.limit`.
+- The receiver still writes a `.part` and publishes only after END's
+  digest matches. `quay recv | tar x`, writing to stdout, cannot keep that
+  property, because the consumer sees bytes before the digest arrives.
+  That output contract is W13's, and not specified here.
 
 ---
 
@@ -496,7 +605,8 @@ Resume is the feature most likely to be implemented wrongly, because the
 obvious design is wrong in three separate ways. All three had to be
 settled **before** the manifest format froze, since two of them change
 it. All three now are: §7.1 prefers re-pairing, §7.2 re-hashes the
-prefix (W10), and §7.3 is a statement about what the hash means.
+prefix (W10, amended in W11), and §7.3 is a statement about what the
+hash means. §7.4 records how W11 built it.
 
 ### 7.1 The secret must outlive the process
 
@@ -557,6 +667,67 @@ Note what this does **not** cover: `size: null` streaming transfers have
 no declared `sha256` (§4.3), so there is nothing to re-hash a prefix
 against. **Streaming transfers are not resumable**, and that falls out
 of this decision rather than being a separate one.
+
+> **Amended in W11: re-hashing cannot verify a prefix before ACCEPT.**
+> The paragraphs above say the receiver sends `ACCEPT{resumeFrom}` "only
+> for a prefix it has verified itself", and that a prefix that does not
+> match "is discarded and the transfer starts at zero; it is not an error
+> to report to the human". The first half cannot be met with what the
+> manifest carries. A whole-file SHA-256 says nothing about whether *n*
+> bytes are the first *n* bytes of that file. Re-hashing gives the
+> receiver the hash *state* of its prefix, which is what lets it carry
+> the state forward. Whether the prefix belonged is known only when the
+> final digest is compared.
+>
+> So the guarantee, stated as it is actually enforced: **a wrong prefix
+> is never published.** It fails the final comparison
+> (`ERR_HASH_MISMATCH`, with `.resumedFrom`), the partial is deleted, and
+> the retry starts from zero. A planted or stale `.part` costs one failed
+> transfer, and the human does see that failure. Checking a prefix
+> *before* ACCEPT would need the sender to take part, for example a
+> prefix digest in ACCEPT that the sender checks, plus a way to fall back
+> to zero on the same connection. That is a wire change to ACCEPT and is
+> not made here. The per-block hashes W10 rejected would also do it, at
+> the manifest cost W10 declined.
+
+### 7.4 As implemented (W11)
+
+A second implementation needs these rules, not just the message shapes:
+
+- **Resumable** means the handshake negotiated `resume` (§3.2) and the
+  manifest declared a size. Both sides check the negotiated set. A sender
+  refuses `ACCEPT{resumeFrom > 0}` without it, for a stream, or past the
+  offered size. A receiver outside that case always answers
+  `resumeFrom: 0`.
+- **The partial is found by name**, `<name>.part` (the re-pairing of
+  §7.1: a new code, the same file). Before its bytes are trusted as a
+  prefix, it must pass three checks, each on the open descriptor:
+  - opened `O_NOFOLLOW`, so a planted symlink is refused;
+  - exactly one hard link, so a planted hard link to a file elsewhere on
+    the volume, which *is* a regular file, is refused;
+  - no longer than the offer.
+
+  A partial that fails any of them is left alone, and a fresh one is
+  opened beside it.
+- **Which failures keep a partial.** Only *interruptions*: the
+  connection closed, the socket errored, or the sender went silent
+  (`ERR_STALLED`). And only for a resumable transfer's primary
+  `<name>.part`. A cancel from either side still discards, because a
+  cancel means "I do not want this". So do a digest or size mismatch and
+  a protocol error, because they make the bytes suspect. The receiver's
+  error carries `.partial = {path, bytes}` when it kept one. A crash
+  keeps its partial without any rule, since no cleanup runs.
+- **Before ACCEPT, a reopened partial is never deleted.** It still
+  belongs to the earlier attempt; the offer only opened it to re-hash. A
+  cancel or a dropped connection while the prefix is being hashed closes
+  it and leaves it. Only after ACCEPT has the transfer adopted it.
+- **CHECKPOINT** (§8.3) is sent only on a resumable transfer. The offset
+  is what the file descriptor has taken (`bytesWritten`), fsynced
+  (`datasync`) before it is reported, never bytes still buffered in
+  memory. It is skipped when nothing new was written. The sender refuses
+  one without `resume` negotiated, one that moves backwards, and one past
+  what it has sent. The sender surfaces it as `onCheckpoint`: delivery,
+  where `onProgress` is only hand-off.
 
 ### 7.3 The displayed hash is integrity, not authenticity
 
@@ -796,7 +967,7 @@ project's own measurement instrument to its wording.
 | `ABORT_ERR` (`name: AbortError`) | we cancelled, locally |
 | `ERR_CANCELLED_PEER` | they cancelled, with their reason |
 | `ERR_HASH_MISMATCH` | the bytes are wrong |
-| `ERR_SIZE_MISMATCH` | more or fewer bytes than declared |
+| `ERR_SIZE_MISMATCH` | more or fewer bytes than declared, or a stream past the receiver's limit (`.limit` set; §4.3) |
 | `ERR_UNSAFE_NAME` | the name is not one we will write; `.detail` says why |
 | `ERR_MANIFEST_INVALID` | a manifest field failed validation |
 | `ERR_PROTOCOL` | unknown tag, oversize frame, out-of-order frame |
@@ -804,6 +975,7 @@ project's own measurement instrument to its wording.
 | `ERR_STALLED` | the peer proved the code and then stopped sending |
 | `ERR_NO_SPACE` | the declared size does not fit |
 | `ERR_EXISTS` | could not land the file without destroying another |
+| `ERR_DECLINED` | the receiver refused the offer before any file byte moved (§4.0); `.peerReason` on the sender, `.local` on the receiver |
 | `ERR_NO_PEER` | join timed out having seen nobody |
 | `ERR_NO_HANDSHAKE` | join timed out having seen peers that never confirmed |
 | `ERR_ATTEMPT_CAP` | the drop was burned after N failed PAKE confirmations (§6) |

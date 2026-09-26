@@ -45,6 +45,12 @@
 //                         the file -- its digest disagreed, or landing it
 //                         failed. Reported to the sender in RESULT{error};
 //                         `.peerReason` is the receiver's own sentence.
+//   ERR_DECLINED          the receiver refused the offer before any file
+//                         byte moved: an unsafe name, too large, no
+//                         space, or a person or policy said no. Sent to
+//                         the sender as DECLINE{reason}; `.peerReason` is
+//                         the receiver's sentence. The receiver itself
+//                         reports the specific code it declined for.
 //   ERR_NO_PEER           join timed out having seen nobody.
 //   ERR_NO_HANDSHAKE      join timed out having seen peers that never
 //                         completed the handshake. A different

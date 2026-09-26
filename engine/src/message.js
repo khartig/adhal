@@ -65,9 +65,10 @@ const TYPE_CANCEL = 0x03
 // dispatch is exhaustive by exclusion and therefore already declines
 // everything it does not handle.
 //
-// So this commit makes the v1 transfer path refuse them ACCURATELY rather
-// than making it handle them. The handling lands with the accept gate,
-// streaming and resume in W11's second pass.
+// Every one is handled by ./transfer.js as of W11's second pass: ACCEPT
+// and DECLINE by the accept gate, END by streaming, CHECKPOINT by resume.
+// Naming them here first is still what makes one arriving out of place a
+// named protocol error rather than an unknown type.
 const TYPE_ACCEPT = 0x04 // {resumeFrom} -- the accept step and resume, one message
 const TYPE_DECLINE = 0x05 // {reason}
 const TYPE_CHECKPOINT = 0x06 // {offset} -- R->S, periodic, post-fsync
@@ -233,6 +234,111 @@ function decodeResult (body) {
   throw new TransferError('ERR_PROTOCOL', 'the receiver\'s RESULT is neither {ok, sha256} nor {error}')
 }
 
+// ACCEPT and DECLINE are the receiver's answer to a MANIFEST (PROTOCOL.md
+// section 4), and the sender writes no file byte before one arrives. One
+// message carries both the accept step and resume: `resumeFrom` is the
+// offset the sender starts at, 0 for a fresh transfer.
+/**
+ * @param {{ resumeFrom: number }} accept
+ * @returns {Buffer} an ACCEPT body, for Channel#seal(TYPE_ACCEPT, ...)
+ */
+function acceptBody ({ resumeFrom }) {
+  return Buffer.from(JSON.stringify({ resumeFrom }), 'utf8')
+}
+
+/**
+ * THROWS, for RESULT's reason: an ACCEPT that cannot be read has not said
+ * where to start, and guessing 0 against a receiver that meant to resume
+ * would append the whole file to a prefix it already has.
+ * @param {Buffer} body
+ * @returns {{ resumeFrom: number }}
+ */
+function decodeAccept (body) {
+  let parsed
+  try {
+    parsed = JSON.parse(body.toString('utf8'))
+  } catch (err) {
+    throw new TransferError('ERR_PROTOCOL', `the receiver's ACCEPT is not valid JSON: ${err.message}`)
+  }
+  if (!parsed || !Number.isSafeInteger(parsed.resumeFrom) || parsed.resumeFrom < 0) {
+    throw new TransferError('ERR_PROTOCOL', 'the receiver\'s ACCEPT does not carry a non-negative integer resumeFrom')
+  }
+  return { resumeFrom: parsed.resumeFrom }
+}
+
+/**
+ * @param {string} [reason]
+ * @returns {Buffer} a DECLINE body, for Channel#seal(TYPE_DECLINE, ...)
+ */
+function declineBody (reason = '') {
+  return Buffer.from(JSON.stringify({ reason: sanitizeReason(reason) }), 'utf8')
+}
+
+// Never throws, for CANCEL's reason rather than ACCEPT's: a DECLINE whose
+// reason is garbled has still said no, and that is the part that matters.
+const decodeDeclineReason = decodeCancelReason
+
+// CHECKPOINT is the receiver's durable offset (PROTOCOL.md sections 4.1
+// and 8.3): every byte below it has been fsynced. Sent periodically, not
+// per chunk -- the transport is already reliable and ordered, so what is
+// worth reporting is what survives a crash, not what arrived.
+/**
+ * @param {{ offset: number }} checkpoint
+ * @returns {Buffer} a CHECKPOINT body, for Channel#seal(TYPE_CHECKPOINT, ...)
+ */
+function checkpointBody ({ offset }) {
+  return Buffer.from(JSON.stringify({ offset }), 'utf8')
+}
+
+/**
+ * THROWS: a durable offset that cannot be read is not one the sender may
+ * report as delivered.
+ * @param {Buffer} body
+ * @returns {{ offset: number }}
+ */
+function decodeCheckpoint (body) {
+  let parsed
+  try {
+    parsed = JSON.parse(body.toString('utf8'))
+  } catch (err) {
+    throw new TransferError('ERR_PROTOCOL', `the receiver's CHECKPOINT is not valid JSON: ${err.message}`)
+  }
+  if (!parsed || !Number.isSafeInteger(parsed.offset) || parsed.offset < 0) {
+    throw new TransferError('ERR_PROTOCOL', 'the receiver\'s CHECKPOINT does not carry a non-negative integer offset')
+  }
+  return { offset: parsed.offset }
+}
+
+// END closes a streamed transfer (PROTOCOL.md section 4.3): the manifest
+// said size: null and sha256: null, and this is the digest the sender
+// computed as it read.
+/**
+ * @param {{ sha256: string }} end
+ * @returns {Buffer} an END body, for Channel#seal(TYPE_END, ...)
+ */
+function endBody ({ sha256 }) {
+  return Buffer.from(JSON.stringify({ sha256 }), 'utf8')
+}
+
+/**
+ * THROWS: an END without a readable digest leaves a stream with nothing to
+ * verify it against, and "no digest" must never be read as "no check".
+ * @param {Buffer} body
+ * @returns {{ sha256: string }}
+ */
+function decodeEnd (body) {
+  let parsed
+  try {
+    parsed = JSON.parse(body.toString('utf8'))
+  } catch (err) {
+    throw new TransferError('ERR_PROTOCOL', `the sender's END is not valid JSON: ${err.message}`)
+  }
+  if (!parsed || typeof parsed.sha256 !== 'string' || !SHA256_HEX.test(parsed.sha256)) {
+    throw new TransferError('ERR_PROTOCOL', 'the sender\'s END does not carry a lowercase hex sha256')
+  }
+  return { sha256: parsed.sha256 }
+}
+
 module.exports = {
   encodeMessage,
   decodeMessage,
@@ -240,6 +346,14 @@ module.exports = {
   decodeCancelReason,
   resultBody,
   decodeResult,
+  acceptBody,
+  decodeAccept,
+  declineBody,
+  decodeDeclineReason,
+  checkpointBody,
+  decodeCheckpoint,
+  endBody,
+  decodeEnd,
   sanitizeReason,
   TAG_SIZE,
   TYPE_RESERVED,

@@ -42,6 +42,17 @@ function isCancellation (err) {
   return isLocalCancellation(err) || isPeerCancellation(err)
 }
 
+// What an interrupted, resumable receive left behind (err.partial, set by
+// the engine only when it kept one). The old sentences said the partial
+// was discarded, which stopped being true for every interruption once
+// resume existed -- and it is the sentence that tells a person whether
+// trying again costs the whole file or only the rest of it.
+/** @param {any} err */
+function partialNote (err) {
+  if (!err.partial) return 'The partial file was discarded.'
+  return `Kept ${err.partial.bytes} bytes in ${err.partial.path}: send it again, with a new code, and the transfer resumes from there.`
+}
+
 /**
  * A single line, already prefixed by the caller's label.
  * @param {any} err
@@ -71,6 +82,11 @@ function describeError (err) {
         `Expected ${err.expected}, computed ${err.actual}. This is corruption or a bug, not a network timeout -- do not retry blindly.`
 
     case 'ERR_SIZE_MISMATCH':
+      // A stream declares no size, so what it can overrun is this
+      // receiver's own limit (QUAY_MAX_SIZE), not a promise.
+      if (typeof err.limit === 'number') {
+        return `FAILED: the stream passed this receiver's ${err.limit}-byte limit, so it was stopped and nothing was saved. The sender was told. Set QUAY_MAX_SIZE higher to take it.`
+      }
       return `FAILED: the transfer did not match the size its manifest declared (${err.bytes} bytes against ${err.size}). Nothing was saved.`
 
     case 'ERR_UNSAFE_NAME':
@@ -91,15 +107,32 @@ function describeError (err) {
     case 'ERR_PROTOCOL':
       return `FAILED: protocol error. ${err.message}`
 
+    case 'ERR_DECLINED':
+      // Two sides of one event. The receiver declined (its own check, or
+      // a person or policy through onOffer) and knows why; the sender was
+      // told, and prints the receiver's sentence -- sanitised by the
+      // engine, since the other end chose it.
+      if (err.local) {
+        return `declined the offer${err.reason ? `: ${err.reason}` : ''}. The sender was told, and nothing was written.`
+      }
+      return err.peerReason
+        ? `the receiver declined the file: ${err.peerReason}. Nothing was sent.`
+        : 'the receiver declined the file. Nothing was sent.'
+
     case 'ERR_CONNECTION':
-      // The sender's two cases. `phase` is only set there; the receiver's
+      // The sender's cases. `phase` is only set there; the receiver's
       // wording below predates it and still describes the receiver.
+      if (err.phase === 'offer') {
+        return 'FAILED: the receiver disconnected before answering the offer. No file bytes were sent.'
+      }
       if (err.phase === 'result') {
         return 'FAILED: every byte was sent, but the receiver disconnected before confirming the file. ' +
           'Whether it was saved is unknown -- check the receiver\'s output before sending again.'
       }
       if (err.phase === 'send') {
-        return `FAILED: the receiver disconnected after ${err.bytes} of ${err.size} bytes were sent.`
+        return err.size === null
+          ? `FAILED: the receiver disconnected after ${err.bytes} bytes of the stream were sent.`
+          : `FAILED: the receiver disconnected after ${err.bytes} of ${err.size} bytes were sent.`
       }
       // A single-connection handshake (engine/src/stream-handshake.js).
       // The sender cannot see the receiver's confirmation check -- the
@@ -112,7 +145,7 @@ function describeError (err) {
             'The likeliest cause is a mistyped code -- check the receiver\'s output.'
           : 'FAILED: the sender hung up during the handshake, before any file byte moved.'
       }
-      return `FAILED: the connection closed before the transfer finished (${err.bytes} bytes received). The partial file was discarded.`
+      return `FAILED: the connection closed before the transfer finished (${err.bytes} bytes received). ${partialNote(err)}`
 
     case 'ERR_RECEIVER_FAILED':
       return err.peerReason
@@ -123,6 +156,7 @@ function describeError (err) {
       if (err.phase === 'result') {
         return `FAILED: ${err.message}. Check the receiver's output before sending again.`
       }
+      if (err.partial) return `FAILED: ${err.message}. ${partialNote(err)}`
       return `FAILED: ${err.message}.`
 
     case 'ERR_ATTEMPT_CAP':

@@ -150,6 +150,32 @@ test('a TTY stream gets one line redrawn in place, throttled, but always rendere
   assert.equal(stream.writes[stream.writes.length - 1], '\n', 'close() must end the line so the next log starts clean')
 })
 
+test('a stream of unknown length gets a running count on a TTY and nothing off one', () => {
+  // total: null is a stream (PROTOCOL.md section 4.3). There is no
+  // percentage to draw a bar or a milestone from, and a line per chunk off
+  // a TTY would make the output depend on chunking -- the flakiness
+  // milestones exist to prevent.
+  const piped = fakeStream(false)
+  const quiet = createProgressReporter({ label: 'send', stream: piped, env: {} })
+  for (const bytes of [0, 10, 5000, 70000]) quiet.onProgress({ bytes, total: null })
+  quiet.close()
+  assert.equal(piped.text, '')
+
+  const tty = fakeStream(true)
+  let clock = 0
+  const live = createProgressReporter({ label: 'send', stream: tty, env: {}, now: () => clock })
+  live.onProgress({ bytes: 0, total: null })
+  clock += 1000
+  live.onProgress({ bytes: 2048, total: null })
+  live.close()
+  const redraws = tty.writes.filter((w) => w.startsWith('\r'))
+  // Throttled like the bar: with no total there is no "complete" event to
+  // exempt, so both of these are 1000ms apart on purpose.
+  assert.equal(redraws.length, 2)
+  assert.match(redraws[1], /\[send\] 2\.0 KB \(streaming, size unknown\)$/)
+  assert.equal(/NaN|null/.test(tty.text), false, 'no total must never render as NaN or null')
+})
+
 test('QUAY_NO_PROGRESS=1 silences it completely', () => {
   const stream = fakeStream(true)
   const reporter = createProgressReporter({ label: 'send', stream, env: { QUAY_NO_PROGRESS: '1' } })

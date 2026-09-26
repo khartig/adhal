@@ -57,16 +57,18 @@ async function main () {
     const progress = createProgressReporter({ label: 'receive' })
 
     acceptStream(socket, { nameplate, secret, signal: cancel.signal })
-      .then(({ pending, sendKey, receiveKey }) => {
+      .then(({ pending, sendKey, receiveKey, caps }) => {
         console.log('[receive] handshake confirmed; the channel is sealed')
         return receiveFile(socket, outputDir, {
           sendKey,
           receiveKey,
+          caps,
           pending,
           signal: cancel.signal,
           onProgress: progress.onProgress,
-          onManifest: (manifest) => {
-            console.log(`[receive] manifest: ${manifest.name} (${manifest.size} bytes)`)
+          onManifest: (manifest, { resumeFrom }) => {
+            console.log(`[receive] manifest: ${manifest.name} (${manifest.size === null ? 'streamed, size unknown until it ends' : `${manifest.size} bytes`})`)
+            if (resumeFrom > 0) console.log(`[receive] resuming from byte ${resumeFrom} of an earlier, interrupted attempt`)
           }
         })
       }).then((result) => {

@@ -20,7 +20,7 @@ const os = require('node:os')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 
-const { receiveFile, safeOutputName, encodeFrame, TYPE_MANIFEST, TYPE_CHUNK } = require('@quay/engine')
+const { receiveFile, safeOutputName, encodeFrame, TYPE_MANIFEST, TYPE_CHUNK, TYPE_DECLINE } = require('@quay/engine')
 const { sealedSender } = require('../test-helpers/sealed')
 
 async function tmpDir (t, label) {
@@ -31,12 +31,11 @@ async function tmpDir (t, label) {
 
 function manifestFor (body, overrides = {}) {
   return {
-    v: 1,
-    type: 'manifest',
+    v: 2,
     name: 'ok.bin',
     size: body.length,
-    chunkSize: 64 * 1024,
     sha256: crypto.createHash('sha256').update(body).digest('hex'),
+    blockSize: 64 * 1024,
     ...overrides
   }
 }
@@ -45,11 +44,10 @@ function manifestFor (body, overrides = {}) {
 // are about the shipping code path rather than about a validator called in
 // isolation.
 function offer (outputDir, manifest, body = null, options = {}) {
-  const { peer, socket, keys, send } = sealedSender()
-  const received = receiveFile(socket, outputDir, { ...keys, ...options })
-  send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8'))
-  if (body) send(TYPE_CHUNK, body)
-  return { received, peer }
+  const sender = sealedSender()
+  const received = receiveFile(sender.socket, outputDir, { ...sender.keys, ...options })
+  const answer = body ? sender.offer(manifest, body) : sender.offer(manifest)
+  return { received, answer, peer: sender.peer }
 }
 
 /** @param {any} promise */
@@ -193,22 +191,65 @@ test('a manifest field that fails validation is refused before any filesystem ca
     ['size', { size: 1.5 }],
     ['size', { size: Number.MAX_SAFE_INTEGER + 2 }],
     ['size', { size: '100' }],
-    ['v', { v: 2 }],
+    // Absent is not null: a manifest that omits `size` is malformed, not a
+    // stream. JSON.stringify drops an undefined field entirely.
+    ['size', { size: undefined }],
+    ['v', { v: 1 }],
+    ['v', { v: 3 }],
     ['v', { v: undefined }],
-    ['chunkSize', { chunkSize: 0 }],
-    ['chunkSize', { chunkSize: 64 * 1024 * 1024 }],
+    ['blockSize', { blockSize: 0 }],
+    ['blockSize', { blockSize: 64 * 1024 * 1024 }],
+    ['blockSize', { blockSize: undefined }],
     ['name', { name: 42 }],
-    ['type', { type: 'something-else' }]
+    // One of the two nulls without the other. Section 4.3 defines both and
+    // neither; a declared length with no digest has nothing to check it.
+    ['sha256', { sha256: null }],
+    ['sha256', { size: null }],
+    // The closed field set. `type` and `chunkSize` are v1's, and `mode`
+    // and `caps` are the two fields the v2 draft listed and never defined
+    // -- each is refused by name rather than silently ignored.
+    ['type', { type: 'manifest' }],
+    ['chunkSize', { chunkSize: 64 * 1024 }],
+    ['mode', { mode: 0o644 }],
+    ['caps', { caps: ['stream'] }],
+    ['__proto__', JSON.parse('{"__proto__": {"polluted": true}}')]
   ]
 
   for (const [field, override] of cases) {
-    const { received } = offer(outputDir, manifestFor(body, override))
+    const { received, answer } = offer(outputDir, manifestFor(body, override))
     await rejectsWith(received, 'ERR_MANIFEST_INVALID', (err) => {
       assert.equal(err.field, field, `${JSON.stringify(override)} should blame ${field}`)
     })
+    // The refusal reaches the sender as a reason, not as a hang-up.
+    const reply = await answer
+    assert.equal(reply.type, TYPE_DECLINE, `${JSON.stringify(override)} should be declined, not dropped`)
+    assert.match(reply.body.reason, new RegExp(`manifest field ${field} is invalid`))
   }
 
   assert.deepEqual(await fs.promises.readdir(outputDir), [], 'a refused manifest must not create anything')
+})
+
+test('a v1 manifest is refused on its version, not on its unfamiliar fields', async (t) => {
+  // Exactly what the previous build's sendFile wrote. A v1 sender cannot
+  // reach this in practice -- the handshake's version byte names the skew
+  // first -- but the manifest is where a second implementation that got
+  // the handshake right and the manifest wrong would land, and "version 1"
+  // is the sentence that points at the fix.
+  const outputDir = await tmpDir(t, 'manifest-v1')
+  const body = Buffer.from('content')
+  const v1 = {
+    v: 1,
+    type: 'manifest',
+    name: 'ok.bin',
+    size: body.length,
+    chunkSize: 64 * 1024,
+    sha256: crypto.createHash('sha256').update(body).digest('hex')
+  }
+  const { received } = offer(outputDir, v1)
+  await rejectsWith(received, 'ERR_MANIFEST_INVALID', (err) => {
+    assert.equal(err.field, 'v')
+    assert.match(err.message, /unsupported manifest version 1 \(this build speaks v2\)/)
+  })
 })
 
 test('a manifest that is not JSON at all is refused as a manifest problem, not a crash', async (t) => {

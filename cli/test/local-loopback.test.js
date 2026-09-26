@@ -111,3 +111,82 @@ test('two local processes transfer a 10 MB file over a loopback TCP pipe and agr
   const receivedHash = await sha256File(receivedFilePath)
   assert.equal(receivedHash, expectedHash)
 })
+
+test('a pipe streams through the CLI: send.js <port> <code> - offers it with no size and it arrives verified', slow, async (t) => {
+  // PROTOCOL.md section 4.3 end to end, and the one test that shows the
+  // handshake's negotiated caps reaching both transfer halves: the unit
+  // tests hand `caps` in themselves, so only a real handshake proves the
+  // CLIs pass along what it actually agreed.
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-loopback-stream-'))
+  const outputDir = path.join(tmpDir, 'received')
+  t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }) })
+
+  const payload = crypto.randomBytes(3 * 1024 * 1024 + 17)
+  const expectedHash = crypto.createHash('sha256').update(payload).digest('hex')
+
+  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir])
+  const receiveOutput = captureOutput(receiveProc)
+  t.after(() => { if (receiveProc.exitCode === null) receiveProc.kill() })
+
+  const boundPort = (await waitForPattern(receiveOutput, /listening on 127\.0\.0\.1:(\d+)/))[1]
+  const code = (await waitForPattern(receiveOutput, /\[receive\] code: (\S+)/))[1]
+
+  // The code on argv, because stdin is the data.
+  const sendProc = spawn(process.execPath, [SEND_SCRIPT, boundPort, code, '-'])
+  const sendOutput = captureOutput(sendProc)
+  sendProc.stdin.end(payload)
+
+  await Promise.all([waitForExit(sendProc), waitForExit(receiveProc)])
+
+  assert.match(receiveOutput.stdout, /\[receive\] manifest: stdin \(streamed, size unknown until it ends\)/)
+  assert.equal(sendOutput.stdout.match(/\[send\] sha256: ([0-9a-f]{64})/)?.[1], expectedHash, sendOutput.stdout + sendOutput.stderr)
+  assert.equal(receiveOutput.stdout.match(/\[receive\] sha256: ([0-9a-f]{64})/)?.[1], expectedHash, receiveOutput.stdout + receiveOutput.stderr)
+  assert.deepEqual(await fs.promises.readFile(path.join(outputDir, 'stdin')), payload)
+})
+
+test('a transfer killed partway resumes under a new code: the receiver keeps its partial and the next drop continues it', slow, async (t) => {
+  // PROTOCOL.md section 7 through the real CLIs: the handshake has to
+  // negotiate "resume", and both scripts have to hand that to the engine,
+  // or the partial is discarded and the second drop starts from zero.
+  // SIGKILL rather than SIGINT, because a crash sends no CANCEL -- and a
+  // cancel, by design, would discard the partial.
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-loopback-resume-'))
+  const sourcePath = path.join(tmpDir, 'source.bin')
+  const outputDir = path.join(tmpDir, 'received')
+  t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }) })
+
+  await fs.promises.writeFile(sourcePath, crypto.randomBytes(64 * 1024 * 1024))
+  const expectedHash = await sha256File(sourcePath)
+
+  async function startReceiver () {
+    const proc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir])
+    const output = captureOutput(proc)
+    t.after(() => { if (proc.exitCode === null) proc.kill() })
+    const port = (await waitForPattern(output, /listening on 127\.0\.0\.1:(\d+)/))[1]
+    const code = (await waitForPattern(output, /\[receive\] code: (\S+)/))[1]
+    return { proc, output, port, code }
+  }
+
+  const first = await startReceiver()
+  const firstSender = spawn(process.execPath, [SEND_SCRIPT, first.port, first.code, sourcePath])
+  const firstSenderOutput = captureOutput(firstSender)
+  await waitForPattern(first.output, /\[receive\] progress: 25%/, 20000)
+  firstSender.kill('SIGKILL')
+  await new Promise((resolve) => first.proc.on('exit', resolve))
+
+  assert.match(first.output.stderr, /Kept \d+ bytes in .*source\.bin\.part/, first.output.stderr + firstSenderOutput.stderr)
+  const kept = (await fs.promises.stat(path.join(outputDir, 'source.bin.part'))).size
+  assert.ok(kept > 0)
+
+  const second = await startReceiver()
+  const secondSender = spawn(process.execPath, [SEND_SCRIPT, second.port, second.code, sourcePath])
+  const secondSenderOutput = captureOutput(secondSender)
+  await Promise.all([waitForExit(secondSender), waitForExit(second.proc)])
+
+  const resumedAt = Number((second.output.stdout.match(/\[receive\] resuming from byte (\d+)/) || [])[1])
+  assert.ok(resumedAt > 0, `the second receiver must resume, got:\n${second.output.stdout}`)
+  assert.equal(second.output.stdout.match(/\[receive\] sha256: ([0-9a-f]{64})/)?.[1], expectedHash)
+  assert.equal(secondSenderOutput.stdout.match(/\[send\] sha256: ([0-9a-f]{64})/)?.[1], expectedHash, secondSenderOutput.stdout + secondSenderOutput.stderr)
+  assert.equal(await sha256File(path.join(outputDir, 'source.bin')), expectedHash)
+  assert.deepEqual(await fs.promises.readdir(outputDir), ['source.bin'])
+})

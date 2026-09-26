@@ -25,7 +25,7 @@ const os = require('node:os')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 
-const { sendFile, receiveFile, TYPE_MANIFEST, TYPE_CHUNK } = require('@quay/engine')
+const { sendFile, receiveFile, TYPE_CHUNK } = require('@quay/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedSender } = require('../test-helpers/sealed')
 
@@ -35,18 +35,13 @@ async function tmpDir (t, label) {
   return dir
 }
 
-function manifestBody (manifest) {
-  return Buffer.from(JSON.stringify(manifest), 'utf8')
-}
-
 function manifestFor (body, overrides = {}) {
   return {
-    v: 1,
-    type: 'manifest',
+    v: 2,
     name: 'payload.bin',
     size: body.length,
-    chunkSize: 64 * 1024,
     sha256: crypto.createHash('sha256').update(body).digest('hex'),
+    blockSize: 64 * 1024,
     ...overrides
   }
 }
@@ -82,10 +77,9 @@ test('a file whose bytes do not match the manifest is refused and left nowhere',
   // flight, a lying peer, and a framing bug all present exactly like this.
   const lying = manifestFor(body, { sha256: 'b'.repeat(64) })
 
-  const { peer, socket, keys, send } = sealedSender()
+  const { socket, keys, offer } = sealedSender()
   const received = receiveFile(socket, outputDir, { ...keys })
-  send(TYPE_MANIFEST, manifestBody(lying))
-  send(TYPE_CHUNK, body)
+  offer(lying, body)
 
   await rejectsWith(received, 'ERR_HASH_MISMATCH', (err) => {
     assert.equal(err.expected, 'b'.repeat(64))
@@ -94,8 +88,8 @@ test('a file whose bytes do not match the manifest is refused and left nowhere',
 
   // Both halves matter. The final name must never have existed -- that is
   // what the atomic rename buys -- and the partial must be gone, because
-  // bytes known to be wrong must not be left looking resumable when resume (W11)
-  // starts keeping partials by default.
+  // bytes known to be wrong must never be left looking resumable -- and
+  // resume does keep the partial of an interrupted transfer.
   assert.deepEqual(await fs.promises.readdir(outputDir), [])
 })
 
@@ -106,11 +100,10 @@ test('a partial is visible only under .part, never under the final name, until i
   const finalPath = path.join(outputDir, 'payload.bin')
   const partPath = `${finalPath}.part`
 
-  const { peer, socket, keys, send } = sealedSender()
+  const { socket, keys, send, offer } = sealedSender()
   const received = receiveFile(socket, outputDir, { ...keys })
 
-  send(TYPE_MANIFEST, manifestBody(manifest))
-  send(TYPE_CHUNK, body.subarray(0, 1024))
+  await offer(manifest, body.subarray(0, 1024))
 
   // Mid-stream: the transfer is under way and incomplete.
   await waitFor(() => fs.existsSync(partPath), 'the .part file to appear')
@@ -133,9 +126,9 @@ test('an empty file still verifies and lands under its real name', async (t) => 
   const outputDir = await tmpDir(t, 'verify-empty')
   const body = Buffer.alloc(0)
 
-  const { socket, keys, send } = sealedSender()
+  const { socket, keys, offer } = sealedSender()
   const received = receiveFile(socket, outputDir, { ...keys })
-  send(TYPE_MANIFEST, manifestBody(manifestFor(body, { name: 'empty.bin' })))
+  offer(manifestFor(body, { name: 'empty.bin' }))
 
   const result = await received
   assert.equal(result.size, 0)
@@ -150,10 +143,9 @@ test('a sender that sends more than it declared is refused, not silently truncat
   // correct sender cannot over-read its own manifest, so trimming hides a
   // real bug -- and means accepting an unbounded number of bytes from a
   // peer that proved it knows the code but is not thereby well-behaved.
-  const { peer, socket, keys, send } = sealedSender()
+  const { socket, keys, offer } = sealedSender()
   const received = receiveFile(socket, outputDir, { ...keys })
-  send(TYPE_MANIFEST, manifestBody(manifestFor(body)))
-  send(TYPE_CHUNK, Buffer.concat([body, crypto.randomBytes(1)]))
+  offer(manifestFor(body), Buffer.concat([body, crypto.randomBytes(1)]))
 
   await rejectsWith(received, 'ERR_SIZE_MISMATCH', (err) => {
     assert.equal(err.size, 1024)
@@ -166,10 +158,9 @@ test('a sender that vanishes mid-transfer fails the receive instead of hanging i
   const outputDir = await tmpDir(t, 'verify-earlyclose')
   const body = crypto.randomBytes(8192)
 
-  const { peer, socket, keys, send } = sealedSender()
+  const { peer, socket, keys, offer } = sealedSender()
   const received = receiveFile(socket, outputDir, { ...keys })
-  send(TYPE_MANIFEST, manifestBody(manifestFor(body)))
-  send(TYPE_CHUNK, body.subarray(0, 100))
+  offer(manifestFor(body), body.subarray(0, 100))
 
   // The vanish. No FIN negotiation, no error -- the far side simply stops
   // existing, which is what a dead hole punch looks like.

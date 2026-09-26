@@ -29,6 +29,12 @@
 //   2. Progress never shares a line with 'done:', 'sha256:' or 'saved
 //      to:'. On a TTY that is what close() is for; off one, every
 //      progress write is already a whole line.
+//
+// A STREAM HAS NO TOTAL (`total: null`, PROTOCOL.md section 4.3). On a TTY
+// it gets a running byte count instead of a bar. Off one it gets nothing:
+// there are no percentages to make milestones of, and a line per chunk
+// would break the reason milestones exist -- output that is the same every
+// run. The done/sha256 lines still say how much arrived.
 
 // Redrawing faster than this buys nothing a human can see and costs a
 // syscall per chunk -- at 64 KB chunks a fast local transfer emits
@@ -63,7 +69,7 @@ function percentOf (bytes, total) {
  *   env?: Record<string, string | undefined>,
  *   now?: () => number
  * }} options
- * @returns {{ onProgress: (p: { bytes: number, total: number }) => void, close: () => void }}
+ * @returns {{ onProgress: (p: { bytes: number, total: number | null }) => void, close: () => void }}
  */
 function createProgressReporter ({ label, stream = process.stdout, env = process.env, now = Date.now }) {
   // An escape hatch that costs nothing to honour and saves anyone piping
@@ -80,6 +86,11 @@ function createProgressReporter ({ label, stream = process.stdout, env = process
   let finished = false
 
   function drawTty (bytes, total) {
+    if (total === null) {
+      stream.write(`\r\x1b[2K[${label}] ${formatBytes(bytes)} (streaming, size unknown)`)
+      drewSomething = true
+      return
+    }
     const percent = percentOf(bytes, total)
     const filled = Math.round((percent / 100) * BAR_WIDTH)
     const bar = '#'.repeat(filled) + '-'.repeat(BAR_WIDTH - filled)
@@ -97,7 +108,8 @@ function createProgressReporter ({ label, stream = process.stdout, env = process
 
   function onProgress ({ bytes, total }) {
     if (finished) return
-    const complete = bytes >= total
+    if (total === null && !isTty) return
+    const complete = total !== null && bytes >= total
 
     if (isTty) {
       const at = now()

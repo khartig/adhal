@@ -56,7 +56,8 @@ See [`THREAT-MODEL.md`](THREAT-MODEL.md) §4.
    primitive: UDX under Noise is already reliable and ordered, so
    per-chunk acknowledgement re-implements a guarantee the transport
    gives for free and costs a round trip to do it. v2 uses a periodic
-   post-fsync `CHECKPOINT{offset}`. Neither exists yet (W11).
+   post-fsync `CHECKPOINT{offset}`, every 5 s on a transfer that negotiated
+   resume; see [`PROTOCOL.md`](PROTOCOL.md) §7.4.
 6. **D6** Receiver verifies the full-file hash and only then publishes the
    file under its real name. Implemented. Since Stage 0 it also refuses
    to replace a file it did not create — see
@@ -298,8 +299,11 @@ them were live bugs.
 
 ### The wire format, and the second break
 
-> **Superseded by v2's sealed channel.** The layout below is v1's, and
-> the type tag and body are unchanged in v2 -- but they now travel
+> **Superseded by v2's sealed channel.** The layout below is v1's. The
+> type tag and the CHUNK and CANCEL bodies are unchanged in v2; MANIFEST
+> is manifest v2, `{v: 2, name, size, sha256, blockSize}`, answered by
+> ACCEPT or DECLINE before any chunk ([`PROTOCOL.md`](PROTOCOL.md) §4.0).
+> All of them now travel
 > *inside* a ChaCha20-Poly1305 seal keyed from the PAKE transcript
 > (`engine/src/channel.js`, [`PROTOCOL.md`](PROTOCOL.md) §3.4 and §5).
 > Only the length prefix is still in the clear, so it can be bounded

@@ -24,7 +24,6 @@ const {
   receiveFile,
   safeOutputName,
   displayName,
-  TYPE_MANIFEST,
   TYPE_CHUNK,
   DEFAULT_MAX_SIZE
 } = require('@quay/engine')
@@ -38,22 +37,20 @@ async function tmpDir (t, label) {
 
 function manifestFor (body, overrides = {}) {
   return {
-    v: 1,
-    type: 'manifest',
+    v: 2,
     name: 'ok.bin',
     size: body.length,
-    chunkSize: 64 * 1024,
     sha256: crypto.createHash('sha256').update(body).digest('hex'),
+    blockSize: 64 * 1024,
     ...overrides
   }
 }
 
 function offer (outputDir, manifest, body = null, options = {}) {
-  const { peer, socket, keys, send } = sealedSender()
-  const received = receiveFile(socket, outputDir, { ...keys, ...options })
-  send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifest), 'utf8'))
-  if (body) send(TYPE_CHUNK, body)
-  return { received, peer, socket }
+  const sender = sealedSender()
+  const received = receiveFile(sender.socket, outputDir, { ...sender.keys, ...options })
+  const answer = body ? sender.offer(manifest, body) : sender.offer(manifest)
+  return { received, answer, peer: sender.peer, socket: sender.socket }
 }
 
 /** @param {any} promise */
@@ -306,10 +303,10 @@ test('a peer that sends a manifest and then stops mid-file is timed out', async 
 test('a healthy transfer is not killed by the stall timers', async (t) => {
   const outputDir = await tmpDir(t, 'harden-no-false-stall')
   const body = crypto.randomBytes(256 * 1024)
-  const { socket, keys, send } = sealedSender()
+  const { socket, keys, send, offer: offerTo } = sealedSender()
 
   const received = receiveFile(socket, outputDir, { ...keys, manifestTimeout: 2000, progressTimeout: 200 })
-  send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifestFor(body)), 'utf8'))
+  await offerTo(manifestFor(body))
 
   // Chunks spaced at 60ms against a 200ms budget: slow, but never
   // stalled. The timer must rearm on every chunk, or a merely slow link
@@ -332,14 +329,14 @@ test('a receiver slower than its sender pauses the socket instead of buffering w
   // Comfortably past the write stream's high-water mark, so the disk
   // genuinely falls behind rather than absorbing everything.
   const body = crypto.randomBytes(4 * 1024 * 1024)
-  const { socket, keys, send } = sealedSender()
+  const { socket, keys, send, offer: offerTo } = sealedSender()
 
   let pauses = 0
   const realPause = socket.pause.bind(socket)
   socket.pause = function () { pauses++; return realPause() }
 
   const received = receiveFile(socket, outputDir, { ...keys })
-  send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifestFor(body)), 'utf8'))
+  await offerTo(manifestFor(body))
   // Everything at once: the sender's whole file handed over as fast as
   // the stream will take it.
   const chunk = 64 * 1024

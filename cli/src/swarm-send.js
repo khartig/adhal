@@ -3,6 +3,12 @@
 
 // The Hyperswarm work sender half. Usage: swarm-send.js <code> <filePath>
 //
+// A filePath of '-' streams stdin instead (PROTOCOL.md section 4.3), so
+// `tar c dir | swarm-send.js <code> - --name=dir.tar` works: the receiver
+// is offered a file of unknown length and verifies it against the digest
+// that arrives when stdin ends. --name is what it is offered under
+// (default "stdin"), since a pipe has no name of its own.
+//
 // The code may be five words (the drop code) in any casing or separator
 // style, or the QR payload pasted verbatim -- 'QUAY2:ACID-ACORN-...' --
 // since that decodes to the same thing a scanner would hand a UI. See
@@ -10,7 +16,7 @@
 //
 // See swarm-receive.js for the QUAY_BOOTSTRAP override.
 
-const { createSwarm, connectOnce, sendFile, resolveCode, displayName } = require('@quay/engine')
+const { createSwarm, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@quay/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
@@ -56,11 +62,30 @@ async function main () {
   const allowOpaque = argv.includes('--unsafe-opaque')
   const positional = argv.filter((a) => !a.startsWith('--') || a === '--code-stdin')
   const [codeArg, filePathArg] = positional
+  const nameFlag = argv.find((a) => a.startsWith('--name='))
+  const streamName = nameFlag ? nameFlag.slice('--name='.length) : 'stdin'
 
   if (!codeArg || !filePathArg) {
     console.error('Usage: swarm-send.js <code> <filePath>')
     console.error('       swarm-send.js - <filePath>            read the code from stdin')
+    console.error('       swarm-send.js <code> - [--name=<name>]  stream stdin as the file')
     console.error('       swarm-send.js <code> <filePath> --unsafe-opaque')
+    process.exitCode = 1
+    return
+  }
+  const streaming = filePathArg === '-'
+  // One stdin, two possible uses. Reading the code line first would take
+  // it out of the data, and the receiver would verify a stream that
+  // silently began at the second line.
+  if (streaming && codeArg === '-') {
+    console.error('[swarm-send] stdin can carry the code or the data, not both: pass the code as an argument when streaming')
+    process.exitCode = 1
+    return
+  }
+  // Typing a file into the terminal by hand is never what was meant, and
+  // the transfer would sit waiting for an EOF nobody knows to send.
+  if (streaming && process.stdin.isTTY) {
+    console.error('[swarm-send] refusing to stream from a terminal: pipe the data in, e.g. tar c dir | swarm-send.js <code> -')
     process.exitCode = 1
     return
   }
@@ -107,7 +132,7 @@ async function main () {
   console.log(`[swarm-send] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
-    const { socket, peerInfo, pending, sendKey, receiveKey } = await connectOnce(swarm, topic, {
+    const { socket, peerInfo, pending, sendKey, receiveKey, caps } = await connectOnce(swarm, topic, {
       // Proves the peer knows the drop secret before we transmit a byte of
       // the file to it. The topic alone is public once the receiver
       // announces -- it commits to the nameplate, which is a rendezvous
@@ -153,7 +178,7 @@ async function main () {
     // unclear reason explains a great deal, so it is reported there.
     socket.on('error', (err) => { socketError = err })
 
-    const result = await sendFile(socket, filePathArg, {
+    const options = {
       // The channel keys the handshake just derived. Every frame from here
       // on is sealed under them, so authentication no longer rests on the
       // Noise session that happens to carry the bytes.
@@ -165,12 +190,23 @@ async function main () {
       pending,
       signal: cancel.signal,
       onProgress: progress.onProgress
-    })
+    }
+    const result = streaming
+      // The capability list the handshake negotiated: sendStream refuses
+      // unless it contains "stream".
+      ? await sendStream(socket, process.stdin, { ...options, name: streamName, caps })
+      // caps here too: with "resume" negotiated the receiver may already
+      // hold a prefix from an interrupted drop, and the file is sent from
+      // there.
+      : await sendFile(socket, filePathArg, { ...options, caps })
     progress.close()
     // Our own file's name, not a peer-supplied one -- but printed
     // through the same sanitiser anyway, so there is one rule for names
     // reaching a terminal rather than one rule and an exception.
     console.log(`[swarm-send] done: ${displayName(result.name)}`)
+    if (result.resumedFrom > 0) {
+      console.log(`[swarm-send] resumed: the receiver already held ${result.resumedFrom} of ${result.size} bytes from an earlier attempt`)
+    }
     console.log(`[swarm-send] sha256: ${result.sha256}`)
     // sendFile resolves only on the receiver's RESULT carrying this same
     // digest, so this line is the receiver's claim, not our hope.

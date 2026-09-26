@@ -89,10 +89,12 @@ const CAPS_TOKEN = /^[a-z0-9]([a-z0-9-]{0,14}[a-z0-9])?$/
 // an error -- see parseCaps -- it is simply not acted on.
 //
 // `resume` is ACCEPT{resumeFrom} plus CHECKPOINT (section 7); `stream` is
-// size: null plus END{sha256} (section 4.3). Both are declared here in W11
-// and implemented in W11's second pass, which is the right order: the
-// capability is what lets the two passes ship separately without a third
-// wire break.
+// size: null plus END{sha256} (section 4.3). Both were declared here in
+// W11 ahead of the code, which is the right order: the capability is what
+// lets the passes ship separately without a third wire break. `stream` is
+// acted on as of W11's second pass -- sendStream will not offer, and
+// receiveFile will not accept, a stream unless it is in the negotiated
+// set. `resume` is still advertised and not yet acted on.
 const KNOWN_CAPS = ['resume', 'stream']
 
 // The domain-separation labels. Every one is distinct and every one is

@@ -240,12 +240,11 @@ test('a simultaneous cancel settles both sides, each reporting its own', async (
 test('a cancel landing while the partial is still opening leaves nothing behind', async (t) => {
   const { outputDir } = await fixture(t, 'cancel-opening', 0)
   const manifest = Buffer.from(JSON.stringify({
-    type: 'manifest',
-    v: 1,
+    v: 2,
     name: 'source.bin',
     size: 1024,
-    chunkSize: 64 * 1024,
-    sha256: 'a'.repeat(64)
+    sha256: 'a'.repeat(64),
+    blockSize: 64 * 1024
   }), 'utf8')
 
   for (let attempt = 0; attempt < 40; attempt++) {

@@ -2,7 +2,10 @@
 'use strict'
 
 // Loopback sender half: "send 10 MB, print SHA-256."
-// Usage: send.js <port> <code|-> <filePath>
+// Usage: send.js <port> <code|-> <filePath|->
+//
+// A filePath of '-' streams stdin, offered as "stdin" -- see
+// swarm-send.js. Not together with a code of '-': there is one stdin.
 //
 // <code> is the drop code receive.js printed. Pass `-` to read it from
 // stdin instead, which keeps it out of the shell history and `ps` -- see
@@ -10,7 +13,7 @@
 // runs, over plain TCP; see receive.js for why.
 
 const net = require('net')
-const { sendFile, connectStream, resolveCode } = require('@quay/engine')
+const { sendFile, sendStream, connectStream, resolveCode } = require('@quay/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
@@ -22,7 +25,13 @@ async function main () {
   const port = portArg === undefined ? NaN : Number(portArg)
 
   if (Number.isNaN(port) || !codeArg || !filePathArg) {
-    console.error('Usage: send.js <port> <code|-> <filePath>')
+    console.error('Usage: send.js <port> <code|-> <filePath|->')
+    process.exitCode = 1
+    return
+  }
+  const streaming = filePathArg === '-'
+  if (streaming && codeArg === '-') {
+    console.error('[send] stdin can carry the code or the data, not both')
     process.exitCode = 1
     return
   }
@@ -43,15 +52,12 @@ async function main () {
   socket.on('connect', async () => {
     console.log(`[send] connected to 127.0.0.1:${port}`)
     try {
-      const { pending, sendKey, receiveKey } = await connectStream(socket, { nameplate, secret, signal: cancel.signal })
+      const { pending, sendKey, receiveKey, caps } = await connectStream(socket, { nameplate, secret, signal: cancel.signal })
       console.log('[send] handshake confirmed; the channel is sealed')
-      const result = await sendFile(socket, filePathArg, {
-        sendKey,
-        receiveKey,
-        pending,
-        signal: cancel.signal,
-        onProgress: progress.onProgress
-      })
+      const options = { sendKey, receiveKey, pending, signal: cancel.signal, onProgress: progress.onProgress }
+      const result = streaming
+        ? await sendStream(socket, process.stdin, { ...options, name: 'stdin', caps })
+        : await sendFile(socket, filePathArg, { ...options, caps })
       progress.close()
       console.log(`[send] done: ${result.name}`)
       console.log(`[send] sha256: ${result.sha256}`)
