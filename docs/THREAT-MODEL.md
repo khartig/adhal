@@ -207,7 +207,7 @@ Counting those would let the DHT's own garbage burn a legitimate drop.
 attacker "must not be able to end a drop just by connecting to it and
 failing". Under v2 a nameplate-holder *can* end a drop, after 100 failed
 guesses. That is accepted because the alternative is unlimited guessing
-against ~31 bits of secret, and a denial of service is a far better outcome
+against ~38.8 bits of secret, and a denial of service is a far better outcome
 than a silent compromise. It is a chosen trade, not an oversight.
 
 ---

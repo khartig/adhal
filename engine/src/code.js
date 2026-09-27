@@ -42,7 +42,7 @@ const SECRET_WORDS = 3
 
 // Words are joined with '-' rather than spaces so the code survives being
 // pasted into a chat message, a URL, or a shell argument without quoting.
-// This is also why wordlist.js drops the one hyphenated EFF word.
+// This is also why wordlist.js drops the four hyphenated EFF words.
 const SEPARATOR = '-'
 
 // The QR scheme carries a format version, so a payload that changes shape
@@ -64,14 +64,15 @@ const QR_SCHEME = 'ADHAL2'
 // reported by name rather than being hashed as an opaque topic.
 const SCHEME_FAMILY = /^ADHAL\d+:/i
 
-// log2(1295) per word, split the way the format splits.
+// log2(7772) per word, split the way the format splits: ~25.8 bits of
+// nameplate and ~38.8 bits of secret.
 //
 // ONE NUMBER CANNOT EXPRESS v2. v1 had a single CODE_ENTROPY_BITS of ~62,
 // and it was meaningful because all 62 bits defended one thing: a public
 // hash of the whole code. Under v2 the two halves defend different things
 // against different attacks, so a combined figure would be actively
-// misleading -- it would let ~51 bits look like the strength of a secret
-// that carries ~31.
+// misleading -- it would let ~64.6 bits look like the strength of a secret
+// that carries ~38.8.
 const NAMEPLATE_ENTROPY_BITS = NAMEPLATE_WORDS * Math.log2(WORDS.length)
 const SECRET_ENTROPY_BITS = SECRET_WORDS * Math.log2(WORDS.length)
 
@@ -79,8 +80,8 @@ const SECRET_ENTROPY_BITS = SECRET_WORDS * Math.log2(WORDS.length)
  * A fresh drop code, e.g. 'acid-acorn-acre-acts-afar'.
  *
  * `crypto.randomInt` is used rather than `randomBytes` and a modulo,
- * because 1295 is not a power of two: reducing a random byte range modulo
- * 1295 would make the first words of the list measurably likelier than the
+ * because 7772 is not a power of two: reducing a random byte range modulo
+ * 7772 would make the first words of the list measurably likelier than the
  * last. `randomInt` does the rejection sampling that avoids that bias.
  *
  * Repeated words are not filtered out. 'acid-acid-...' is a legitimate
@@ -230,12 +231,10 @@ function isValidCode (input) {
  * Uppercase is not cosmetic. QR's "alphanumeric" encoding mode covers only
  * 0-9, A-Z, space and $%*+-./: -- both ':' and '-' qualify, but lowercase
  * letters do not, and falling back to byte mode costs about 40% more
- * capacity for the same text. Uppercased, a five-word code is at most 35
- * characters, which fits a version-3 symbol (29x29 modules) while leaving
- * room for ECC level H -- byte mode would need version 5 for the same
- * error correction. See cli/src/qr.js for the measured table, and for why
- * v2's shorter code was spent on error correction rather than on a smaller
- * symbol. `parseCode` is case-insensitive, so the scanned result still
+ * capacity for the same text. Uppercased, a five-word code is at most 56
+ * characters, which fits a version-5 symbol (37x37 modules) at ECC level
+ * H, and most codes fit version 4 -- byte mode would need one version more
+ * at every level. See cli/src/qr.js for the measured table. `parseCode` is case-insensitive, so the scanned result still
  * round-trips, and humans are shown lowercase.
  *
  * @param {string} code canonical or human-entered code

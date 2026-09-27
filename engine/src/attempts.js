@@ -11,7 +11,7 @@ const { TransferError } = require('./errors')
 // topic commits only to the nameplate and the secret is a PAKE password,
 // so a guess costs a live protocol run against a peer -- which means
 // counting those runs is, for the first time, the thing that bounds an
-// attacker. ~31 bits of secret is ample against 100 guesses and nothing at
+// attacker. ~38.8 bits of secret is ample against 100 guesses and nothing at
 // all against unlimited ones.
 //
 // THIS DELIBERATELY REVERSES A v1 RULE, and it is worth being explicit
@@ -20,7 +20,7 @@ const { TransferError } = require('./errors')
 // engine/src/swarm.js therefore discards a failed candidate and keeps
 // waiting. Under v2 a nameplate-holder CAN end a drop, after 100 failed
 // guesses. Accepted deliberately per section 6 and THREAT-MODEL.md section
-// 5.3: the alternative is unlimited guessing against ~31 bits, and a
+// 5.3: the alternative is unlimited guessing against ~38.8 bits, and a
 // denial of service is a better failure than a silent compromise. The
 // human is told what happened, which is what makes it a report rather
 // than a mystery.

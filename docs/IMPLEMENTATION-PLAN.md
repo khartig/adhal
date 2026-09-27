@@ -350,7 +350,7 @@ them change the wire and the freeze is defined by them.
      - **Secret, 3 words:** about 38.8 bits, up from about 31. Against the
        100-attempt cap that is about 2 × 10⁻¹⁰ per drop, not 4.7 × 10⁻⁸.
      - **Nameplate, 2 words:** about 25.8 bits, up from about 20.7. A 50%
-       collision chance moves from about 1,300 to about 9,100 concurrent
+       collision chance moves from about 1,500 to about 9,150 concurrent
        drops.
 
      Three consequences to handle, not discover:

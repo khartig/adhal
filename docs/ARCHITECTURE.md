@@ -614,8 +614,8 @@ user input into a topic.
 
 ```
 acid-acorn-acre-acts-afar
-^^^^^^^^^^ nameplate, ~20.7 bits   public; hashed into the topic
-           ^^^^^^^^^^^^^^ secret, ~31.0 bits   the PAKE password
+^^^^^^^^^^ nameplate, ~25.8 bits   public; hashed into the topic
+           ^^^^^^^^^^^^^^ secret, ~38.8 bits   the PAKE password
 ```
 
 The code is **shorter than v1's six words and stronger**, because its
@@ -628,29 +628,34 @@ no value an observer can obtain. Guessing it costs a live protocol run
 against a peer that is counting (§6, `engine/src/attempts.js`).
 
 Two figures rather than one, and `CODE_ENTROPY_BITS` is gone because of
-it: a combined ~51.7 would let the nameplate's public bits stand in for
-the strength of a ~31-bit secret, and only the secret's are load-bearing.
+it: a combined ~64.6 would let the nameplate's public bits stand in for
+the strength of a ~38.8-bit secret, and only the secret's are load-bearing.
 A nameplate collision is a rendezvous accident that the PAKE then
 separates.
 
-**Word list: EFF short list #1**, vendored (1295 of its 1296 words, all
-3-5 letters).
-Chosen over BIP39 on two grounds. Typing cost: EFF's words are 3-5 letters
-against BIP39's up-to-8, and a generated code exists precisely to remove the friction
-of typing a code by hand on two machines. Optics: a lowercase
-phrase drawn from BIP39 reads as a wallet seed phrase, which cuts against
-the deliberate avoidance of crypto framing and would train users
-toward typing seed-like phrases into whatever asks for one. The list's one
-hyphenated entry, `yo-yo`, is dropped, because a hyphen separates words in
-a code and `yo-yo-acid` would otherwise be ambiguous; the count only needs
-to be a power of six if you are rolling physical dice, and these come from
-`crypto.randomInt` (rejection sampling -- 1295 is not a power of two, so a
-plain modulo would skew draws toward the front of the list).
+**Word list: the EFF large wordlist**, vendored (7772 of its 7776 words,
+all 3-9 letters). Until W15a this was EFF short list #1 (1295 words of 3-5
+letters), chosen for typing cost. The large list trades some of that for
+entropy: about 12.92 bits per word instead of 10.34, so the three-word
+secret carries about 38.8 bits instead of 31 at the same word count, and
+the attempt cap is no longer the only margin. The words are longer to
+type, but they are common, concrete words EFF selected for memorability.
+
+Still not BIP39, for the reason that did not change: a lowercase phrase
+drawn from BIP39 reads as a wallet seed phrase, which cuts against the
+deliberate avoidance of crypto framing and would train users toward
+typing seed-like phrases into whatever asks for one. The list's four
+hyphenated entries (`drop-down`, `felt-tip`, `t-shirt`, `yo-yo`) are
+dropped, because a hyphen separates words in a code and `yo-yo-acid`
+would otherwise be ambiguous; the count only needs to be a power of six
+if you are rolling physical dice, and these come from `crypto.randomInt`
+(rejection sampling -- 7772 is not a power of two, so a plain modulo
+would skew draws toward the front of the list).
 
 **QR payload: the typed code and nothing else**, as a versioned URI.
 
 ```
-ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR     <- in the QR, at most 35 chars
+ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR     <- in the QR, at most 56 chars
 acid-acorn-acre-acts-afar            <- shown to a human
 ```
 
@@ -676,23 +681,24 @@ Two details are load-bearing rather than cosmetic:
   robustness against glare, moire, and poor focus instead of size.
   `parseCode` is case-insensitive, so a scan still round-trips.
 
-  **v2's shorter code bought a free ECC upgrade.** Re-measured when the
-  worst case dropped from 41 characters to 35, with the v1 column
-  reproducing the table `cli/src/qr.js` used to carry:
+  **Re-measured for the large wordlist (W15a).** The worst case is 56
+  characters: the 7-character `ADHAL2:` scheme, five 9-letter words and
+  four separators.
 
-  | ECC | v1 alnum (41) | v1 byte | v2 alnum (35) | v2 byte |
-  | --- | --- | --- | --- | --- |
-  | L | 25x25 | 29x29 | 25x25 | 29x29 |
-  | M | 29x29 | 29x29 | 25x25 | 29x29 |
-  | Q | **29x29** | 33x33 | 29x29 | 33x33 |
-  | H | 33x33 | 37x37 | **29x29** | 37x37 |
+  | ECC | worst case alnum (56) | worst case byte (56) |
+  | --- | --- | --- |
+  | L | 29x29 | 33x33 |
+  | M | 29x29 | 33x33 |
+  | Q | 33x33 | 37x37 |
+  | H | **37x37** | 41x41 |
 
-  So v2 runs at **ECC level H (~30% recovery) at version 3, 29x29** where
-  v1 ran at Q: ~25% damage tolerance becomes ~30% and the symbol does not
-  grow a single module. Confirmed through the real `jsqr` decoder, not
-  just the encoder's size report. The uppercase argument survives — at 35
-  characters byte mode still costs a version — so dropping it would give
-  back more than the upgrade gained.
+  Over 20,000 generated codes at H, 90.6% are 33x33, 9.2% are 37x37 and
+  0.2% are 29x29. ECC level H (~30% recovery) is kept. Under the short
+  list every code fit 29x29 at H, and the longer words gave that back;
+  level Q would hold the worst case at 33x33 for ~25% recovery, which is
+  the lever if size ever matters more than margin. Confirmed through the
+  real `jsqr` decoder, not just the encoder's size report. The uppercase
+  argument survives: byte mode costs one more version at every level.
 - **The code is shown only after `discovery.flushed()`.** Same reasoning as
   the announce-propagation race below: the moment the code is readable is
   the moment the other side may start looking, so showing it before the
@@ -848,7 +854,7 @@ Hyperswarm milestone already had. What changed from v1 is that it is now
 also *counted*: 100 failures burn the drop with `ERR_ATTEMPT_CAP`. v1 held
 that an attacker must not be able to end a drop by connecting and failing;
 v2 reverses that deliberately, because the alternative is unlimited
-guessing against ~31 bits and a denial of service is a better failure than
+guessing against ~38.8 bits and a denial of service is a better failure than
 a silent compromise. Nothing else is counted — never a dropped candidate,
 because stale DHT announces routinely produce dead ones and three were
 once enough to starve every connection slot here. See
@@ -882,8 +888,8 @@ every derivation recomputed a second way through `node:crypto`), and by
 network noise).
 
 **What it still does not do: it does not make a weak code strong.** It
-makes a ~31-bit secret *sufficient*, which is a different claim and the
-one v2 is built on: ~31 bits is ample against 100 counted guesses and
+makes a ~38.8-bit secret *sufficient*, which is a different claim and the
+one v2 is built on: ~38.8 bits is ample against 100 counted guesses and
 nothing at all against unlimited ones. Take away the cap and the PAKE
 alone does not save it. Take away the code split and the cap does not
 either, because the grinding happens offline where nothing counts. The two

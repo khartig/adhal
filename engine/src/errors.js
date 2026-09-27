@@ -65,7 +65,7 @@
 //                         that an attacker must not be able to end a drop
 //                         by connecting and failing -- a denial of service
 //                         is a better failure than a silent compromise
-//                         against ~31 bits.
+//                         against ~38.8 bits.
 //
 // `name` stays 'TransferError' for everything except a local abort, which
 // uses Node's own 'AbortError'/'ABORT_ERR' pair so that `signal.reason`

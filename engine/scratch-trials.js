@@ -125,8 +125,8 @@ const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, 
 // exchanging anything.
 //
 // Rejection sampled rather than plain modulo, for the same reason
-// generateCode uses crypto.randomInt: 1295 is not a power of two, so
-// reducing a 16-bit window modulo 1295 would favour the front of the list.
+// generateCode uses crypto.randomInt: 7772 is not a power of two, so
+// reducing a 16-bit window modulo 7772 would favour the front of the list.
 // It does not matter much for a rendezvous label on a private topic, but a
 // harness that quietly draws from a skewed distribution is not the thing to
 // leave lying around in a repo whose codes are its security argument.

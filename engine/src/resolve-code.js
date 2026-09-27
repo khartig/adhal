@@ -22,12 +22,7 @@
 // misattribute in this codebase.
 
 const { parseCode, splitCode, WORD_COUNT, SCHEME_FAMILY } = require('./code')
-const { INDEX } = require('./wordlist')
 const { topicFromNameplate } = require('./topic')
-
-// v1's code length. Recognised for exactly one purpose: reporting the
-// version skew by name. See looksLikeV1Code.
-const V1_WORD_COUNT = 6
 
 // Does this look like an *attempt* at a five-word code? If so we hold it to
 // the strict parse and report which word is wrong, instead of quietly
@@ -45,32 +40,11 @@ function looksLikeWordCode (input) {
   return tokens.length === WORD_COUNT && tokens.every((t) => /^[a-z]+$/.test(t))
 }
 
-// Is this a v1 six-word code?
-//
-// NARROW ON PURPOSE. It is not enough for the token count to be wrong:
-// a hand-typed diagnostic secret can be any shape, and several in this
-// repo's history are two or three words ('adhal-test-3', 'acid-acorn').
-// So this asks for exactly SIX tokens that are ALL in the word list --
-// which a hand-typed string is not going to be by accident, and which a
-// v1 generated code always is.
-//
-// WHY THIS EXISTS AT ALL, because it looks like a nicety and is not. A v1
-// code otherwise falls through to the opaque branch, and the refusal
-// there ends by suggesting --unsafe-opaque. Following that suggestion
-// makes the whole six-word code both nameplate and secret, which
-// publishes the secret inside the announced topic -- so the error message
-// would be recommending the one action that voids v2's central property,
-// to the one person most likely to take it: someone mid-upgrade with an
-// old code still in their shell history.
-function looksLikeV1Code (tokens) {
-  return tokens.length === V1_WORD_COUNT && tokens.every((t) => INDEX.has(t))
-}
-
 // OPAQUE CODES ARE OPT-IN, and the reason is that they are the only way
 // this engine can be handed a weak secret.
 //
-// A generated word code carries ~20.7 bits in its public nameplate and
-// ~31.0 in its secret. An opaque code carries whatever the caller typed,
+// A generated word code carries ~25.8 bits in its public nameplate and
+// ~38.8 in its secret. An opaque code carries whatever the caller typed,
 // and the real ones in this repo's history include `adhal-test-3`.
 //
 // They stay, because the diagnostics in engine/scratch-*.js and several
@@ -127,22 +101,7 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
   const code = input.trim().toLowerCase()
   if (code.length === 0) throw new Error('code is empty')
 
-  // Reported before the opaque gate, and refused even when opaque codes
-  // are allowed. A v1 code is not a topic someone chose; it is a code from
-  // a build that no longer interoperates, and hashing it as an opaque
-  // secret would put its secret half in the public topic while appearing
-  // to work.
-  const tokens = code.toLowerCase().split(/[\s\-_.]+/).filter(Boolean)
-  if (looksLikeV1Code(tokens)) {
-    throw new Error(
-      `that is a ${V1_WORD_COUNT}-word code from before the v2 wire ` +
-      `change; this build uses ${WORD_COUNT} words. It cannot be converted, because v2 ` +
-      'derives its topic from only the first two words and feeds the rest to a PAKE. ' +
-      'Redeploy both sides and generate a new code. Do NOT pass --unsafe-opaque to ' +
-      'force this one through: that would make the whole code its own topic secret, ' +
-      'which is exactly the offline-guessing exposure v2 removes.'
-    )
-  }
+  const tokens = code.split(/[\s\-_.]+/).filter(Boolean)
 
   if (!allowOpaque) {
     // THE INPUT IS NOT ECHOED, and it used to be. A stray separator turns

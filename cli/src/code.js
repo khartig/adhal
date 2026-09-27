@@ -75,8 +75,8 @@ function main () {
   // makes it checkable by eye: the secret must not be recoverable from
   // anything here.
   console.log(`  topic:   ${resolveCode(code).topic.toString('hex')}`)
-  // Two figures, not one. A single combined number would let ~51 bits
-  // stand in for the strength of a ~31-bit secret, and only the secret's
+  // Two figures, not one. A single combined number would let ~64.6 bits
+  // stand in for the strength of a ~38.8-bit secret, and only the secret's
   // entropy is load-bearing -- a nameplate collision is a rendezvous
   // accident the PAKE then separates, not a compromise.
   console.log(

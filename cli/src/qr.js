@@ -9,32 +9,35 @@
 const qrcode = require('qrcode-generator')
 
 // Error correction level H (recovers ~30% damage) rather than the usual M
-// (~15%). This is free, and the reason is the uppercasing in
-// `encodeQrPayload`: QR's alphanumeric mode is denser than byte mode, so
-// the headroom that buys is spent on error correction rather than on a
-// smaller symbol.
+// (~15%), and the uppercasing in `encodeQrPayload` is what keeps that
+// affordable: QR's alphanumeric mode is denser than byte mode, so the same
+// payload costs one version less at every level.
 //
-// Re-measured against the vendored encoder when v2 shortened the code from
-// six words to five. The worst case went from 41 characters (a 6-character
-// scheme plus six five-letter words) to 35 (a 6-character scheme plus
-// five), and the v1 column below reproduces the table this file used to
-// carry, which is what makes the v2 column trustworthy:
+// Re-measured against the vendored encoder when W15a moved to the EFF
+// large wordlist. The worst case is now 56 characters: the 7-character
+// ADHAL2: scheme, five 9-letter words, and four separators.
 //
-//   ECC   v1 alnum (41)   v1 byte   v2 alnum (35)   v2 byte
-//   L     v2 (25x25)      29x29     v2 (25x25)      29x29
-//   M     v3 (29x29)      29x29     v2 (25x25)      29x29
-//   Q     v3 (29x29)      33x33     v3 (29x29)      33x33
-//   H     v4 (33x33)      37x37     v3 (29x29)      37x37
+//   ECC   worst case alnum (56)   worst case byte (56)
+//   L     v3 (29x29)              33x33
+//   M     v3 (29x29)              33x33
+//   Q     v4 (33x33)              37x37
+//   H     v5 (37x37)              41x41
 //
-// So v2's shorter code buys a free ECC upgrade from Q to H at the IDENTICAL
-// 29x29 symbol size: ~25% damage tolerance becomes ~30% and the symbol does
-// not grow a single module. That is spent on exactly the failures this
-// deliverable actually hits -- glare, moire against the other display's
-// pixel grid, and a phone camera that will not quite focus off a screen.
+// Over 20,000 generated codes at H (mean payload 46 characters): 90.6%
+// are 33x33, 9.2% are 37x37, and 0.2% are 29x29.
 //
-// The uppercase argument survives the change: at 35 characters byte mode
-// still costs a version (37x37 at H), so dropping the uppercasing would
-// give back more than the ECC upgrade gained.
+// H IS KEPT, and it now costs something. Under the short wordlist every
+// code fit 29x29 at H; the longer words gave that back, and the symbol is
+// a version or two larger than it was. H is still the level that matters
+// for this deliverable's actual failures -- glare, moire against the other
+// display's pixel grid, and a phone camera that will not quite focus off a
+// screen -- and a 33x33 or 37x37 symbol drawn in half-blocks still fits a
+// standard terminal. Q would hold the worst case at 33x33 for ~25% damage
+// tolerance instead of ~30%; that is the lever if the size ever matters
+// more than the margin.
+//
+// The uppercase argument survives unchanged: byte mode costs one more
+// version at every level in the table.
 const ECC_LEVEL = 'H'
 
 // The QR specification requires a 4-module light border; a symbol printed

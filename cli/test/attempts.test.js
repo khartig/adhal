@@ -14,7 +14,7 @@
 // rule: v1 held that an attacker must not be able to end a drop by
 // connecting and failing. Under v2 it can, after 100 failed guesses. If
 // that is ever changed back, this file should be what argues with the
-// change -- unlimited guessing against ~31 bits is the alternative.
+// change -- unlimited guessing against ~38.8 bits is the alternative.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
@@ -235,7 +235,7 @@ test('a dropped candidate is never counted, however many of them there are', slo
 test('failed confirmations are counted, and the drop is burned with ERR_ATTEMPT_CAP', slow, async (t) => {
   // The positive case, and the reversal of v1's rule: a peer that knows the
   // nameplate but not the secret CAN end this drop. Deliberately, per
-  // section 6 -- the alternative is unlimited guessing against ~31 bits.
+  // section 6 -- the alternative is unlimited guessing against ~38.8 bits.
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 

@@ -53,8 +53,11 @@ const {
   topicFromNameplate,
   blake2b256,
   encodeQrPayload,
-  TOPIC_LABEL
+  TOPIC_LABEL,
+  QR_SCHEME,
+  WORD_COUNT
 } = require('@ad-hal/engine')
+const { WORDS } = require('@ad-hal/engine/src/wordlist')
 
 // BLAKE2b-256 of "abc", from the BLAKE2 reference vectors. Not computed
 // here and not chosen by this project: it is the external check that the
@@ -70,8 +73,6 @@ const BLAKE2B_256_OF_ABC =
 // nameplate)), hex.
 const VECTORS = [
   {
-    // Also the first five words of the list, so this doubles as the
-    // boundary vector an off-by-one in wordlist.js would move.
     what: 'the canonical example from PROTOCOL.md section 2',
     input: 'acid-acorn-acre-acts-afar',
     code: 'acid-acorn-acre-acts-afar',
@@ -104,25 +105,36 @@ const VECTORS = [
     payload: 'ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR'
   },
   {
-    // The tail of the list, for the same reason.
-    what: 'the tail of the word list',
-    input: 'zero-zesty-zippy-zone-zoom',
-    code: 'zero-zesty-zippy-zone-zoom',
-    nameplate: 'zero-zesty',
-    secret: 'zippy-zone-zoom',
-    topic: 'e519c40cc6716a6c78f303d22eccc00806fb58da2386c8422ae26076e6bf634b',
-    payload: 'ADHAL2:ZERO-ZESTY-ZIPPY-ZONE-ZOOM'
+    // The first five words of the list: the boundary vector an off-by-one
+    // in wordlist.js, or a list vendored from the wrong source, would move.
+    what: 'the head of the word list',
+    input: 'abacus-abdomen-abdominal-abide-abiding',
+    code: 'abacus-abdomen-abdominal-abide-abiding',
+    nameplate: 'abacus-abdomen',
+    secret: 'abdominal-abide-abiding',
+    topic: '39aec9088e34996420ef43f1bb8d610806311370049775186c8187223bf2b85d',
+    payload: 'ADHAL2:ABACUS-ABDOMEN-ABDOMINAL-ABIDE-ABIDING'
   },
   {
-    // Five five-letter words: the longest payload the generator can emit,
-    // and the one the QR size table is indexed on (35 characters).
+    // The last five words of the list, for the same reason.
+    what: 'the tail of the word list',
+    input: 'zoning-zookeeper-zoologist-zoology-zoom',
+    code: 'zoning-zookeeper-zoologist-zoology-zoom',
+    nameplate: 'zoning-zookeeper',
+    secret: 'zoologist-zoology-zoom',
+    topic: '51bc071149cda043afab8c79aa12c6431ab82aa75d8829c2d1e34799364fb694',
+    payload: 'ADHAL2:ZONING-ZOOKEEPER-ZOOLOGIST-ZOOLOGY-ZOOM'
+  },
+  {
+    // Five nine-letter words: the longest payload the generator can emit,
+    // and the one the QR size table is indexed on (56 characters).
     what: 'the longest possible code',
-    input: 'acorn-affix-agent-agile-aging',
-    code: 'acorn-affix-agent-agile-aging',
-    nameplate: 'acorn-affix',
-    secret: 'agent-agile-aging',
-    topic: '1558ca9929049240b971e8a02df3458115e2c7dca1169ce6927cc8c28b8d36cc',
-    payload: 'ADHAL2:ACORN-AFFIX-AGENT-AGILE-AGING'
+    input: 'abdominal-acclimate-accompany-activator-acuteness',
+    code: 'abdominal-acclimate-accompany-activator-acuteness',
+    nameplate: 'abdominal-acclimate',
+    secret: 'accompany-activator-acuteness',
+    topic: 'a3eab9ec354889b1659ed5a9bc3afe0f243e37cd16a260d69abc039ac3938e6a',
+    payload: 'ADHAL2:ABDOMINAL-ACCLIMATE-ACCOMPANY-ACTIVATOR-ACUTENESS'
   },
   {
     // A repeated word is a legitimate draw (see generateCode), and it is
@@ -243,9 +255,15 @@ test('the vectors cover the cases a wrong split would still satisfy', () => {
   // A repeated-word vector: catches a split that deduplicates.
   assert.ok(VECTORS.some((v) => new Set(v.code.split('-')).size === 1), 'a repeated-word code')
 
+  // The longest vector really is the longest payload: catches a size table
+  // indexed on a code the generator can exceed.
+  const longest = Math.max(...WORDS.map((w) => w.length))
+  const lengthOf = (/** @type {number} */ n) => QR_SCHEME.length + 1 + n * WORD_COUNT + (WORD_COUNT - 1)
+  assert.ok(VECTORS.some((v) => v.payload.length === lengthOf(longest)), `a ${lengthOf(longest)}-character payload`)
+
   // A vector whose words are not in list order within a half: catches a
-  // split that sorts. 'zippy-zone-zoom' is in order, so this leans on the
-  // pasted vector's halves staying positional -- asserted directly.
+  // split that sorts. Every vector above is in list order, so this leans on
+  // the halves staying positional -- asserted directly.
   assert.equal(splitCode('afar-acts-acre-acorn-acid').nameplate, 'afar-acts',
     'the split must be positional, never sorted')
 })

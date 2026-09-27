@@ -62,7 +62,7 @@ What forces the break:
 
 ```
 code   = nameplate(2 words) + secret(3 words)        5 words total
-         ~20.7 bits           ~31.0 bits
+         ~25.8 bits           ~38.8 bits
 topic  = BLAKE2b-256(lv_cat("adhal-v2:topic", nameplate))   public, findable
 secret -> PAKE                                     never hashed into anything public
 ```
@@ -78,8 +78,21 @@ form (lowercase, hyphen-separated) in UTF-8.
 label had a fixed length and no word contains `:`. The length prefixes
 make the encoding unambiguous whatever either field contains.
 
-Words come from the vendored EFF short list #1 (1295 words, 3-5 letters);
-see [`ARCHITECTURE.md`](ARCHITECTURE.md) for why that list and not BIP39.
+Words come from the vendored EFF large wordlist: 7772 words of 3-9
+letters, which is the published list of 7776 with its four hyphenated
+entries (`drop-down`, `felt-tip`, `t-shirt`, `yo-yo`) removed, because `-` is
+the word separator. That is log2(7772) ≈ 12.92 bits per word. Word order
+is the source file's. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for why this
+list and not BIP39.
+
+*Amended in W15a.* The list was EFF short list #1 (1295 words, about 31
+bits of secret). The large list keeps the 2 + 3 format and raises the
+secret to about 38.8 bits, so the attempt cap (§6) is no longer the only
+thing standing between an online guesser and a ~31-bit secret: at 100
+counted guesses the odds per drop fall from about 4.7 × 10⁻⁸ to about
+2 × 10⁻¹⁰. The nameplate rises to about 25.8 bits, which moves a 50%
+nameplate collision (about 1.18 × √N for N possible nameplates) from
+about 1,500 concurrent drops to about 9,150.
 
 The nameplate is a **rendezvous label**, not a secret. It is public the
 moment the receiver announces. The secret is the only secret, and it never
@@ -661,7 +674,7 @@ burn a legitimate drop.
 This reverses v1's rule that an attacker must not be able to end a drop by
 connecting and failing. Under v2 a nameplate-holder can, after 100 failed
 guesses. Accepted deliberately: the alternative is unlimited guessing
-against ~31 bits, and a denial of service is a better failure than a silent
+against ~38.8 bits, and a denial of service is a better failure than a silent
 compromise. See [`THREAT-MODEL.md`](THREAT-MODEL.md) §5.3.
 
 [`ARCHITECTURE.md`](ARCHITECTURE.md) still states the v1 rule, correctly,

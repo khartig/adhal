@@ -40,19 +40,18 @@ security work that had been deferred is done (Stage 0).**
   one is fixed, not waited out. Cross-ISP transfer (Starlink CGNAT to
   Comcast, both behind NAT) is verified with matching hashes on both sides.
 - **Drop codes** are generated rather than typed, and split in two. Five
-  words from the vendored EFF short list, of which the first two are a
+  words from the vendored EFF large wordlist, of which the first two are a
   public *nameplate* and the last three are the only secret:
 
   ```
   acid-acorn-acre-acts-afar
-  ^^^^^^^^^^ nameplate, ~20.7 bits   public; this is what the DHT sees
-             ^^^^^^^^^^^^^^ secret, ~31.0 bits   never hashed into anything
+  ^^^^^^^^^^ nameplate, ~25.8 bits   public; this is what the DHT sees
+             ^^^^^^^^^^^^^^ secret, ~38.8 bits   never hashed into anything
   ```
 
-  The QR carries the same payload uppercased (`ADHAL2:ACID-ACORN-...`),
-  which keeps it a 29x29 version-3 symbol -- now at ECC level H (~30%
-  damage tolerance) rather than Q, because the shorter code bought the
-  upgrade at the identical symbol size. `pnpm run code` prints one;
+  The QR carries the same payload uppercased (`ADHAL2:ACID-ACORN-...`) at
+  ECC level H (~30% damage tolerance): usually a 33x33 symbol, 37x37 for
+  the longest codes. `pnpm run code` prints one;
   `ad-hal-receive`/`swarm-receive.js` generates its own when given no code,
   and shows the QR at the moment it becomes discoverable. See
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-drop-code-d1).

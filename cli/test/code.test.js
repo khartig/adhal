@@ -42,8 +42,9 @@ const { resolveCode } = require('@ad-hal/engine')
 const execFileAsync = promisify(execFile)
 const CODE_SCRIPT = path.join(__dirname, '..', 'src', 'code.js')
 
-// The longest code the generator can produce: five five-letter words.
-const LONGEST_CODE = WORDS.filter((w) => w.length === 5).slice(0, WORD_COUNT).join('-')
+// The longest code the generator can produce: five of the longest words.
+const LONGEST_WORD = Math.max(...WORDS.map((w) => w.length))
+const LONGEST_CODE = WORDS.filter((w) => w.length === LONGEST_WORD).slice(0, WORD_COUNT).join('-')
 
 function matrixOf (payload) {
   // ECC_LEVEL widens to `string` crossing the module boundary; qrcode-generator
@@ -103,7 +104,7 @@ test('a generated code is five words from the EFF list and is already canonical'
     assert.equal(words.length, WORD_COUNT)
     for (const word of words) {
       assert.ok(INDEX.has(word), `"${word}" is not in the word list`)
-      assert.match(word, /^[a-z]{3,5}$/)
+      assert.match(word, /^[a-z]{3,9}$/)
     }
     // Generated output must survive parsing untouched, or the code shown to
     // a human would hash to a different topic than the one we joined.
@@ -121,18 +122,22 @@ test('a generated code is five words from the EFF list and is already canonical'
   }
 })
 
-test('the wordlist is the vendored EFF short list, minus the one hyphenated word', () => {
-  assert.equal(WORDS.length, 1295)
-  assert.equal(new Set(WORDS).size, 1295, 'no duplicates')
-  assert.ok(WORDS.every((w) => /^[a-z]{3,5}$/.test(w)), 'all words are 3-5 lowercase letters')
-  assert.ok(!WORDS.includes('yo-yo'), 'the hyphenated word is excluded; see engine/src/wordlist.js')
+test('the wordlist is the vendored EFF large list, minus the four hyphenated words', () => {
+  assert.equal(WORDS.length, 7772)
+  assert.equal(new Set(WORDS).size, 7772, 'no duplicates')
+  assert.ok(WORDS.every((w) => /^[a-z]{3,9}$/.test(w)), 'all words are 3-9 lowercase letters')
+  for (const hyphenated of ['drop-down', 'felt-tip', 't-shirt', 'yo-yo']) {
+    assert.ok(!WORDS.includes(hyphenated), `${hyphenated} is excluded; see engine/src/wordlist.js`)
+  }
   assert.deepEqual(WORDS, [...WORDS].sort(), 'kept in the source list order')
-  // 2 * log2(1295) and 3 * log2(1295). Two figures rather than one,
-  // because the halves defend different things: a combined ~51.7 would let
+  assert.equal(WORDS[0], 'abacus')
+  assert.equal(WORDS[WORDS.length - 1], 'zoom')
+  // 2 * log2(7772) and 3 * log2(7772). Two figures rather than one,
+  // because the halves defend different things: a combined ~64.6 would let
   // the nameplate's public bits stand in for the secret's strength, and
-  // only the secret's ~31 are load-bearing.
-  assert.ok(Math.abs(NAMEPLATE_ENTROPY_BITS - 20.68) < 0.01, `nameplate entropy was ${NAMEPLATE_ENTROPY_BITS}`)
-  assert.ok(Math.abs(SECRET_ENTROPY_BITS - 31.02) < 0.01, `secret entropy was ${SECRET_ENTROPY_BITS}`)
+  // only the secret's ~38.8 are load-bearing.
+  assert.ok(Math.abs(NAMEPLATE_ENTROPY_BITS - 25.85) < 0.01, `nameplate entropy was ${NAMEPLATE_ENTROPY_BITS}`)
+  assert.ok(Math.abs(SECRET_ENTROPY_BITS - 38.77) < 0.01, `secret entropy was ${SECRET_ENTROPY_BITS}`)
 })
 
 test('every input style a code arrives in resolves to one canonical form and one topic', () => {
@@ -253,23 +258,23 @@ test('the QR payload is uppercase and stays inside QR alphanumeric mode', () => 
   }
 
   const longest = encodeQrPayload(LONGEST_CODE)
-  assert.equal(longest.length, 36, 'worst case is ADHAL2: plus five five-letter words')
+  assert.equal(longest.length, 56, 'worst case is ADHAL2: plus five nine-letter words')
 })
 
-test('the worst-case code fits a 33x33 version-4 symbol at ECC level H', () => {
+test('the worst-case code fits a 37x37 version-5 symbol at ECC level H', () => {
   // This is the property the uppercasing buys, and it is worth pinning:
-  // byte mode would cost at least one more version at every length here.
+  // byte mode would cost one more version at every level (cli/src/qr.js
+  // has the measured table).
   //
-  // THE WORST CASE IS PINNED, NOT EVERY CODE. The 7-character ADHAL2:
-  // prefix put the longest payload at 36 characters, one past the 35 a
-  // version-3 symbol holds in alphanumeric mode at ECC H, so the longest
-  // codes need version 4 (33x33) and most still fit 29x29. What must not
-  // happen is a code larger than the pinned worst case, which is what a
-  // byte-mode payload or a longer separator would produce. If this
-  // assertion moves, the symbol grew, and it should move on purpose.
+  // THE WORST CASE IS PINNED, NOT EVERY CODE. Under the EFF large list the
+  // longest payload is 56 characters, which needs version 5 (37x37) at ECC
+  // H; most codes fit version 4 (33x33). What must not happen is a code
+  // larger than the pinned worst case, which is what a byte-mode payload
+  // or a longer separator would produce. If this assertion moves, the
+  // symbol grew, and it should move on purpose.
   assert.equal(ECC_LEVEL, 'H')
   const worst = matrixOf(encodeQrPayload(LONGEST_CODE)).getModuleCount()
-  assert.equal(worst, 33, `the worst-case code produced a ${worst}x${worst} symbol`)
+  assert.equal(worst, 37, `the worst-case code produced a ${worst}x${worst} symbol`)
   for (const code of Array.from({ length: 100 }, () => generateCode())) {
     const count = matrixOf(encodeQrPayload(code)).getModuleCount()
     assert.ok(count <= worst, `code ${code} produced a ${count}x${count} symbol, larger than the worst case`)
@@ -399,45 +404,15 @@ test('resolveCode holds a five-word-shaped input to the strict parse', () => {
   )
 })
 
-test('a v1 six-word code is named as a version skew, not waved through as opaque', () => {
-  // THE MESSAGE HERE WAS A REAL DEFECT, not a nicety. A six-word code
-  // falls through resolveCode's word-code test (wrong count) and lands in
-  // the opaque branch, whose refusal ends by suggesting --unsafe-opaque.
-  // Following that suggestion makes the WHOLE code both nameplate and
-  // secret, publishing the secret inside the announced topic -- so the
-  // error was recommending the one action that voids v2's central
-  // property, to the one person most likely to take it: someone
-  // mid-upgrade with an old code still in their shell history.
-  const v1 = 'acid-acorn-acre-acts-afar-agent'
-
-  for (const opts of [{}, { allowOpaque: true }]) {
-    assert.throws(() => resolveCode(v1, opts), (err) => {
-      const message = /** @type {Error} */ (err).message
-      assert.match(message, /6-word code from before the v2 wire change/)
-      assert.match(message, /[Rr]edeploy both sides/)
-      // And it must actively warn AGAINST the workaround, not offer it.
-      assert.doesNotMatch(message, /pass --unsafe-opaque or set/)
-      assert.match(message, /Do NOT pass --unsafe-opaque/)
-      return true
-    }, `a v1 code must be refused with opts ${JSON.stringify(opts)}`)
-  }
-
-  // Refused even with opaque codes allowed, which is the part that
-  // matters: a v1 code is not a topic somebody chose, it is a code from a
-  // build that no longer interoperates.
-  assert.throws(() => resolveCode(v1.toUpperCase().replace(/-/g, ' '), { allowOpaque: true }), /before the v2 wire change/)
-
-  // NARROW, though: the hand-typed diagnostic secrets this repo's history
-  // actually contains must still work, or the check has broken the
-  // engine/scratch-*.js tools it was written to protect.
-  for (const diagnostic of ['adhal-test-3', 'a3f9c2b18d7e4056', 'acid-acorn', 'trial-deadbeefdeadbeef']) {
+test('the hand-typed diagnostic secrets still resolve as opaque codes when asked', () => {
+  // The engine/scratch-*.js tools and several tests name a topic by hand,
+  // and these are the shapes they use. A six-part string is one of them:
+  // with no v1 code format left to recognise, it is an opaque secret like
+  // any other, and refused unless opaque codes are allowed.
+  for (const diagnostic of ['adhal-test-3', 'a3f9c2b18d7e4056', 'acid-acorn', 'trial-deadbeefdeadbeef', 'one-two-three-four-five-zzzzz']) {
     assert.equal(resolveCode(diagnostic, { allowOpaque: true }).kind, 'opaque', diagnostic)
+    assert.throws(() => resolveCode(diagnostic), /not a 5-word drop code/, diagnostic)
   }
-
-  // Six tokens that are NOT all in the word list are an opaque secret,
-  // not a v1 code -- the check is on word-list membership precisely so it
-  // cannot swallow a six-part diagnostic string.
-  assert.equal(resolveCode('one-two-three-four-five-zzzzz', { allowOpaque: true }).kind, 'opaque')
 })
 
 test('no refusal echoes the drop secret back to the terminal', () => {
@@ -466,8 +441,9 @@ test('no refusal echoes the drop secret back to the terminal', () => {
     messageFrom(() => parseCode(code.split('-').slice(0, 4).join('-'))),
     // An extra word.
     messageFrom(() => parseCode(code + '-agent')),
-    // A v1 six-word code.
-    messageFrom(() => resolveCode('acid-acorn-acre-acts-afar-agent'))
+    // Six words, all from the list: an opaque refusal, which must not
+    // echo them either.
+    messageFrom(() => resolveCode(code + '-agent'))
   ]
 
   for (const message of messages) {
@@ -520,11 +496,14 @@ test('an opaque code is canonicalised, so the PAKE can actually use it', () => {
 
 test('code generation draws on the whole word list without favoring its start', (t) => {
   // A smoke test for sampling bias, not a proof of uniformity. It exists
-  // because 1295 is not a power of two: reducing random bytes modulo 1295
+  // because 7772 is not a power of two: reducing random bytes modulo 7772
   // would skew draws toward the front of the list, and that is the mistake
   // this would catch. generateCode uses crypto.randomInt, which rejection
   // samples instead.
-  const draws = 20000
+  //
+  // 100k draws, because coverage is the other assertion: at 20k draws over
+  // 7772 words only ~92% of the list is expected to appear at all.
+  const draws = 100000
   const counts = new Map()
   let indexSum = 0
   for (let i = 0; i < draws / WORD_COUNT; i++) {
@@ -537,12 +516,14 @@ test('code generation draws on the whole word list without favoring its start', 
   const coverage = counts.size / WORDS.length
   assert.ok(coverage > 0.99, `only ${(coverage * 100).toFixed(1)}% of the list was drawn`)
 
-  // Expected mean index is (1295-1)/2 = 647. The standard error over 20k
-  // draws is ~2.6, so a +/-40 band is far too wide to flake but still
-  // catches a front-loading bias.
+  // Expected mean index is (7772-1)/2 = 3885.5. The standard error over
+  // 100k draws is ~7.1 (7772/sqrt(12), over sqrt(100k)), so a +/-40 band
+  // is more than five standard errors -- far too wide to flake -- and still
+  // catches the bias this is for: reducing a 16-bit value modulo 7772
+  // would pull the mean down to ~3772.
   const meanIndex = indexSum / draws
-  t.diagnostic(`mean word index ${meanIndex.toFixed(1)} (expected ~647), coverage ${(coverage * 100).toFixed(1)}%`)
-  assert.ok(Math.abs(meanIndex - 647) < 40, `mean index was ${meanIndex.toFixed(1)}`)
+  t.diagnostic(`mean word index ${meanIndex.toFixed(1)} (expected ~3885.5), coverage ${(coverage * 100).toFixed(1)}%`)
+  assert.ok(Math.abs(meanIndex - 3885.5) < 40, `mean index was ${meanIndex.toFixed(1)}`)
 })
 
 test('the code.js CLI prints a code, its payload, its topic and a scannable symbol', async () => {
