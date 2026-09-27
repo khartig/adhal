@@ -117,7 +117,7 @@ test('a sealed frame reveals neither its type nor its body, and each one differs
   assert.deepEqual(receiver.frames, { sent: 0n, received: 2n })
 })
 
-test('the frame length prefix stays outside the seal so a frame can be bounded first', () => {
+test('the frame length prefix stays outside the ciphertext so a frame can be bounded first', () => {
   const { sender } = pair()
   const body = Buffer.from('x'.repeat(100), 'utf8')
   const frame = sender.seal(TYPE_CHUNK, body)
@@ -126,6 +126,43 @@ test('the frame length prefix stays outside the seal so a frame can be bounded f
   // absurd declared length before buffering toward it.
   assert.equal(frame.readUInt32BE(0), TAG_SIZE + body.length + AEAD_TAG_SIZE)
   assert.equal(frame.length, HEADER_SIZE + TAG_SIZE + body.length + AEAD_TAG_SIZE)
+})
+
+test('the length prefix is bound into the tag as associated data, and nothing else is', () => {
+  // THE CONSTRUCTION, rebuilt with node:crypto instead of trusted. Every
+  // other test here would pass whether or not the header is associated
+  // data: a rewritten length re-delimits the stream, so the frame fails to
+  // open either way. What only this test can tell apart is the exact
+  // construction section 5 specifies --
+  //
+  //   AEAD(k_s2r, nonce 0, [type][body], aad = [4-byte BE length])
+  //
+  // -- from its two nearest wrong versions: no associated data (the pre-W15a
+  // wire) and associated data that is something other than the header.
+  const { receiver, sender } = pair()
+  const body = Buffer.from('bound', 'utf8')
+  const plaintext = Buffer.concat([Buffer.from([TYPE_CHUNK]), body])
+  const header = Buffer.alloc(HEADER_SIZE)
+  header.writeUInt32BE(plaintext.length + AEAD_TAG_SIZE, 0)
+  const nonce0 = Buffer.alloc(12)
+
+  /** @param {Buffer | null} aad */
+  const sealBy = (aad) => {
+    const cipher = crypto.createCipheriv('chacha20-poly1305', K_S2R, nonce0, { authTagLength: AEAD_TAG_SIZE })
+    if (aad) cipher.setAAD(aad)
+    return Buffer.concat([header, cipher.update(plaintext), cipher.final(), cipher.getAuthTag()])
+  }
+
+  // Byte-identical to what the channel produces for its first frame.
+  assert.deepEqual(sender.seal(TYPE_CHUNK, body), sealBy(header))
+
+  // And the receiver holds the peer to it. Each attempt gets a fresh
+  // channel, because the first failed open is terminal.
+  const fresh = () => pair().receiver
+  assert.throws(() => fresh().push(sealBy(null)), /failed to authenticate/, 'no associated data: the pre-W15a wire')
+  assert.throws(() => fresh().push(sealBy(Buffer.alloc(HEADER_SIZE))), /failed to authenticate/, 'associated data that is not the header')
+  assert.doesNotThrow(() => receiver.push(sealBy(header)))
+  assert.deepEqual(receiver.frames, { sent: 0n, received: 1n })
 })
 
 test('a tampered authenticator is refused', () => {
@@ -155,11 +192,11 @@ test('a tampered ciphertext is refused', () => {
   assert.throws(() => receiver.push(frame), /failed to authenticate/)
 })
 
-test('a tampered length prefix is refused, because it is outside the seal', () => {
-  // The honest consequence of section 5's choice: the length is NOT bound
-  // into the tag, so this is the case that proves it still cannot be used
-  // to smuggle anything -- the frame it delimits has to open, and a
-  // re-delimited frame does not.
+test('a tampered length prefix is refused', () => {
+  // The length is authenticated as associated data (see the test above),
+  // and a rewritten one also re-delimits the stream, so the frame it points
+  // at fails to open on both counts. Kept as a negative vector because it is
+  // the attack a reader of the frame layout thinks of first.
   const { receiver, sender } = pair()
   const frame = sender.seal(TYPE_CHUNK, Buffer.from('payload-of-known-length', 'utf8'))
 

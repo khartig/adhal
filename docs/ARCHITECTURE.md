@@ -307,7 +307,8 @@ them were live bugs.
 > *inside* a ChaCha20-Poly1305 seal keyed from the PAKE transcript
 > (`engine/src/channel.js`, [`PROTOCOL.md`](PROTOCOL.md) §3.4 and §5).
 > Only the length prefix is still in the clear, so it can be bounded
-> before buffering. `transfer.js` has no unsealed mode.
+> before buffering, and it is authenticated as the seal's associated
+> data. `transfer.js` has no unsealed mode.
 
 ```
 frame   = [4-byte BE length][payload]      <- engine/src/frame.js

@@ -2,14 +2,14 @@
 
 const crypto = require('node:crypto')
 const { TransferError } = require('./errors')
-const { encodeFrame, FrameDecoder, DEFAULT_MAX_FRAME_SIZE } = require('./frame')
+const { FrameDecoder, HEADER_SIZE, DEFAULT_MAX_FRAME_SIZE } = require('./frame')
 const { decodeMessage, TAG_SIZE } = require('./message')
 
 // The v2 AEAD channel (PROTOCOL.md sections 3.4 and 5). Every frame after
 // the handshake is sealed:
 //
 //   frame  = [4-byte BE length][sealed]
-//   sealed = AEAD(k_dir, nonce, [1-byte type][body])
+//   sealed = AEAD(k_dir, nonce, [1-byte type][body], aad = [4-byte BE length])
 //
 // WHY THIS EXISTS AT ALL, given that Noise is already underneath. Not for
 // secrecy -- Hyperswarm's NoiseSecretStream already provides that. It is so
@@ -26,20 +26,25 @@ const { decodeMessage, TAG_SIZE } = require('./message')
 // keys. It shipped a commit earlier tested and unused, following
 // ./cpace.js's precedent, and that gap is now closed.
 
-// The length prefix is OUTSIDE the seal, deliberately, and section 5 is
-// explicit about why: the decoder has to be able to reject an absurd
+// The length prefix is OUTSIDE the ciphertext, deliberately, and section 5
+// is explicit about why: the decoder has to be able to reject an absurd
 // declared length before buffering toward it. A declared length is four
 // untrusted bytes, and a peer announcing 0xFFFFFFFF would otherwise make
-// the decoder accumulate toward 4 GB. The cost is that the length is
-// unauthenticated -- a flipped bit there is caught as a failed open (or as
-// a length that does not match the frame that follows), not as a bad tag,
-// which is why the tampered-length case has its own test.
+// the decoder accumulate toward 4 GB.
 //
-// And it is why there is NO AAD: section 5 specifies
-// AEAD(k_dir, nonce, [type][body]) with no associated-data slot, so the
-// length prefix is not bound into the tag. Recorded as a spec-faithful
-// choice rather than an oversight. The length is still not forgeable into
-// anything useful, because the frame it delimits must still open.
+// BUT IT IS INSIDE THE TAG, as associated data. Outside the ciphertext so
+// it can be read first; bound by the authenticator so that no byte on the
+// wire after the handshake is unauthenticated. Before W15a it was neither
+// encrypted nor authenticated, and the argument for that was that a
+// rewritten length re-delimits the stream so the frame it points at cannot
+// open anyway. True, but it made the channel's integrity a property of the
+// framing rather than of the AEAD, and "every byte is authenticated" is a
+// claim a reviewer can check in one line where the other took a paragraph.
+//
+// The receiver never trusts a length it has not already used: FrameDecoder
+// consumed exactly `sealed.length` bytes after the header, so the header
+// it read is rebuilt from that length in _open rather than threaded
+// through. The two are the same four bytes by construction.
 
 // ChaCha20-Poly1305's Poly1305 authenticator. Node ships the cipher with a
 // 16-byte tag (verified in getCiphers/authTagLength on the Node 24 this was
@@ -146,6 +151,18 @@ class Nonces {
   }
 }
 
+// The frame header, which is also the associated data: the sealed length,
+// 4 bytes big-endian, exactly as ./frame.js writes and reads it.
+/**
+ * @param {number} sealedLength
+ * @returns {Buffer}
+ */
+function lengthHeader (sealedLength) {
+  const header = Buffer.allocUnsafe(HEADER_SIZE)
+  header.writeUInt32BE(sealedLength, 0)
+  return header
+}
+
 /**
  * @param {Buffer} key
  * @param {string} what
@@ -250,11 +267,15 @@ class Channel {
     plaintext[0] = type
     body.copy(plaintext, TAG_SIZE)
 
+    // The length is known before sealing -- ChaCha20 adds no padding, only
+    // the authenticator -- so the header can be bound into the tag it
+    // precedes.
+    const header = lengthHeader(plaintext.length + AEAD_TAG_SIZE)
     const cipher = crypto.createCipheriv('chacha20-poly1305', this._sendKey, this._out.next(), {
       authTagLength: AEAD_TAG_SIZE
     })
-    const sealed = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()])
-    return encodeFrame(sealed)
+    cipher.setAAD(header)
+    return Buffer.concat([header, cipher.update(plaintext), cipher.final(), cipher.getAuthTag()])
   }
 
   /**
@@ -306,6 +327,7 @@ class Channel {
     const decipher = crypto.createDecipheriv('chacha20-poly1305', this._receiveKey, this._in.next(), {
       authTagLength: AEAD_TAG_SIZE
     })
+    decipher.setAAD(lengthHeader(sealed.length))
     decipher.setAuthTag(sealed.subarray(tagAt))
 
     let plaintext
@@ -317,10 +339,10 @@ class Channel {
     } catch (err) {
       this._failed = true
       // EVERY WAY THIS FAILS LOOKS THE SAME FROM HERE, AND THAT IS
-      // CORRECT. A flipped bit, a truncated frame, a frame replayed or
-      // reordered (the counter no longer matches), a frame sealed in the
-      // other direction, and a deliberate forgery are one event: the
-      // authenticator did not verify. The message says so without
+      // CORRECT. A flipped bit, a truncated frame, a rewritten length, a
+      // frame replayed or reordered (the counter no longer matches), a
+      // frame sealed in the other direction, and a deliberate forgery are
+      // one event: the authenticator did not verify. The message says so without
       // guessing which, because guessing wrong is worse than not saying --
       // and because a peer that can choose between those outcomes must not
       // learn which one it achieved.
@@ -359,7 +381,7 @@ class Channel {
       // under UDX/Noise (reliable and ordered) there is no benign reason
       // to need one.
       throw protocolError(
-        'a frame failed to authenticate: it was altered, truncated, replayed, ' +
+        'a frame failed to authenticate: it or its length was altered, or it was truncated, replayed, ' +
         'reordered, or sealed for the other direction. The channel is keyed by ' +
         'the PAKE transcript, so this cannot be a wrong-code failure -- the ' +
         'handshake would not have completed',

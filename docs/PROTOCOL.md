@@ -325,9 +325,16 @@ The full derivation, including `mac_key`, is in §3.2; it is repeated here
 only for the reader who arrives at the channel first.
 
 Separate keys per direction, nonces counting from zero and never reused
-within a drop. Every frame after the handshake is sealed. This replaces
-today's raw framing; the length prefix stays outside the ciphertext so the
-decoder can still bound a frame before buffering it (§5).
+within a drop. Every frame after the handshake is sealed, and its length
+prefix is bound into the tag as associated data. The length stays outside
+the ciphertext so the decoder can still bound a frame before buffering it
+(§5).
+
+The nonce is 12 bytes: four zero bytes, then the direction's frame counter
+as an 8-byte big-endian integer. Each direction's counter starts at 0 for
+the first frame sealed under that direction's key, advances by one per
+frame, and is never reset or shared. A connection that re-runs the
+handshake gets new keys and new counters; nothing carries across.
 
 ---
 
@@ -555,14 +562,33 @@ a second implementation has to match:
 ## 5. Framing
 
 ```
-frame = [4-byte BE length][sealed payload]
-sealed payload = AEAD(k_dir, nonce, [1-byte type][body])
+frame  = [4-byte BE length][sealed]
+sealed = AEAD(k_dir, nonce, plaintext = [1-byte type][body],
+                            aad       = [4-byte BE length])
 ```
 
-The length prefix is outside the seal so the decoder can reject an absurd
-declared length before buffering toward it. A declared length is four
-untrusted bytes; without a bound, a peer announcing `0xFFFFFFFF` makes the
-decoder buffer toward 4 GB.
+`length` is the byte length of `sealed`: the type byte, the body and the
+16-byte authenticator. The same four bytes are written as the frame header
+and passed as the AEAD's associated data.
+
+The length prefix is outside the ciphertext so the decoder can reject an
+absurd declared length before buffering toward it. A declared length is
+four untrusted bytes; without a bound, a peer announcing `0xFFFFFFFF` makes
+the decoder buffer toward 4 GB. A frame whose declared length exceeds the
+cap is refused before any of it is buffered.
+
+It is inside the tag so that no byte after the handshake is
+unauthenticated. A receiver passes, as associated data, the header of the
+frame it is opening — equivalently, the 4-byte big-endian encoding of the
+length it just used to delimit that frame. A frame whose length was
+rewritten therefore fails to authenticate, which is the same single event
+as every other tampering case: the channel does not report which part was
+altered.
+
+*Amended in W15a.* The length was previously outside the ciphertext and
+outside the tag, on the argument that a rewritten length re-delimits the
+stream so the frame cannot open anyway. That argument held, but it made
+the channel's integrity depend on the framing rather than on the AEAD.
 
 **The frame budget must account for every term.** v1 got this wrong in a
 way worth recording: `MAX_CHUNK_SIZE` and the frame cap were both stated
@@ -576,7 +602,7 @@ every term so that the two different things called "tag" cannot be
 confused for each other again:
 
 ```
-sealed  = AEAD(k_dir, nonce, [1-byte type][body])
+sealed  = AEAD(k_dir, nonce, [1-byte type][body], aad = [4-byte BE length])
 frame   = [4-byte BE length][sealed]
 
 typeTagSize = 1        the message type byte, inside the seal

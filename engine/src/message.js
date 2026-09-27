@@ -34,7 +34,7 @@ const { TransferError } = require('./errors')
 //
 // UNDER v2 THE TAG MOVED INSIDE THE SEAL (PROTOCOL.md section 5), so the
 // tag and body are built by ./channel.js and encrypted together; only the
-// length prefix stays outside. encodeMessage below is v1's cleartext
+// length prefix stays outside the ciphertext, and it is bound into the tag. encodeMessage below is v1's cleartext
 // shape and nothing on the transfer path calls it any more. It stays for
 // the tests that pin the tag vocabulary, and as the thing a sealed frame
 // is asserted NOT to look like.
