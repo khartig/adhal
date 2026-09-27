@@ -135,7 +135,7 @@ const SAMPLE_LIMIT = 65536 - (65536 % WORDS.length)
 function codeForTrial (i) {
   const words = []
   for (let counter = 0; words.length < WORD_COUNT; counter++) {
-    const digest = crypto.createHash('sha256').update(`quay-trial:${seed}:${i}:${counter}`).digest()
+    const digest = crypto.createHash('sha256').update(`adhal-trial:${seed}:${i}:${counter}`).digest()
     for (let off = 0; off + 2 <= digest.length && words.length < WORD_COUNT; off += 2) {
       const n = digest.readUInt16BE(off)
       if (n >= SAMPLE_LIMIT) continue
@@ -188,7 +188,7 @@ function classify (err) {
 
   // FALLBACK ONLY, and documented as such. Anything reaching these
   // patterns is an error that predates the code vocabulary -- a raw
-  // socket error, or something thrown by a dependency. If a *quay* error
+  // socket error, or something thrown by a dependency. If a *ad-hal* error
   // starts landing here, the fix is to give it a code, not to add a
   // pattern.
   //
@@ -216,7 +216,7 @@ function classify (err) {
 async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
   const { topic, nameplate, secret } = resolveCode(codeForTrial(i))
   const swarm = createSwarm()
-  const outDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-trial-'))
+  const outDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-trial-'))
   const started = Date.now()
   const sinceDial = () => Math.max(0, Date.now() - dialBaselineMs)
   /** @type {any} */

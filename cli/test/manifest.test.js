@@ -20,11 +20,11 @@ const os = require('node:os')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 
-const { receiveFile, safeOutputName, encodeFrame, TYPE_MANIFEST, TYPE_CHUNK, TYPE_DECLINE } = require('@quay/engine')
+const { receiveFile, safeOutputName, encodeFrame, TYPE_MANIFEST, TYPE_CHUNK, TYPE_DECLINE } = require('@ad-hal/engine')
 const { sealedSender } = require('../test-helpers/sealed')
 
 async function tmpDir (t, label) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -91,7 +91,7 @@ test('every shape of unsafe name is refused, on both separators', () => {
   // treats a backslash as a separator on Windows and as an ordinary
   // character on POSIX, so a single basename() call would silently mean
   // different things depending on where the receiver runs.
-  const dir = path.join(os.tmpdir(), 'quay-names')
+  const dir = path.join(os.tmpdir(), 'adhal-names')
   const refused = [
     '../../pwned.bin',
     '..\\..\\pwned.bin',
@@ -124,7 +124,7 @@ test('a leading dot is a legitimate filename and is left alone', () => {
   // a name *inside* the output directory it is an ordinary file, and
   // mangling it would be the kind of helpfulness that makes a tool
   // untrustworthy.
-  const dir = path.join(os.tmpdir(), 'quay-names')
+  const dir = path.join(os.tmpdir(), 'adhal-names')
   const safe = safeOutputName(dir, '.bashrc')
   assert.equal(safe.name, '.bashrc')
   assert.equal(safe.outputPath, path.join(dir, '.bashrc'))
@@ -164,7 +164,7 @@ test('trailing dots and spaces cannot be used to smuggle a device name past the 
   // manager ever written, so it exists only to make two different names
   // look like one. That makes the evasion impossible rather than merely
   // detected, and `CON.` now normalises to `CON` before being renamed.
-  const dir = path.join(os.tmpdir(), 'quay-names')
+  const dir = path.join(os.tmpdir(), 'adhal-names')
   const win = { platform: 'win32' }
   assert.equal(safeOutputName(dir, 'CON.', win).name, '_CON')
   assert.equal(safeOutputName(dir, 'com1  ', win).name, '_com1')

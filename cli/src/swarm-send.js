@@ -10,13 +10,13 @@
 // (default "stdin"), since a pipe has no name of its own.
 //
 // The code may be five words (the drop code) in any casing or separator
-// style, or the QR payload pasted verbatim -- 'QUAY2:ACID-ACORN-...' --
+// style, or the QR payload pasted verbatim -- 'ADHAL2:ACID-ACORN-...' --
 // since that decodes to the same thing a scanner would hand a UI. See
 // engine/src/resolve-code.js for how that is distinguished from an opaque secret.
 //
-// See swarm-receive.js for the QUAY_BOOTSTRAP override.
+// See swarm-receive.js for the ADHAL_BOOTSTRAP override.
 
-const { createSwarm, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@quay/engine')
+const { createSwarm, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@ad-hal/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
@@ -24,33 +24,33 @@ const { describeError, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
 
 function parseBootstrap () {
-  const raw = process.env.QUAY_BOOTSTRAP
+  const raw = process.env.ADHAL_BOOTSTRAP
   return raw ? JSON.parse(raw) : undefined
 }
 
 // See swarm-receive.js for why the public-DHT default is this generous.
 function joinTimeout () {
-  const raw = process.env.QUAY_JOIN_TIMEOUT
+  const raw = process.env.ADHAL_JOIN_TIMEOUT
   if (!raw) return 120000
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new TypeError(`QUAY_JOIN_TIMEOUT must be a non-negative number, got ${raw}`)
+    throw new TypeError(`ADHAL_JOIN_TIMEOUT must be a non-negative number, got ${raw}`)
   }
   return parsed
 }
 
-// QUAY_REFRESH_INTERVAL overrides how often we re-run our own DHT
+// ADHAL_REFRESH_INTERVAL overrides how often we re-run our own DHT
 // announce/lookup, in ms (0 disables it, leaving Hyperswarm's internal
 // 10-minute schedule). See engine/src/swarm.js REFRESH_INTERVAL: the 4s
 // default is validated only for two peers on one machine, and on a
 // cross-ISP path a continuous re-announce is a suspect for churning
 // holepunch relay state.
 function refreshInterval () {
-  const raw = process.env.QUAY_REFRESH_INTERVAL
+  const raw = process.env.ADHAL_REFRESH_INTERVAL
   if (raw === undefined) return undefined
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new TypeError(`QUAY_REFRESH_INTERVAL must be a non-negative number, got ${raw}`)
+    throw new TypeError(`ADHAL_REFRESH_INTERVAL must be a non-negative number, got ${raw}`)
   }
   return parsed
 }

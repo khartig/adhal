@@ -1,5 +1,5 @@
 {
-  "name": "quay",
+  "name": "ad-hal",
   "version": "0.1.0",
   "private": true,
   "description": "Anonymous, one-shot peer-to-peer file drop. No account, no intermediary server unless relaying.",
@@ -9,12 +9,12 @@
   },
   "packageManager": "pnpm@12.4.1",
   "scripts": {
-    "test": "pnpm --filter @quay/cli test",
+    "test": "pnpm --filter @ad-hal/cli test",
     "typecheck": "tsc --noEmit",
     "demo:loopback": "node cli/src/demo-loopback.js",
     "demo:swarm": "node cli/src/demo-swarm.js",
     "code": "node cli/src/code.js",
-    "test:fast": "QUAY_FAST=1 pnpm --filter @quay/cli test"
+    "test:fast": "ADHAL_FAST=1 pnpm --filter @ad-hal/cli test"
   },
   "devDependencies": {
     "@types/node": "^26.5.1",

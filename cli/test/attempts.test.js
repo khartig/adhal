@@ -41,7 +41,7 @@ const {
   MessageReader,
   ERR_CONFIRMATION,
   LENGTH_PREFIX_SIZE
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { describeError } = require('../src/report')
 const { slow } = require('../test-helpers/tiers')
 

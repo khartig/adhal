@@ -8,7 +8,7 @@
 //        code.js <code>       re-render an existing code (verifies it too)
 //        code.js --payload    print only the QR payload string, no symbol
 //
-// QUAY_QR_WIDE=1 switches to full-block rendering for console fonts
+// ADHAL_QR_WIDE=1 switches to full-block rendering for console fonts
 // lacking the half-block glyphs; NO_COLOR drops the ANSI colors.
 
 const {
@@ -21,7 +21,7 @@ const {
   SECRET_ENTROPY_BITS,
   NAMEPLATE_WORDS,
   SECRET_WORDS
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { printQr } = require('./qr')
 
 function main () {

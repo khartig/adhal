@@ -21,7 +21,7 @@
 // this project's own measurement harness once classified failures by
 // regex-matching prose.
 
-const { displayName } = require('@quay/engine')
+const { displayName } = require('@ad-hal/engine')
 
 /** @param {any} err */
 function isLocalCancellation (err) {
@@ -83,9 +83,9 @@ function describeError (err) {
 
     case 'ERR_SIZE_MISMATCH':
       // A stream declares no size, so what it can overrun is this
-      // receiver's own limit (QUAY_MAX_SIZE), not a promise.
+      // receiver's own limit (ADHAL_MAX_SIZE), not a promise.
       if (typeof err.limit === 'number') {
-        return `FAILED: the stream passed this receiver's ${err.limit}-byte limit, so it was stopped and nothing was saved. The sender was told. Set QUAY_MAX_SIZE higher to take it.`
+        return `FAILED: the stream passed this receiver's ${err.limit}-byte limit, so it was stopped and nothing was saved. The sender was told. Set ADHAL_MAX_SIZE higher to take it.`
       }
       return `FAILED: the transfer did not match the size its manifest declared (${err.bytes} bytes against ${err.size}). Nothing was saved.`
 

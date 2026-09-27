@@ -28,7 +28,7 @@ const {
   sanitizeReason,
   TYPE_MANIFEST,
   TYPE_CHUNK
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 
 // Collects whole payloads out of a decoder, so each test asserts on
 // message boundaries rather than on byte counts.

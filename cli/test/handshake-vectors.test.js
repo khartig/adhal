@@ -44,7 +44,7 @@ const {
   deriveAll,
   encodeCaps,
   VERSION
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 
 const hex = (b) => Buffer.from(b).toString('hex')
 const utf8 = (s) => Buffer.from(s, 'utf8')
@@ -68,29 +68,29 @@ const V = {
   capsR: ['resume', 'stream'],
   capsS: ['resume'],
 
-  CI: '07717561792d76320a616369642d61636f726e',
+  CI: '08616468616c2d76320a616369642d61636f726e',
   ADa: '01020d726573756d652c73747265616d',
   ADb: '010206726573756d65',
 
-  generator: '64616807323f979e5113b0d881e5fc2d0007ab6bebdba5bfbb04b11352d1776c',
-  Ya: 'd4ca811e0738c042ec1800c2e9c340d88e23fabb7af89a5fd9279dead829a051',
-  Yb: 'e3bd4d606be04b52e808cd6a2564e9343e649f09c92c21aa3d16af927ddfbc17',
-  K: 'dea9dd3ad4a5decd71a3780c748083002ea433d0f899f7e4b70b8f9791323062',
+  generator: '3f66d51dde7bc07aa5df7ac67bdf7d0e2268c2c2b10fa5f8ad8209ecf4a01e5e',
+  Ya: 'ccb6464cffda7c8bf5b93d45a427e1cdb2f2ff24d79d3519c3927e4b1dad3278',
+  Yb: 'f049a9334faad701af51e7c623949022b283ed9ad2cff47bf7d88d091badd74d',
+  K: '9f28ae742f859cc3f0a5b7be169c8fda37b95b710ae297618a444c1e5b5da260',
 
   transcript:
-    '20d4ca811e0738c042ec1800c2e9c340d88e23fabb7af89a5fd9279dead829a051' +
+    '20ccb6464cffda7c8bf5b93d45a427e1cdb2f2ff24d79d3519c3927e4b1dad3278' +
     '1001020d726573756d652c73747265616d' +
-    '20e3bd4d606be04b52e808cd6a2564e9343e649f09c92c21aa3d16af927ddfbc17' +
+    '20f049a9334faad701af51e7c623949022b283ed9ad2cff47bf7d88d091badd74d' +
     '09010206726573756d65',
 
   isk:
-    '490c7571c3c06aa61abcf57ca6a8456ee7c5fc42a7c2d33e49ffe64476ae4d3a' +
-    'c7a217dedc43eb700f35b807b763e9978967ec826369044d87a9f453c3c9bdd4',
-  macKey: '92d7b6131b7c2a3ea027156d9b48a09ca86f5428afc54124f0452c34fd32e148',
-  confirmS: '0e8b228a4471b5fa83d03abe1eb15f34eaafd4287fdc696ab947f98a4d8af423',
-  confirmR: '657b1be7f2327b8e854e135d0691f3475607c65edb564be7eed860316e4dd84c',
-  kR2S: '89b67d235a0f92ed854efe45ede308c6c0831b6e48dc1be12559e38c3a8defe8',
-  kS2R: '9f081c6dd73e008a1c9c70b6bd42bad353ede9e83d8dcfd54e84db97a4ca95f4'
+    '320f6a65b98eee54d72f2cdf1fc6b8660dc26f5fbfadc5398c42e147d5072e28' +
+    '6762f364ed0721fa6a6b186b8aa30abecd4038e69e1027d503b786d2e9b07bc9',
+  macKey: 'c6813562f9907995851fc9d9be77f1990f1bb80b3f77b6bf93ef2146693ea0c9',
+  confirmS: '22cb2fc85b8b54f002b21074511bcc3145b626a0fd95239e0987cc90d7d798ca',
+  confirmR: '8fab90ca833c0b7a1ce505de7cc606d6b372184880cc001c4c65a0d8db56b1a1',
+  kR2S: '51e9b3ddb369969aeee47ce5bd83bc51000bc595fd8687f0fb8520d75d4d9c79',
+  kS2R: '168c8c60f9aa185b2726810c82d15423cdffe752c4fff4d9ab703574588adf35'
 }
 
 const SID = Buffer.from(V.sid, 'hex')
@@ -125,7 +125,7 @@ test('the capability encodings and associated data match the vector', () => {
   // strings, which is what catches a label typo -- the pinned hex alone
   // would not tell you the label had changed, only that something had.
   assert.equal(hex(channelIdentifier(V.nameplate)), V.CI)
-  assert.equal(hex(lv(utf8('quay-v2'), utf8(V.nameplate))), V.CI)
+  assert.equal(hex(lv(utf8('adhal-v2'), utf8(V.nameplate))), V.CI)
 
   assert.equal(hex(associatedData(capsR)), V.ADa)
   assert.equal(hex(lv(Buffer.from([VERSION]), capsR)), V.ADa)
@@ -227,28 +227,28 @@ test('the same derivations, recomputed with node:crypto over hand-built bytes', 
   const iskAgain = crypto.createHash('sha512').update(iskInput).digest()
   assert.equal(hex(iskAgain), V.isk, 'ISK via node:crypto SHA-512')
 
-  // mac_key = HKDF-SHA256(ISK, salt=sid, info="quay-v2:mac", 32)
+  // mac_key = HKDF-SHA256(ISK, salt=sid, info="adhal-v2:mac", 32)
   const hkdf = (info) => Buffer.from(crypto.hkdfSync('sha256', iskAgain, SID, info, 32))
-  assert.equal(hex(hkdf('quay-v2:mac')), V.macKey)
-  assert.equal(hex(hkdf('quay-v2:r2s')), V.kR2S)
-  assert.equal(hex(hkdf('quay-v2:s2r')), V.kS2R)
+  assert.equal(hex(hkdf('adhal-v2:mac')), V.macKey)
+  assert.equal(hex(hkdf('adhal-v2:r2s')), V.kR2S)
+  assert.equal(hex(hkdf('adhal-v2:s2r')), V.kS2R)
 
-  // confirm* = HMAC-SHA256(mac_key, "quay-v2:confirm-?" || transcript).
+  // confirm* = HMAC-SHA256(mac_key, "adhal-v2:confirm-?" || transcript).
   // Plain concatenation of the label and the transcript, not lv_cat: the
   // labels are fixed-length and distinct, and section 3.2 writes it with
   // `||`.
   const mac = (label) => crypto
-    .createHmac('sha256', hkdf('quay-v2:mac'))
+    .createHmac('sha256', hkdf('adhal-v2:mac'))
     .update(Buffer.concat([utf8(label), transcript]))
     .digest()
-  assert.equal(hex(mac('quay-v2:confirm-s')), V.confirmS)
-  assert.equal(hex(mac('quay-v2:confirm-r')), V.confirmR)
+  assert.equal(hex(mac('adhal-v2:confirm-s')), V.confirmS)
+  assert.equal(hex(mac('adhal-v2:confirm-r')), V.confirmR)
 
   // And the salt really is the sid. An empty salt is the plausible
   // alternative and HKDF accepts it silently, so it is asserted against
   // rather than trusted.
   assert.notEqual(
-    hex(Buffer.from(crypto.hkdfSync('sha256', iskAgain, Buffer.alloc(0), 'quay-v2:mac', 32))),
+    hex(Buffer.from(crypto.hkdfSync('sha256', iskAgain, Buffer.alloc(0), 'adhal-v2:mac', 32))),
     V.macKey,
     'salt=sid must matter; if this passes, the sid is not reaching HKDF'
   )

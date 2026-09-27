@@ -16,7 +16,7 @@ const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 const createTestnet = require('hyperdht/testnet')
-const { generateCode } = require('@quay/engine')
+const { generateCode } = require('@ad-hal/engine')
 const { slow } = require('../test-helpers/tiers')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
@@ -88,9 +88,9 @@ async function attemptTransfer (t) {
     // wrong path. generateCode() is equally unique per run and exercises
     // what a user actually gets.
     const code = generateCode()
-    const env = { ...process.env, QUAY_BOOTSTRAP: bootstrapEnv }
+    const env = { ...process.env, ADHAL_BOOTSTRAP: bootstrapEnv }
 
-    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-swarm-'))
+    const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-swarm-'))
     const sourcePath = path.join(tmpDir, 'source.bin')
     const outputDir = path.join(tmpDir, 'received')
 

@@ -46,21 +46,23 @@ const SECRET_WORDS = 3
 const SEPARATOR = '-'
 
 // The QR scheme carries a format version, so a payload that changes shape
-// cannot be silently misread by a build that predates the change. v2 is
-// exactly such a change -- five words where v1 had six, and a topic derived
-// from two of them -- so the scheme moves with it. A QUAY1: payload can
-// still be *recognised*, which is what lets parseCode say "older build"
-// instead of "newer version"; see SCHEMES_BY_AGE.
-const QR_SCHEME = 'QUAY2'
+// cannot be silently misread by a build that predates the change. The
+// digit is the wire version (the HELLO version byte), and the name is the
+// protocol identifier -- ASCII, and inside QR's alphanumeric set, so the
+// prefix never pushes a payload out of the dense encoding.
+//
+// ONE SCHEME IS KNOWN, so a scheme that is not this one cannot be placed
+// as older or newer and the message does not guess. A future ADHAL3 build
+// is the first that will have an older scheme to recognise, and the place
+// to add that direction is schemeSkewMessage: telling the holder of an
+// older payload that it came from "a newer version" sends them looking
+// for an upgrade when the fix is to update the other machine.
+const QR_SCHEME = 'ADHAL2'
 
-// Every scheme this build knows about, oldest first. The list exists so
-// that an unknown scheme can be reported with a DIRECTION rather than a
-// shrug: a version we know to be older means the *peer* needs updating
-// ("redeploy both sides"), while anything unrecognised means *this* build
-// is the old one. v1 conflated them and told a QUAY1: holder their code
-// came from a newer version, which sends someone looking for an upgrade
-// that does not exist.
-const SCHEMES_BY_AGE = ['QUAY1', 'QUAY2']
+// Any payload that claims this protocol's scheme family, at any version.
+// resolve-code.js routes these to the strict parse, so a skewed payload is
+// reported by name rather than being hashed as an opaque topic.
+const SCHEME_FAMILY = /^ADHAL\d+:/i
 
 // log2(1295) per word, split the way the format splits.
 //
@@ -107,8 +109,8 @@ function generateCode () {
  * Accepted, because all of these turn up in practice when a code is read
  * off another screen:
  *
- *   QUAY2:ACID-ACORN-ACRE-ACTS-AFAR   (as encoded in the QR)
- *   quay2:acid-acorn-acre-acts-afar
+ *   ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR   (as encoded in the QR)
+ *   adhal2:acid-acorn-acre-acts-afar
  *   acid-acorn-acre-acts-afar
  *   Acid Acorn Acre Acts Afar          (pasted from a chat client)
  *   acid_acorn.acre acts--afar         (mangled separators)
@@ -167,25 +169,16 @@ function parseCode (input) {
   return words.join(SEPARATOR)
 }
 
-// Which way the version skew points, and it is the one thing this message
-// has to get right. Telling the holder of an older payload that their code
-// is from "a newer version" is worse than saying nothing: it sends them
-// looking for an upgrade when the fix is to update the *other* machine.
+// Names the skew without guessing its direction; see QR_SCHEME for why
+// there is no direction to report yet.
 /**
  * @param {string} found the scheme found, uppercased
  * @returns {string}
  */
 function schemeSkewMessage (found) {
-  const known = SCHEMES_BY_AGE.indexOf(found)
-  const mine = SCHEMES_BY_AGE.indexOf(QR_SCHEME)
-  if (known !== -1 && known < mine) {
-    return `code format "${found}:" is older than this build reads (${QR_SCHEME}:) -- ` +
-      'it was created by a build from before the v2 wire change. Redeploy both ' +
-      'sides to the same version; the code itself cannot be converted, because ' +
-      'v2 derives its topic from only part of it'
-  }
-  return `unrecognized code format "${found}:" -- this code may have been ` +
-    `created by a newer version of Quay (this build reads ${QR_SCHEME}:)`
+  return `unrecognized code format "${found}:" -- this build reads ${QR_SCHEME}: ` +
+    'codes. It was created by a different version; run the same version on ' +
+    'both sides and generate a new code'
 }
 
 /**
@@ -263,7 +256,7 @@ module.exports = {
   SECRET_WORDS,
   SEPARATOR,
   QR_SCHEME,
-  SCHEMES_BY_AGE,
+  SCHEME_FAMILY,
   NAMEPLATE_ENTROPY_BITS,
   SECRET_ENTROPY_BITS
 }

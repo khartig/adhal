@@ -25,15 +25,15 @@ pnpm run demo:loopback  # runs it manually; prints both sides' output live
 
 `pnpm install` at the repo root installs dependencies for every workspace
 package declared in `pnpm-workspace.yaml` (`engine/`, `cli/`) in one pass,
-and symlinks `@quay/cli`'s `workspace:*` dependency on `@quay/engine`
+and symlinks `@ad-hal/cli`'s `workspace:*` dependency on `@ad-hal/engine`
 locally -- no publishing step needed during development.
 
 ## Project layout recap
 
-- `engine/` -- `@quay/engine`. Pure JS, no UI framework. Owns framing
+- `engine/` -- `@ad-hal/engine`. Pure JS, no UI framework. Owns framing
   (`src/frame.js`), manifest/chunking/hashing (`src/transfer.js`), and will
   own the Hyperswarm/Hyperdht join logic.
-- `cli/` -- `@quay/cli`. `src/send.js` / `src/receive.js` are the two CLI
+- `cli/` -- `@ad-hal/cli`. `src/send.js` / `src/receive.js` are the two CLI
   halves for the loopback milestone; `src/demo-loopback.js` orchestrates
   both for a manual demo; `test/` holds the automated `node:test` suite.
 - `docs/` -- the product/phasing plan, condensed architecture notes, and
@@ -86,5 +86,5 @@ Pin exact versions (per the plan's Phase A instruction) and install into
 the workspace that needs it, e.g.:
 
 ```bash
-pnpm add hypercore@11.36.1 --filter @quay/engine --save-exact
+pnpm add hypercore@11.36.1 --filter @ad-hal/engine --save-exact
 ```

@@ -1,6 +1,6 @@
 'use strict'
 
-// Streaming (PROTOCOL.md section 4.3): `tar c dir | quay send -`. A
+// Streaming (PROTOCOL.md section 4.3): `tar c dir | ad-hal-send -`. A
 // manifest with size: null and sha256: null, the chunks, and END{sha256}
 // carrying the digest the sender computed as it read.
 //
@@ -32,14 +32,14 @@ const {
   TYPE_DECLINE,
   TYPE_END,
   TYPE_RESULT
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
 
 const STREAM = ['stream']
 
 async function tmpDir (t, label) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }

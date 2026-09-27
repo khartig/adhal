@@ -96,7 +96,7 @@ cover traffic. See §7.
 ### 3.4 Re-announce traffic
 
 Both sides re-run their own DHT announce/lookup every 4 s by default
-(`QUAY_REFRESH_INTERVAL`), because Hyperswarm's own 10-minute refresh loses
+(`ADHAL_REFRESH_INTERVAL`), because Hyperswarm's own 10-minute refresh loses
 a race that measurably killed transfers. The cost is that an idle receiver
 showing a QR code emits a DHT record roughly every 4 seconds for as long
 as it waits — a louder, longer-lived signature than one announce, and more
@@ -166,7 +166,7 @@ shorter code.
 
 ```
 code   = nameplate(2 words) + secret(3 words)
-topic  = BLAKE2b("quay-v2:topic" || nameplate)     public, findable
+topic  = BLAKE2b("adhal-v2:topic" || nameplate)     public, findable
 secret -> PAKE                                     never hashed into anything public
 ```
 

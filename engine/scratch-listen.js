@@ -30,7 +30,7 @@ async function main () {
   log(await withTimeout(swarm.listen(), 30000, 'swarm.listen()'))
   log(`server relayAddresses: ${JSON.stringify(swarm.server.relayAddresses || [])}`)
 
-  const topic = require('hypercore-crypto').hash(Buffer.from('quay-listen-probe', 'utf8'))
+  const topic = require('hypercore-crypto').hash(Buffer.from('adhal-listen-probe', 'utf8'))
   const announce = swarm.dht.announce(topic, swarm.keyPair, swarm.server.relayAddresses)
   log(await withTimeout(announce.finished(), 30000, 'dht.announce()'))
 

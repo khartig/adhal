@@ -15,10 +15,10 @@ const qrcode = require('qrcode-generator')
 // smaller symbol.
 //
 // Re-measured against the vendored encoder when v2 shortened the code from
-// six words to five. The worst case went from 41 characters ('QUAY1:' plus
-// six five-letter words) to 35 ('QUAY2:' plus five), and the v1 column
-// below reproduces the table this file used to carry, which is what makes
-// the v2 column trustworthy:
+// six words to five. The worst case went from 41 characters (a 6-character
+// scheme plus six five-letter words) to 35 (a 6-character scheme plus
+// five), and the v1 column below reproduces the table this file used to
+// carry, which is what makes the v2 column trustworthy:
 //
 //   ECC   v1 alnum (41)   v1 byte   v2 alnum (35)   v2 byte
 //   L     v2 (25x25)      29x29     v2 (25x25)      29x29
@@ -123,14 +123,14 @@ function renderQr (payload, { wide = false, color = true } = {}) {
 
 /**
  * Prints the symbol to stdout, honoring two environment overrides:
- * QUAY_QR_WIDE=1 for the full-block variant, and NO_COLOR (the usual
+ * ADHAL_QR_WIDE=1 for the full-block variant, and NO_COLOR (the usual
  * convention) to drop the ANSI colors.
  *
  * @param {string} payload
  */
 function printQr (payload) {
   console.log(renderQr(payload, {
-    wide: process.env.QUAY_QR_WIDE === '1',
+    wide: process.env.ADHAL_QR_WIDE === '1',
     color: !process.env.NO_COLOR
   }))
 }

@@ -14,7 +14,7 @@
 // Not in cli/test/ for the reason duplex-pair.js gives.
 
 const crypto = require('node:crypto')
-const { Channel, TYPE_MANIFEST, TYPE_CHUNK, TYPE_ACCEPT, TYPE_DECLINE } = require('@quay/engine')
+const { Channel, TYPE_MANIFEST, TYPE_CHUNK, TYPE_ACCEPT, TYPE_DECLINE } = require('@ad-hal/engine')
 const { duplexPair } = require('./duplex-pair')
 
 /**

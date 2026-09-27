@@ -1,5 +1,5 @@
 {
-  "name": "@quay/engine",
+  "name": "@ad-hal/engine",
   "version": "0.1.0",
   "private": true,
   "description": "Transport-agnostic transfer engine: framing, manifest, chunking, hashing. Holepunch (Hyperswarm/Hyperdht) join logic lands here starting with item 2.",

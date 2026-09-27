@@ -28,7 +28,7 @@ function waitForExit (child, label) {
 async function main () {
   const sizeMb = Number(process.argv[2] || 10)
   const size = sizeMb * 1024 * 1024
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-demo-'))
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-demo-'))
   const sourcePath = path.join(tmpDir, 'demo-file.bin')
   const outputDir = path.join(tmpDir, 'received')
 

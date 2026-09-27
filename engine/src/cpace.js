@@ -42,7 +42,7 @@ const { Field } = require('@noble/curves/abstract/modular.js')
 // bit #255 set and are the pair that silently breaks any implementation
 // skipping RFC 7748's decodeUCoordinate.
 //
-// ON THE WIRE AS OF W11. ./handshake.js owns the Quay-specific parameter
+// ON THE WIRE AS OF W11. ./handshake.js owns the ad-hal-specific parameter
 // mapping -- what goes in PRS, CI, sid, ADa and ADb -- and ./swarm.js
 // runs the exchange. That mapping is the part this file deliberately does
 // not decide: everything here is the suite as the draft defines it, which

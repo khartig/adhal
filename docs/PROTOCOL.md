@@ -63,7 +63,7 @@ What forces the break:
 ```
 code   = nameplate(2 words) + secret(3 words)        5 words total
          ~20.7 bits           ~31.0 bits
-topic  = BLAKE2b-256("quay-v2:topic" || nameplate)   public, findable
+topic  = BLAKE2b-256("adhal-v2:topic" || nameplate)   public, findable
 secret -> PAKE                                       never hashed into anything public
 ```
 
@@ -82,7 +82,7 @@ entropy no longer has to defend a public hash.
 Canonical form is lowercase, hyphen-separated, nameplate first:
 
 ```
-QUAY2:ACID-ACORN-ACRE-ACTS-AFAR      <- QR payload, uppercase (alphanumeric mode)
+ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR     <- QR payload, uppercase (alphanumeric mode)
 acid-acorn-acre-acts-afar            <- shown to a human
 ^^^^^^^^^^ nameplate   ^^^^^^^^^^^^^ secret
 ```
@@ -173,7 +173,7 @@ for a reader to find.
 
 ```
 PRS = the 3-word secret, canonical form, UTF-8       e.g. "acre-acts-afar"
-CI  = lv_cat("quay-v2", nameplate)                   binds the nameplate into the generator
+CI  = lv_cat("adhal-v2", nameplate)                   binds the nameplate into the generator
 sid = 16 CSPRNG bytes, chosen by the receiver, sent in HELLO
 ADa = lv_cat(version, caps_r)                        receiver = CPace initiator (A)
 ADb = lv_cat(version, caps_s)                        sender   = CPace responder (B)
@@ -185,11 +185,11 @@ K            = scalar_mult_vfy(...)                  aborts on the neutral eleme
 transcript   = transcript_ir(Ya, ADa, Yb, ADb)
 ISK          = SHA-512( lv_cat("CPace255_ISK", sid, K) || transcript )
 
-mac_key  = HKDF-SHA256(ISK, salt=sid, info="quay-v2:mac", 32)
-confirmS = HMAC-SHA256(mac_key, "quay-v2:confirm-s" || transcript)
-confirmR = HMAC-SHA256(mac_key, "quay-v2:confirm-r" || transcript)
-k_r2s    = HKDF-SHA256(ISK, salt=sid, info="quay-v2:r2s", 32)
-k_s2r    = HKDF-SHA256(ISK, salt=sid, info="quay-v2:s2r", 32)
+mac_key  = HKDF-SHA256(ISK, salt=sid, info="adhal-v2:mac", 32)
+confirmS = HMAC-SHA256(mac_key, "adhal-v2:confirm-s" || transcript)
+confirmR = HMAC-SHA256(mac_key, "adhal-v2:confirm-r" || transcript)
+k_r2s    = HKDF-SHA256(ISK, salt=sid, info="adhal-v2:r2s", 32)
+k_s2r    = HKDF-SHA256(ISK, salt=sid, info="adhal-v2:s2r", 32)
 ```
 
 `lv_cat` is the draft's LEB128 length-prefixed concatenation. Every
@@ -285,7 +285,7 @@ factor on work that was never the bottleneck.
 So that a second implementation does not assume the draft's text where
 this spec differs:
 
-- `mac_key` is `HKDF-SHA256(ISK, salt=sid, info="quay-v2:mac", 32)`, not
+- `mac_key` is `HKDF-SHA256(ISK, salt=sid, info="adhal-v2:mac", 32)`, not
   the draft §9.4 suggestion `H.hash("CPaceMac" || sid || ISK)`. Draft
   §9.4 offers its formula as "one suitable option"; HKDF is used here
   because the same construction already produces `k_r2s`/`k_s2r` and one
@@ -317,8 +317,8 @@ load-bearing for authentication.
 The ISK derives directional keys:
 
 ```
-k_r2s = HKDF-SHA256(ISK, salt=sid, info="quay-v2:r2s", 32)
-k_s2r = HKDF-SHA256(ISK, salt=sid, info="quay-v2:s2r", 32)
+k_r2s = HKDF-SHA256(ISK, salt=sid, info="adhal-v2:r2s", 32)
+k_s2r = HKDF-SHA256(ISK, salt=sid, info="adhal-v2:s2r", 32)
 ```
 
 The full derivation, including `mac_key`, is in §3.2; it is repeated here

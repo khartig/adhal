@@ -25,12 +25,12 @@ const os = require('node:os')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 
-const { sendFile, receiveFile, TYPE_CHUNK } = require('@quay/engine')
+const { sendFile, receiveFile, TYPE_CHUNK } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedSender } = require('../test-helpers/sealed')
 
 async function tmpDir (t, label) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }

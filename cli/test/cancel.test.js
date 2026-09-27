@@ -35,7 +35,7 @@ const {
   splitCode,
   generateCode,
   TYPE_MANIFEST
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { slow } = require('../test-helpers/tiers')
 const { interrupt } = require('../test-helpers/interrupt')
 const { duplexPair } = require('../test-helpers/duplex-pair')
@@ -46,7 +46,7 @@ const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
 const SWARM_SEND = path.join(REPO_ROOT, 'cli', 'src', 'swarm-send.js')
 
 async function fixture (t, label, size = 4 * 1024 * 1024) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const sourcePath = path.join(dir, 'source.bin')
   const outputDir = path.join(dir, 'out')
@@ -362,7 +362,7 @@ test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, an
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
-  const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-sigint-'))
+  const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-sigint-'))
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }))
 
   // DELIBERATELY NOT MID-TRANSFER. Interrupting a transfer requires one
@@ -375,10 +375,10 @@ test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, an
   // Ctrl-C.
   const env = {
     ...process.env,
-    QUAY_BOOTSTRAP: JSON.stringify(testnet.bootstrap),
+    ADHAL_BOOTSTRAP: JSON.stringify(testnet.bootstrap),
     // Generous, so "it exited quickly" cannot be the join timeout firing.
-    QUAY_JOIN_TIMEOUT: '60000',
-    QUAY_NO_PROGRESS: '1',
+    ADHAL_JOIN_TIMEOUT: '60000',
+    ADHAL_NO_PROGRESS: '1',
     NO_COLOR: '1'
   }
 
@@ -548,19 +548,19 @@ test('Ctrl-C while the sender CLI looks for a peer exits promptly, cleanly, and 
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
-  const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-sigint-send-'))
+  const tmp = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-sigint-send-'))
   t.after(() => fs.rmSync(tmp, { recursive: true, force: true }))
   const sourcePath = path.join(tmp, 'source.bin')
   await fs.promises.writeFile(sourcePath, crypto.randomBytes(1024))
 
   const env = {
     ...process.env,
-    QUAY_BOOTSTRAP: JSON.stringify(testnet.bootstrap),
+    ADHAL_BOOTSTRAP: JSON.stringify(testnet.bootstrap),
     // Generous, so "it exited quickly" cannot be the join timeout firing.
     // This is the whole test: with the signal ignored, the process sits
     // here for the full minute.
-    QUAY_JOIN_TIMEOUT: '60000',
-    QUAY_NO_PROGRESS: '1',
+    ADHAL_JOIN_TIMEOUT: '60000',
+    ADHAL_NO_PROGRESS: '1',
     NO_COLOR: '1'
   }
 

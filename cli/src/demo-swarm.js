@@ -4,7 +4,7 @@
 // Human-facing demo of the Hyperswarm milestone:
 // "Same CLI over Hyperswarm on one LAN." Unlike the automated test, this
 // uses the real public Hyperswarm/hyperdht bootstrap nodes (no
-// QUAY_BOOTSTRAP override), so it needs internet access and demonstrates
+// ADHAL_BOOTSTRAP override), so it needs internet access and demonstrates
 // genuine topic-based discovery + Noise-encrypted hole-punching, not just
 // an isolated local testnet. Run with: npm run demo:swarm [sizeInMb]
 
@@ -14,7 +14,7 @@ const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 
-const { generateCode, encodeQrPayload } = require('@quay/engine')
+const { generateCode, encodeQrPayload } = require('@ad-hal/engine')
 const { printQr } = require('./qr')
 
 const RECEIVE_SCRIPT = path.join(__dirname, 'swarm-receive.js')
@@ -55,7 +55,7 @@ async function main () {
   // code.test.js, which is the right place for a path that voids v2's
   // central property -- see resolveCode.)
   const code = generateCode()
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-swarm-demo-'))
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-swarm-demo-'))
   const sourcePath = path.join(tmpDir, 'demo-file.bin')
   const outputDir = path.join(tmpDir, 'received')
 

@@ -2,7 +2,7 @@
 
 // Getting the drop code into the process without leaving it lying around.
 //
-// THE LEAK. `quay-send acid-acorn-acre-acts-afar bigfile.zip` puts the
+// THE LEAK. `ad-hal-send acid-acorn-acre-acts-afar bigfile.zip` puts the
 // code in two places nobody thinks about: the shell's history file, where
 // it persists indefinitely, and the process table, where `ps` shows it to
 // every other user on the machine for as long as the drop runs. The code
@@ -98,7 +98,7 @@ function promptForCode (promptText) {
  */
 async function readCode ({ argvCode, label, promptText = 'drop code: ', warn = (line) => process.stderr.write(`${line}\n`) }) {
   // `-` is the long-standing convention for "read it from stdin", and it
-  // is the form that composes: `pass show drop | quay-send - file.zip`.
+  // is the form that composes: `pass show drop | ad-hal-send - file.zip`.
   if (argvCode === '-' || argvCode === '--code-stdin') {
     const line = await promptForCode(promptText)
     return line.trim()

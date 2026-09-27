@@ -100,7 +100,7 @@ $signature = @'
 [DllImport("kernel32.dll", SetLastError = true)] public static extern bool GenerateConsoleCtrlEvent(uint dwCtrlEvent, uint dwProcessGroupId);
 [DllImport("kernel32.dll", SetLastError = true)] public static extern uint GetConsoleProcessList(uint[] lpdwProcessList, uint dwProcessCount);
 '@
-$k32 = Add-Type -MemberDefinition $signature -Name 'QuayCtrl' -Namespace 'Quay' -PassThru
+$k32 = Add-Type -MemberDefinition $signature -Name 'AdhalCtrl' -Namespace 'Adhal' -PassThru
 
 # A process can be attached to at most one console, so drop whatever we
 # inherited before borrowing the child's.

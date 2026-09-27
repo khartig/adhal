@@ -11,18 +11,18 @@ const {
   ELEMENT_SIZE
 } = require('./cpace')
 
-// The v2 handshake: CPace over the wire, and the Quay-specific parameter
+// The v2 handshake: CPace over the wire, and the ad-hal-specific parameter
 // mapping PROTOCOL.md section 3.2 specifies.
 //
 // This module owns that mapping and nothing else. Every field and group
 // operation comes from ./cpace.js, which is checked against the CFRG
 // vectors; the curve arithmetic is @noble/curves, which is audited. What
-// is decided here is which Quay value goes into which CPace input -- the
+// is decided here is which ad-hal value goes into which CPace input -- the
 // only genuinely novel piece of v2's handshake, and therefore the part
 // worth stating in full.
 //
 //   PRS = the 3-word secret, canonical form, UTF-8    e.g. "acre-acts-afar"
-//   CI  = lv_cat("quay-v2", nameplate)                binds the rendezvous
+//   CI  = lv_cat("adhal-v2", nameplate)                binds the rendezvous
 //   sid = 16 CSPRNG bytes, chosen by the receiver, sent in HELLO
 //   ADa = lv_cat(version, caps_r)                     receiver = initiator (A)
 //   ADb = lv_cat(version, caps_s)                     sender   = responder (B)
@@ -100,12 +100,12 @@ const KNOWN_CAPS = ['resume', 'stream']
 // The domain-separation labels. Every one is distinct and every one is
 // prefixed with the wire version, so no hash or KDF input from v2 can be
 // replayed into a later version's context.
-const CI_LABEL = 'quay-v2'
-const MAC_INFO = 'quay-v2:mac'
-const R2S_INFO = 'quay-v2:r2s'
-const S2R_INFO = 'quay-v2:s2r'
-const CONFIRM_S_LABEL = 'quay-v2:confirm-s'
-const CONFIRM_R_LABEL = 'quay-v2:confirm-r'
+const CI_LABEL = 'adhal-v2'
+const MAC_INFO = 'adhal-v2:mac'
+const R2S_INFO = 'adhal-v2:r2s'
+const S2R_INFO = 'adhal-v2:s2r'
+const CONFIRM_S_LABEL = 'adhal-v2:confirm-s'
+const CONFIRM_R_LABEL = 'adhal-v2:confirm-r'
 
 // Message sizes. The length prefix is 2 bytes big-endian and counts the
 // body that follows it.

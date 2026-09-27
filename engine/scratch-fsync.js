@@ -85,7 +85,7 @@ function describeFilesystem () {
 
 function main () {
   fs.mkdirSync(dir, { recursive: true })
-  const file = path.join(dir, `quay-fsync-${process.pid}.tmp`)
+  const file = path.join(dir, `adhal-fsync-${process.pid}.tmp`)
   const chunk = crypto.randomBytes(chunkSize)
 
   console.log(`fsync cost on ${dir}`)

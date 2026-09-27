@@ -35,7 +35,7 @@ const {
   encodeMessage,
   DEFAULT_MAX_FRAME_SIZE,
   HEADER_SIZE
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 
 // Stand-ins for the two directional keys the handshake derives (k_r2s and
 // k_s2r). Fixed rather than random so a failure is reproducible.

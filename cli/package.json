@@ -1,23 +1,23 @@
 {
-  "name": "@quay/cli",
+  "name": "@ad-hal/cli",
   "version": "0.1.0",
   "private": true,
-  "description": "Command-line send/receive proof of concept for the Quay transfer engine.",
+  "description": "Command-line send/receive proof of concept for the ad-hal transfer engine.",
   "license": "MIT",
   "bin": {
-    "quay-send": "src/send.js",
-    "quay-receive": "src/receive.js",
-    "quay-code": "src/code.js"
+    "ad-hal-send": "src/send.js",
+    "ad-hal-receive": "src/receive.js",
+    "ad-hal-code": "src/code.js"
   },
   "engines": {
     "node": ">=24"
   },
   "scripts": {
     "test": "node --test",
-    "test:fast": "QUAY_FAST=1 node --test"
+    "test:fast": "ADHAL_FAST=1 node --test"
   },
   "dependencies": {
-    "@quay/engine": "workspace:*",
+    "@ad-hal/engine": "workspace:*",
     "qrcode-generator": "2.0.4"
   },
   "devDependencies": {

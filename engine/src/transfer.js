@@ -420,7 +420,7 @@ async function sendFile (socket, filePath, options = /** @type {any} */ ({})) {
 }
 
 // Streams `readable` to the receiver as one file of unknown length
-// (PROTOCOL.md section 4.3): `tar c dir | quay send -`. The manifest says
+// (PROTOCOL.md section 4.3): `tar c dir | ad-hal-send -`. The manifest says
 // size: null and sha256: null, the digest is computed while reading, and
 // END{sha256} carries it once `readable` ends. Everything else -- the
 // offer, the accept gate, RESULT -- is sendFile's, because it is the same

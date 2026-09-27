@@ -19,7 +19,7 @@
 const net = require('net')
 const path = require('path')
 const fs = require('fs')
-const { receiveFile, acceptStream, generateCode, resolveCode } = require('@quay/engine')
+const { receiveFile, acceptStream, generateCode, resolveCode } = require('@ad-hal/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')

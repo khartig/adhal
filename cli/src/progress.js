@@ -74,7 +74,7 @@ function percentOf (bytes, total) {
 function createProgressReporter ({ label, stream = process.stdout, env = process.env, now = Date.now }) {
   // An escape hatch that costs nothing to honour and saves anyone piping
   // this into a log from having to filter it.
-  if (env.QUAY_NO_PROGRESS === '1') {
+  if (env.ADHAL_NO_PROGRESS === '1') {
     return { onProgress: () => {}, close: () => {} }
   }
 

@@ -177,9 +177,9 @@ async function runOnce ({ chunkSize, canceller, filePath, outDir }) {
 }
 
 async function main () {
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'quay-cancel-'))
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'adhal-cancel-'))
   const filePath = path.join(tmp, 'payload.bin')
-  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'quay-cancel-out-'))
+  const outDir = fs.mkdtempSync(path.join(os.tmpdir(), 'adhal-cancel-out-'))
   fs.writeFileSync(filePath, crypto.randomBytes(fileSize))
 
   console.log(`cancel latency over a real loopback TCP socket`)

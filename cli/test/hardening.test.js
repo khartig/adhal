@@ -26,11 +26,11 @@ const {
   displayName,
   TYPE_CHUNK,
   DEFAULT_MAX_SIZE
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { sealedSender } = require('../test-helpers/sealed')
 
 async function tmpDir (t, label) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -72,7 +72,7 @@ test('a name carrying terminal control or bidi characters is refused', () => {
   // ACCEPTED UNCHANGED before Stage 0 -- verified by running the probe,
   // not inferred: newline, ESC, BEL and the RLO override each landed on
   // disk and in the log exactly as the peer wrote them.
-  const dir = path.join(os.tmpdir(), 'quay-hostile-names')
+  const dir = path.join(os.tmpdir(), 'adhal-hostile-names')
   const refused = [
     ['evil\nverified: ok', 'forges a second log line'],
     ['a\u001b[2Jb', 'ESC: clears the terminal'],
@@ -109,7 +109,7 @@ test('characters that are illegal or dangerous in a filename are transformed, no
   // Linux -- and killing a whole transfer over one punctuation mark is
   // hostile. `foo:stream` is the one that matters: on NTFS that is an
   // alternate data stream, not a file called `foo:stream`.
-  const dir = path.join(os.tmpdir(), 'quay-hostile-names')
+  const dir = path.join(os.tmpdir(), 'adhal-hostile-names')
   assert.equal(safeOutputName(dir, 'foo:stream').name, 'foo_stream')
   assert.equal(safeOutputName(dir, 'a<b>c|d?e*f"g').name, 'a_b_c_d_e_f_g')
 

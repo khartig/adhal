@@ -16,13 +16,13 @@
 // engine/src/resolve-code.js for why both are accepted, how they are told
 // apart, and why an opaque one voids v2's central property.
 //
-// QUAY_BOOTSTRAP=<json bootstrap array> overrides the DHT bootstrap nodes
+// ADHAL_BOOTSTRAP=<json bootstrap array> overrides the DHT bootstrap nodes
 // -- used by the automated test to run against an isolated local testnet
 // instead of the public DHT.
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, displayName } = require('@quay/engine')
+const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, displayName } = require('@ad-hal/engine')
 
 const { printQr } = require('./qr')
 const { readCode } = require('./read-code')
@@ -31,11 +31,11 @@ const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
 
 function parseBootstrap () {
-  const raw = process.env.QUAY_BOOTSTRAP
+  const raw = process.env.ADHAL_BOOTSTRAP
   return raw ? JSON.parse(raw) : undefined
 }
 
-// QUAY_JOIN_TIMEOUT overrides how long we wait for a peer, in ms (0
+// ADHAL_JOIN_TIMEOUT overrides how long we wait for a peer, in ms (0
 // disables the timeout). 30s is deliberate: on the public DHT a join that
 // is going to work lands in ~5-7s, and one that has hit the
 // lookup-before-announce race described in engine/src/swarm.js never
@@ -43,26 +43,26 @@ function parseBootstrap () {
 // zero stuck runs. So a longer default just makes failures slower to
 // report. The override exists for diagnosing slow networks.
 function joinTimeout () {
-  const raw = process.env.QUAY_JOIN_TIMEOUT
+  const raw = process.env.ADHAL_JOIN_TIMEOUT
   if (!raw) return 30000
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new TypeError(`QUAY_JOIN_TIMEOUT must be a non-negative number, got ${raw}`)
+    throw new TypeError(`ADHAL_JOIN_TIMEOUT must be a non-negative number, got ${raw}`)
   }
   return parsed
 }
 
-// QUAY_MAX_SIZE overrides the largest transfer this receiver will accept,
+// ADHAL_MAX_SIZE overrides the largest transfer this receiver will accept,
 // in bytes. `0` means no limit at all and has to be written down, because
 // with no cap a manifest declaring 9 PB validates cleanly and the only
 // thing standing between the receiver and that number is the free-space
 // check. The engine's own default (8 GiB) applies when this is unset.
 function maxSize () {
-  const raw = process.env.QUAY_MAX_SIZE
+  const raw = process.env.ADHAL_MAX_SIZE
   if (raw === undefined) return undefined
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new TypeError(`QUAY_MAX_SIZE must be a non-negative number, got ${raw}`)
+    throw new TypeError(`ADHAL_MAX_SIZE must be a non-negative number, got ${raw}`)
   }
   return parsed === 0 ? null : parsed
 }
@@ -100,18 +100,18 @@ function parseArgs (argv) {
   return { codeArg: positional[0] || null, outputDirArg: positional[1], ...common }
 }
 
-// QUAY_REFRESH_INTERVAL overrides how often we re-run our own DHT
+// ADHAL_REFRESH_INTERVAL overrides how often we re-run our own DHT
 // announce/lookup, in ms (0 disables it, leaving Hyperswarm's internal
 // 10-minute schedule). See engine/src/swarm.js REFRESH_INTERVAL: the 4s
 // default is validated only for two peers on one machine, and on a
 // cross-ISP path a continuous re-announce is a suspect for churning
 // holepunch relay state.
 function refreshInterval () {
-  const raw = process.env.QUAY_REFRESH_INTERVAL
+  const raw = process.env.ADHAL_REFRESH_INTERVAL
   if (raw === undefined) return undefined
   const parsed = Number(raw)
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new TypeError(`QUAY_REFRESH_INTERVAL must be a non-negative number, got ${raw}`)
+    throw new TypeError(`ADHAL_REFRESH_INTERVAL must be a non-negative number, got ${raw}`)
   }
   return parsed
 }

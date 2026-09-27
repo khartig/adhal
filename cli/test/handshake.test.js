@@ -42,7 +42,7 @@ const {
   generateCode,
   sendFile,
   receiveFile,
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { slow } = require('../test-helpers/tiers')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
@@ -99,7 +99,7 @@ test('a peer that connects and vanishes without proving itself does not consume 
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-handshake-'))
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-handshake-'))
   t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
 
   const sourcePath = path.join(tmpDir, 'source.bin')
@@ -195,13 +195,13 @@ test('the receiver CLI reports a dropped candidate and keeps waiting', slow, asy
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-handshake-cli-'))
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-handshake-cli-'))
   t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
 
   const env = {
     ...process.env,
-    QUAY_BOOTSTRAP: JSON.stringify(testnet.bootstrap),
-    QUAY_JOIN_TIMEOUT: '60000',
+    ADHAL_BOOTSTRAP: JSON.stringify(testnet.bootstrap),
+    ADHAL_JOIN_TIMEOUT: '60000',
     NO_COLOR: '1'
   }
 

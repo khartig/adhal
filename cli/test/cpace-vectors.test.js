@@ -32,7 +32,7 @@
 // skips the clear passes every other vector in this file and fails these
 // two, which is precisely why the draft ships them.
 //
-// Imported by path rather than from '@quay/engine': cpace.js is not part
+// Imported by path rather than from '@ad-hal/engine': cpace.js is not part
 // of the engine's public surface yet. W11 is what puts it on the wire
 // (PROTOCOL.md section 3); W10 only had to prove it reproduces.
 
@@ -53,7 +53,7 @@ const {
   S_IN_BYTES,
   SCALAR_SIZE,
   ISK_SIZE
-} = require('@quay/engine/src/cpace')
+} = require('@ad-hal/engine/src/cpace')
 
 const hex = (/** @type {Buffer|Uint8Array} */ b) => Buffer.from(b).toString('hex')
 const h = (/** @type {string} */ s) => Buffer.from(s, 'hex')
@@ -287,7 +287,7 @@ test('a different password derives a different generator', () => {
 
 test('sid and CI are bound into the generator, not merely carried alongside', () => {
   const otherSid = calculateGenerator(PRS, CI, h('00'.repeat(16)))
-  const otherCI = calculateGenerator(PRS, utf8('quay-v2'), SID)
+  const otherCI = calculateGenerator(PRS, utf8('adhal-v2'), SID)
   assert.notEqual(hex(otherSid), EXPECTED.generator,
     'a replayed sid must not reproduce a previous session generator')
   assert.notEqual(hex(otherCI), EXPECTED.generator,

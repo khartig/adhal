@@ -33,12 +33,12 @@ const {
   TYPE_CHUNK,
   TYPE_ACCEPT,
   TYPE_RESULT
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
 
 async function fixture (t, label, size = 256 * 1024) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const sourcePath = path.join(dir, 'source.bin')
   const outputDir = path.join(dir, 'out')

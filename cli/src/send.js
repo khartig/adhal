@@ -13,7 +13,7 @@
 // runs, over plain TCP; see receive.js for why.
 
 const net = require('net')
-const { sendFile, sendStream, connectStream, resolveCode } = require('@quay/engine')
+const { sendFile, sendStream, connectStream, resolveCode } = require('@ad-hal/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')

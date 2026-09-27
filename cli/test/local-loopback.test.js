@@ -69,7 +69,7 @@ function waitForExit (child) {
 }
 
 test('two local processes transfer a 10 MB file over a loopback TCP pipe and agree on the SHA-256', slow, async (t) => {
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-loopback-'))
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-loopback-'))
   const sourcePath = path.join(tmpDir, 'source.bin')
   const outputDir = path.join(tmpDir, 'received')
 
@@ -117,7 +117,7 @@ test('a pipe streams through the CLI: send.js <port> <code> - offers it with no 
   // handshake's negotiated caps reaching both transfer halves: the unit
   // tests hand `caps` in themselves, so only a real handshake proves the
   // CLIs pass along what it actually agreed.
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-loopback-stream-'))
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-loopback-stream-'))
   const outputDir = path.join(tmpDir, 'received')
   t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }) })
 
@@ -150,7 +150,7 @@ test('a transfer killed partway resumes under a new code: the receiver keeps its
   // or the partial is discarded and the second drop starts from zero.
   // SIGKILL rather than SIGINT, because a crash sends no CANCEL -- and a
   // cancel, by design, would discard the partial.
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-loopback-resume-'))
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-loopback-resume-'))
   const sourcePath = path.join(tmpDir, 'source.bin')
   const outputDir = path.join(tmpDir, 'received')
   t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }) })

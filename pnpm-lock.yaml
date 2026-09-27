@@ -175,7 +175,7 @@ importers:
 
   cli:
     dependencies:
-      '@quay/engine':
+      '@ad-hal/engine':
         specifier: workspace:*
         version: link:../engine
       qrcode-generator:

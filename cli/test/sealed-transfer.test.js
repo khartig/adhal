@@ -30,12 +30,12 @@ const {
   splitCode,
   MAX_CHUNK_SIZE,
   ERR_CONFIRMATION
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys } = require('../test-helpers/sealed')
 
 async function fixture (t, label, body = crypto.randomBytes(256 * 1024), name = 'source.bin') {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const sourcePath = path.join(dir, name)
   const outputDir = path.join(dir, 'out')
@@ -60,7 +60,7 @@ test('sendFile refuses to start without channel keys, before touching the file',
 
   // A path that does not exist: if the keys were checked after the stat,
   // this would reject with ENOENT and say nothing about the real mistake.
-  const outcome = await settle(sendFile(txSocket, '/nonexistent/quay-no-such-file', /** @type {any} */ ({})))
+  const outcome = await settle(sendFile(txSocket, '/nonexistent/adhal-no-such-file', /** @type {any} */ ({})))
   assert.equal(outcome.ok, false)
   assert.ok(outcome.error instanceof TypeError, `expected a TypeError, got ${outcome.error}`)
   assert.match(outcome.error.message, /sendKey and receiveKey are required/)
@@ -96,7 +96,7 @@ test('nothing about the file is legible on the wire, in either direction', async
   // manifest as JSON in the clear -- name, size, digest -- and every chunk
   // verbatim; Noise hid that from the network, but not from anything that
   // sat between Noise and this code, which a relay would.
-  const marker = Buffer.from('QUAY-PLAINTEXT-MARKER-', 'utf8')
+  const marker = Buffer.from('ADHAL-PLAINTEXT-MARKER-', 'utf8')
   const body = Buffer.concat(Array.from({ length: 2000 }, () => marker))
   const name = 'distinctive-secret-report-name.pdf'
   const { sourcePath, outputDir, sha256 } = await fixture(t, 'sealed-wire', body, name)

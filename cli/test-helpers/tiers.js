@@ -10,7 +10,7 @@
 // security-critical code through a two-minute loop is how mistakes get
 // made: people batch changes, and batched changes are harder to bisect.
 //
-// So `QUAY_FAST=1` skips the network/subprocess tier. It is opt-in for
+// So `ADHAL_FAST=1` skips the network/subprocess tier. It is opt-in for
 // speed, never for CI: `pnpm test` still runs everything, and the CI
 // workflow runs the fast tier first only so an obvious break is reported
 // in seconds rather than minutes.
@@ -23,11 +23,11 @@
 // would put two halves of one argument in two files. Marking the slow
 // half is cheaper and keeps the reasoning together.
 
-const FAST_ONLY = process.env.QUAY_FAST === '1'
+const FAST_ONLY = process.env.ADHAL_FAST === '1'
 
 // Spread into node:test's options slot: test('name', slow, fn).
 const slow = FAST_ONLY
-  ? { skip: 'slow tier: needs a DHT testnet or a child process (unset QUAY_FAST to run it)' }
+  ? { skip: 'slow tier: needs a DHT testnet or a child process (unset ADHAL_FAST to run it)' }
   : {}
 
 module.exports = { slow, FAST_ONLY }

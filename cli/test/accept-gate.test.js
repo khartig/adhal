@@ -36,13 +36,13 @@ const {
   TYPE_DECLINE,
   TYPE_CHECKPOINT,
   TYPE_RESULT
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
 const { describeError } = require('../src/report')
 
 async function fixture (t, label, size = 256 * 1024) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(async () => {
     await fs.promises.chmod(dir, 0o755).catch(() => {})
     fs.rmSync(dir, { recursive: true, force: true })

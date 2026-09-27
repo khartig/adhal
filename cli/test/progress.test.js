@@ -24,7 +24,7 @@ const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 
-const { sendFile, receiveFile } = require('@quay/engine')
+const { sendFile, receiveFile } = require('@ad-hal/engine')
 const { slow } = require('../test-helpers/tiers')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys } = require('../test-helpers/sealed')
@@ -35,7 +35,7 @@ const RECEIVE_SCRIPT = path.join(REPO_ROOT, 'cli', 'src', 'receive.js')
 const SEND_SCRIPT = path.join(REPO_ROOT, 'cli', 'src', 'send.js')
 
 async function tmpDir (t, label) {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `quay-${label}-`))
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   return dir
 }
@@ -176,9 +176,9 @@ test('a stream of unknown length gets a running count on a TTY and nothing off o
   assert.equal(/NaN|null/.test(tty.text), false, 'no total must never render as NaN or null')
 })
 
-test('QUAY_NO_PROGRESS=1 silences it completely', () => {
+test('ADHAL_NO_PROGRESS=1 silences it completely', () => {
   const stream = fakeStream(true)
-  const reporter = createProgressReporter({ label: 'send', stream, env: { QUAY_NO_PROGRESS: '1' } })
+  const reporter = createProgressReporter({ label: 'send', stream, env: { ADHAL_NO_PROGRESS: '1' } })
   reporter.onProgress({ bytes: 0, total: 10 })
   reporter.onProgress({ bytes: 10, total: 10 })
   reporter.close()

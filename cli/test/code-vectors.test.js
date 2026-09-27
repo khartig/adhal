@@ -9,7 +9,7 @@
 // self-consistency, which is worth having and is not conformance: a module
 // that is wrong in the same way twice passes all of it.
 //
-// The values below are fixed. They are the first of the Quay-specific
+// The values below are fixed. They are the first of the ad-hal-specific
 // vectors PROTOCOL.md section 11 requires, and their job is different in
 // two ways:
 //
@@ -35,7 +35,7 @@
 //   - the hash is BLAKE2b-256, checked against the PUBLISHED digest of
 //     "abc". That value is external to this repo, so it is evidence and
 //     not a pin.
-//   - the input is "quay-v2:topic" || nameplate, literal, no separator,
+//   - the input is "adhal-v2:topic" || nameplate, literal, no separator,
 //     checked by building that byte string here and hashing it directly
 //     instead of calling topicFromNameplate.
 //
@@ -54,7 +54,7 @@ const {
   blake2b256,
   encodeQrPayload,
   TOPIC_PREFIX
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 
 // BLAKE2b-256 of "abc", from the BLAKE2 reference vectors. Not computed
 // here and not chosen by this project: it is the external check that the
@@ -66,7 +66,7 @@ const BLAKE2B_256_OF_ABC =
   'bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319'
 
 // Each vector: what a human or a camera might supply, and everything that
-// must fall out of it. `topic` is BLAKE2b-256("quay-v2:topic" || nameplate),
+// must fall out of it. `topic` is BLAKE2b-256("adhal-v2:topic" || nameplate),
 // hex.
 const VECTORS = [
   {
@@ -77,20 +77,20 @@ const VECTORS = [
     code: 'acid-acorn-acre-acts-afar',
     nameplate: 'acid-acorn',
     secret: 'acre-acts-afar',
-    topic: '669135557607867e917a482bbf3ab47c5ab04704335897b5d36b8dd924df062e',
-    payload: 'QUAY2:ACID-ACORN-ACRE-ACTS-AFAR'
+    topic: 'd6f1423db950f2573d0a5db14f43a2e377099bd2acb38cc2c239552fafcdceb8',
+    payload: 'ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR'
   },
   {
     // The scanned form of the vector above. It must land on the same topic
     // and the same secret, or scanning and typing are two paths rather than
     // one -- which is the decision the QR payload exists to make provable.
     what: 'the same code as a scanned QR payload',
-    input: 'QUAY2:ACID-ACORN-ACRE-ACTS-AFAR',
+    input: 'ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR',
     code: 'acid-acorn-acre-acts-afar',
     nameplate: 'acid-acorn',
     secret: 'acre-acts-afar',
-    topic: '669135557607867e917a482bbf3ab47c5ab04704335897b5d36b8dd924df062e',
-    payload: 'QUAY2:ACID-ACORN-ACRE-ACTS-AFAR'
+    topic: 'd6f1423db950f2573d0a5db14f43a2e377099bd2acb38cc2c239552fafcdceb8',
+    payload: 'ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR'
   },
   {
     // Mangled separators and mixed case, which is what a code read off
@@ -100,8 +100,8 @@ const VECTORS = [
     code: 'acid-acorn-acre-acts-afar',
     nameplate: 'acid-acorn',
     secret: 'acre-acts-afar',
-    topic: '669135557607867e917a482bbf3ab47c5ab04704335897b5d36b8dd924df062e',
-    payload: 'QUAY2:ACID-ACORN-ACRE-ACTS-AFAR'
+    topic: 'd6f1423db950f2573d0a5db14f43a2e377099bd2acb38cc2c239552fafcdceb8',
+    payload: 'ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR'
   },
   {
     // The tail of the list, for the same reason.
@@ -110,8 +110,8 @@ const VECTORS = [
     code: 'zero-zesty-zippy-zone-zoom',
     nameplate: 'zero-zesty',
     secret: 'zippy-zone-zoom',
-    topic: 'fc4f05da06c6a5ea21dde01571b3fb2119bea11ca6ab527bfcbc6460e41868a4',
-    payload: 'QUAY2:ZERO-ZESTY-ZIPPY-ZONE-ZOOM'
+    topic: '81df9e2b52944e117a5eab83f0aaeea8a3eb4079e4c8ec1a0a168d8ff91da84d',
+    payload: 'ADHAL2:ZERO-ZESTY-ZIPPY-ZONE-ZOOM'
   },
   {
     // Five five-letter words: the longest payload the generator can emit,
@@ -121,8 +121,8 @@ const VECTORS = [
     code: 'acorn-affix-agent-agile-aging',
     nameplate: 'acorn-affix',
     secret: 'agent-agile-aging',
-    topic: '84e462ea42409fbca548dc0691d05ecb60a87d13753d3849c7f64b941e06aa67',
-    payload: 'QUAY2:ACORN-AFFIX-AGENT-AGILE-AGING'
+    topic: '944e50f3d68e755bed43dc38fec0bdd52ed9fed527dd89a835a0cf9a0f068d6c',
+    payload: 'ADHAL2:ACORN-AFFIX-AGENT-AGILE-AGING'
   },
   {
     // A repeated word is a legitimate draw (see generateCode), and it is
@@ -133,8 +133,8 @@ const VECTORS = [
     code: 'acid-acid-acid-acid-acid',
     nameplate: 'acid-acid',
     secret: 'acid-acid-acid',
-    topic: '39239af28c8cec8f2bbef8c413a46e65153551a421e83faeb5f139a0eb09aa16',
-    payload: 'QUAY2:ACID-ACID-ACID-ACID-ACID'
+    topic: 'cd07125af48f5e3340008b1ac0abe53d9b89dcc321e317e1c8e126aab16f5d73',
+    payload: 'ADHAL2:ACID-ACID-ACID-ACID-ACID'
   }
 ]
 
@@ -185,7 +185,7 @@ test('each vector topic is the hash of the spec byte string, built explicitly', 
   // is v1's behaviour and it is what v2 exists to stop.
   for (const v of VECTORS) {
     const built = Buffer.concat([
-      Buffer.from('quay-v2:topic', 'utf8'),
+      Buffer.from('adhal-v2:topic', 'utf8'),
       Buffer.from(v.nameplate, 'utf8')
     ])
     assert.equal(blake2b256(built).toString('hex'), v.topic, `explicit byte string for ${v.what}`)
@@ -198,13 +198,13 @@ test('each vector topic is the hash of the spec byte string, built explicitly', 
 
   // And the prefix the engine uses really is that string, so the two
   // computations are not agreeing by coincidence over a different constant.
-  assert.equal(TOPIC_PREFIX, 'quay-v2:topic')
+  assert.equal(TOPIC_PREFIX, 'adhal-v2:topic')
 
   // The secret must not be reachable from the topic, stated as the
   // negative it is: hashing the whole code gives a different digest, so no
   // vector's topic commits to its secret.
   for (const v of VECTORS) {
-    const wholeCode = blake2b256(Buffer.from(`quay-v2:topic${v.code}`, 'utf8')).toString('hex')
+    const wholeCode = blake2b256(Buffer.from(`adhal-v2:topic${v.code}`, 'utf8')).toString('hex')
     assert.notEqual(wholeCode, v.topic, `the topic must not commit to the whole code (${v.what})`)
   }
 })

@@ -164,7 +164,7 @@ comments for detail):
   box on Comcast (<host B> firewalled) in ~9s. Re-verified for the
   drop code with the two-way handshake: a generated word code, QR shown on
   announce, 10 MB matching SHA-256 on both sides, at both
-  `QUAY_REFRESH_INTERVAL=4000` and `30000`.
+  `ADHAL_REFRESH_INTERVAL=4000` and `30000`.
 - **Measured reliability on that path, 2026-09-17** (`scratch-trials.js`,
   10 trials x 10 MB, `refresh=4000`, public DHT, both hosts firewalled):
 
@@ -458,7 +458,7 @@ whether its consumer is a 10 Hz bar, a test or a log. Presentation lives in
 `cli/src/progress.js` -- an in-place bar on a TTY, whole lines at fixed 25%
 milestones otherwise (milestones rather than a timer, so the line count is
 not load-sensitive and tests asserting on it are not flaky).
-`QUAY_NO_PROGRESS=1` silences it.
+`ADHAL_NO_PROGRESS=1` silences it.
 
 **The sender's number is what it handed to the transport, not what the
 receiver stored.** A sender's bar can legitimately read 100% while the
@@ -649,7 +649,7 @@ plain modulo would skew draws toward the front of the list).
 **QR payload: the typed code and nothing else**, as a versioned URI.
 
 ```
-QUAY2:ACID-ACORN-ACRE-ACTS-AFAR      <- in the QR, at most 35 chars
+ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR     <- in the QR, at most 35 chars
 acid-acorn-acre-acts-afar            <- shown to a human
 ```
 
@@ -657,12 +657,12 @@ Scanning and typing are therefore provably the same code path rather than
 two paths to test. Embedding the sender's public key would let a scanner
 `joinPeer()` directly and skip the topic lookup entirely -- attractive
 given the announce-propagation race below -- but that is LAN-discovery work (Stage 3), and
-the `QUAY2` version prefix is what buys the room to add it without a format
-break. An unknown scheme is reported with a **direction**: a version this
-build knows to be older (`QUAY1:`) says "redeploy both sides", and anything
-unrecognized says "newer version". v1 conflated the two and told a `QUAY1:`
-holder their code came from a newer version, which sends someone looking
-for an upgrade that does not exist.
+the `ADHAL2` version prefix is what buys the room to add it without a format
+break. Any other scheme is reported as an unrecognized format with the
+fix that works either way -- the same version on both sides and a new
+code. With one known scheme there is no direction to report, and guessing
+"newer" for an older payload sends someone looking for an upgrade that
+does not exist.
 
 Two details are load-bearing rather than cosmetic:
 
@@ -719,7 +719,7 @@ remove. `engine/src/resolve-code.js` says so in those words at the call
 site, because the code looks identical to the word-code path and every
 module downstream behaves the same way.
 
-`cli/src/code.js` (`quay-code`) prints a code, its two halves, its payload,
+`cli/src/code.js` (`ad-hal-code`) prints a code, its two halves, its payload,
 its topic and the symbol -- the drop code's screenshottable artifact, and the quickest way to
 get a topic argument for `engine/scratch-lookup.js`.
 
@@ -786,7 +786,7 @@ The mapping (`PROTOCOL.md` §3.2) is the only genuinely novel piece:
 ```
 PRS = the 3-word secret, canonical, UTF-8     not the nameplate, not the
                                               QR payload's uppercase
-CI  = lv_cat("quay-v2", nameplate)            binds the rendezvous
+CI  = lv_cat("adhal-v2", nameplate)            binds the rendezvous
 sid = 16 CSPRNG bytes, per connection
 ADa = lv_cat(version, caps_r)                 receiver = initiator
 ADb = lv_cat(version, caps_s)                 sender   = responder

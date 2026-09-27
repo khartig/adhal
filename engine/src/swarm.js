@@ -15,7 +15,7 @@ const { AttemptCap, sidReusedError, ERR_SID_REUSED } = require('./attempts')
 //   sender   -> receiver: REPLY  [len][Yb][confirmS][caps_s]
 //   receiver -> sender:  CONFIRM [confirmR]                    (32 bytes)
 //
-// where the derivation is CPACE-X25519-SHA512 under the Quay parameter
+// where the derivation is CPACE-X25519-SHA512 under the ad-hal parameter
 // mapping in ./handshake.js, which carries the reasoning for every part of
 // that construction -- including the four things PROTOCOL.md section 3.2
 // says an implementation must get right, and which of them this file is
@@ -109,7 +109,7 @@ const MAX_PARALLEL = 16
 const HANDSHAKE_TIMEOUT_MS = 15000
 
 // engine owns all Holepunch join logic (see engine/package.json); cli/
-// only ever imports from @quay/engine, never hyperswarm/hyperdht directly.
+// only ever imports from @ad-hal/engine, never hyperswarm/hyperdht directly.
 // `bootstrap` lets tests point at an isolated hyperdht testnet (see
 // hyperdht/testnet) instead of the public DHT. Plain client nodes should
 // NOT force `ephemeral: false` -- per hyperdht's own isolated-network
@@ -187,7 +187,7 @@ function createSwarm ({ bootstrap, maxParallel = MAX_PARALLEL } = {}) {
 // firewalled NATs across ISPs it is a live suspect for a punch that fails
 // silently on both sides.
 //
-// QUAY_REFRESH_INTERVAL exists to test that without editing code: set it
+// ADHAL_REFRESH_INTERVAL exists to test that without editing code: set it
 // to 30000 to match scratch-serve.js (which is observed to accept
 // cross-ISP connections), or 0 to fall back to Hyperswarm's own 10-minute
 // schedule. Do not change this default until there is cross-ISP evidence

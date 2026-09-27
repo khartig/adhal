@@ -64,7 +64,7 @@ const {
   LENGTH_PREFIX_SIZE,
   HELLO_FIXED,
   ELEMENT_SIZE
-} = require('@quay/engine')
+} = require('@ad-hal/engine')
 const { slow } = require('../test-helpers/tiers')
 
 // Runs both halves of the handshake against each other in memory, feeding
@@ -254,7 +254,7 @@ test('ya, yb and sid are per connection, never per drop', () => {
 })
 
 test('the same secret with a different nameplate derives different keys', () => {
-  // CI = lv_cat("quay-v2", nameplate), so the nameplate is bound into the
+  // CI = lv_cat("adhal-v2", nameplate), so the nameplate is bound into the
   // generator. Without that, two drops sharing a secret would be
   // interchangeable -- and a nameplate is public, so an attacker could
   // move a captured transcript between rendezvous points.
@@ -624,7 +624,7 @@ test('a peer with the nameplate but not the secret is rejected, and the receiver
   const testnet = await createTestnet(3)
   t.after(() => testnet.destroy())
 
-  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'quay-pake-'))
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-pake-'))
   t.after(() => fs.rmSync(tmpDir, { recursive: true, force: true }))
 
   const sourcePath = path.join(tmpDir, 'source.bin')

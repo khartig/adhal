@@ -4,10 +4,10 @@ const crypto = require('hypercore-crypto')
 
 // The Hyperswarm topic, per PROTOCOL.md section 2:
 //
-//   topic = BLAKE2b-256("quay-v2:topic" || nameplate)
+//   topic = BLAKE2b-256("adhal-v2:topic" || nameplate)
 //
 // WHAT CHANGED FROM v1, AND WHY IT IS THE POINT OF v2. v1 hashed the whole
-// code: topic = hash("quay-v1:" || code). A receiver must announce its
+// code: topic = hash(v1 prefix || code). A receiver must announce its
 // topic on the DHT to be findable at all -- engine/scratch-lookup.js walks
 // the DHT and reads exactly that -- so v1's announce published a
 // commitment to the entire code, and an attacker holding it could grind
@@ -27,15 +27,15 @@ const crypto = require('hypercore-crypto')
 // The one caller that deliberately does this is the opaque-code path in
 // ./resolve-code.js, which says so in those words and is gated behind
 // --unsafe-opaque.
-const TOPIC_PREFIX = 'quay-v2:topic'
+const TOPIC_PREFIX = 'adhal-v2:topic'
 
 // `hypercore-crypto.hash` is BLAKE2b-256 -- checked against the published
 // digest of "abc" (bddd813c...52319) rather than assumed from the name, so
 // section 2's derivation needs no new dependency.
 //
 // The prefix is concatenated with no separator, per section 2's
-// literal `"quay-v2:topic" || nameplate`. The byte string for the nameplate
-// 'acid-acorn' is therefore "quay-v2:topicacid-acorn". That is unambiguous
+// literal `"adhal-v2:topic" || nameplate`. The byte string for the nameplate
+// 'acid-acorn' is therefore "adhal-v2:topicacid-acorn". That is unambiguous
 // only because the prefix is a fixed length and the word charset excludes
 // ':' -- worth stating, because "hash a prefix and a value" with a
 // variable-length prefix is how domain separation gets quietly lost.

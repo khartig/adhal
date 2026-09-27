@@ -34,10 +34,10 @@ const {
   QR_SCHEME,
   NAMEPLATE_ENTROPY_BITS,
   SECRET_ENTROPY_BITS
-} = require('@quay/engine')
-const { WORDS, INDEX } = require('@quay/engine/src/wordlist')
+} = require('@ad-hal/engine')
+const { WORDS, INDEX } = require('@ad-hal/engine/src/wordlist')
 const { renderQr, ECC_LEVEL, QUIET_ZONE } = require('../src/qr')
-const { resolveCode } = require('@quay/engine')
+const { resolveCode } = require('@ad-hal/engine')
 
 const execFileAsync = promisify(execFile)
 const CODE_SCRIPT = path.join(__dirname, '..', 'src', 'code.js')
@@ -140,7 +140,7 @@ test('every input style a code arrives in resolves to one canonical form and one
   const variants = [
     canonical,
     `${QR_SCHEME}:ACID-ACORN-ACRE-ACTS-AFAR`, // scanned QR payload
-    'quay2:acid-acorn-acre-acts-afar',
+    'adhal2:acid-acorn-acre-acts-afar',
     'ACID-ACORN-ACRE-ACTS-AFAR',
     'Acid Acorn Acre Acts Afar', // pasted out of a chat client
     '  acid   acorn acre acts afar  ',
@@ -189,12 +189,12 @@ test('the topic commits to the nameplate and to nothing else', () => {
   )
 
   // And what makes a v1/v2 collision impossible rather than merely
-  // unlikely: the domain prefix. v1 hashed 'quay-v1:' || code, v2 hashes
-  // 'quay-v2:topic' || nameplate, so the two never land on one topic and a
+  // unlikely: the domain prefix. v1 hashed 'adhal-v1:' || code, v2 hashes
+  // 'adhal-v2:topic' || nameplate, so the two never land on one topic and a
   // v1-against-v2 pairing surfaces as ERR_NO_PEER rather than as frame
   // corruption. Asserted on the constant because that is the mechanism;
   // re-deriving a v1 topic here would only test this test's own arithmetic.
-  assert.equal(TOPIC_PREFIX, 'quay-v2:topic')
+  assert.equal(TOPIC_PREFIX, 'adhal-v2:topic')
 })
 
 test('a bad code is rejected with a message that locates the problem', () => {
@@ -211,25 +211,26 @@ test('a bad code is rejected with a message that locates the problem', () => {
     /word 3 of 5, "akorn", is not in the word list/
   )
 
-  // A future payload format must be reported as such, not silently
-  // misread as words.
-  assert.throws(() => parseCode('QUAY3:ACID-ACORN-ACRE-ACTS-AFAR'), /newer version/)
-
-  // AND THE SKEW MUST POINT THE RIGHT WAY. A QUAY1: payload is from a build
-  // that predates v2, so the fix is to update the other machine -- telling
-  // its holder the code came from "a newer version" sends them looking for
-  // an upgrade that does not exist. v1 reported every unknown scheme as
-  // newer, which is the specific wrong answer this asserts against.
-  assert.throws(
-    () => parseCode('QUAY1:ACID-ACORN-ACRE-ACTS-AFAR-AGENT'),
-    (err) => {
-      const message = /** @type {Error} */ (err).message
-      assert.match(message, /older than this build/)
-      assert.match(message, /[Rr]edeploy both sides/)
-      assert.doesNotMatch(message, /newer/, 'a QUAY1 payload must never be reported as newer')
-      return true
-    }
-  )
+  // Another payload format must be reported as such, not silently misread
+  // as words.
+  //
+  // AND THE MESSAGE MUST NOT GUESS A DIRECTION. This build knows one
+  // scheme, so it cannot tell an older payload from a newer one, and
+  // claiming "newer" for an older payload sends its holder looking for an
+  // upgrade that does not exist. So it names the skew and the fix that
+  // works either way.
+  for (const other of ['ADHAL3:ACID-ACORN-ACRE-ACTS-AFAR', 'ADHAL1:ACID-ACORN-ACRE-ACTS-AFAR']) {
+    assert.throws(
+      () => parseCode(other),
+      (err) => {
+        const message = /** @type {Error} */ (err).message
+        assert.match(message, /unrecognized code format/)
+        assert.match(message, /same version on both sides/)
+        assert.doesNotMatch(message, /newer|older/, 'one known scheme cannot say which way the skew points')
+        return true
+      }
+    )
+  }
 
   for (const bad of ['', 'acid', 'one two three four five']) {
     assert.equal(isValidCode(bad), false, `${JSON.stringify(bad)} should be invalid`)
@@ -251,27 +252,26 @@ test('the QR payload is uppercase and stays inside QR alphanumeric mode', () => 
   }
 
   const longest = encodeQrPayload(LONGEST_CODE)
-  assert.equal(longest.length, 35, 'worst case is QUAY2: plus five five-letter words')
+  assert.equal(longest.length, 36, 'worst case is ADHAL2: plus five five-letter words')
 })
 
-test('every code fits a 29x29 version-3 symbol at ECC level H', () => {
+test('the worst-case code fits a 33x33 version-4 symbol at ECC level H', () => {
   // This is the property the uppercasing buys, and it is worth pinning:
-  // at ECC H the same 35-character payload needs version 5 (37x37) in byte
-  // mode. Holding the symbol at 29x29 while carrying 30% error correction
-  // is what keeps it readable by an indifferent phone camera pointed at
-  // another screen.
+  // byte mode would cost at least one more version at every length here.
   //
-  // v2's shorter code is what paid for the level: at 41 characters ECC H
-  // cost version 4 (33x33), so v1 ran at Q. At 35 it is free -- same
-  // symbol size, ~25% damage tolerance becomes ~30%. The size assertion
-  // below is unchanged from v1 for exactly that reason, and that is the
-  // point of keeping it: if the free upgrade were ever not free, this
-  // fails rather than silently growing the symbol.
+  // THE WORST CASE IS PINNED, NOT EVERY CODE. The 7-character ADHAL2:
+  // prefix put the longest payload at 36 characters, one past the 35 a
+  // version-3 symbol holds in alphanumeric mode at ECC H, so the longest
+  // codes need version 4 (33x33) and most still fit 29x29. What must not
+  // happen is a code larger than the pinned worst case, which is what a
+  // byte-mode payload or a longer separator would produce. If this
+  // assertion moves, the symbol grew, and it should move on purpose.
   assert.equal(ECC_LEVEL, 'H')
-  const codes = [LONGEST_CODE, ...Array.from({ length: 100 }, () => generateCode())]
-  for (const code of codes) {
+  const worst = matrixOf(encodeQrPayload(LONGEST_CODE)).getModuleCount()
+  assert.equal(worst, 33, `the worst-case code produced a ${worst}x${worst} symbol`)
+  for (const code of Array.from({ length: 100 }, () => generateCode())) {
     const count = matrixOf(encodeQrPayload(code)).getModuleCount()
-    assert.equal(count, 29, `code ${code} produced a ${count}x${count} symbol`)
+    assert.ok(count <= worst, `code ${code} produced a ${count}x${count} symbol, larger than the worst case`)
   }
 })
 
@@ -359,9 +359,9 @@ test('resolveCode holds a five-word-shaped input to the strict parse', () => {
   // Opaque secrets have to keep working for the engine/scratch-*.js
   // diagnostics, which take hand-typed strings -- but they are now
   // opt-in, because an opaque code is whatever the caller typed and
-  // `quay-test-3` is dictionary-attackable in a way a generated word
+  // `adhal-test-3` is dictionary-attackable in a way a generated word
   // code is not. See resolveCode.
-  for (const opaque of ['a3f9c2b18d7e4056', 'quay-test-3', 'acid-acorn']) {
+  for (const opaque of ['a3f9c2b18d7e4056', 'adhal-test-3', 'acid-acorn']) {
     const resolved = resolveCode(opaque, { allowOpaque: true })
     assert.equal(resolved.kind, 'opaque', `${opaque} should stay opaque`)
     assert.equal(resolved.code, opaque)
@@ -383,8 +383,8 @@ test('resolveCode holds a five-word-shaped input to the strict parse', () => {
 
   // Same string, same topic, regardless of which branch produced it.
   assert.equal(
-    resolveCode('quay-test-3', { allowOpaque: true }).topic.toString('hex'),
-    resolveCode('quay-test-3', { allowOpaque: true }).topic.toString('hex')
+    resolveCode('adhal-test-3', { allowOpaque: true }).topic.toString('hex'),
+    resolveCode('adhal-test-3', { allowOpaque: true }).topic.toString('hex')
   )
   assert.throws(() => resolveCode('   ', { allowOpaque: true }), /empty/)
 
@@ -392,7 +392,7 @@ test('resolveCode holds a five-word-shaped input to the strict parse', () => {
   // is the product-surface guarantee -- no CLI can emit a weak drop
   // without someone having typed --unsafe-opaque.
   assert.throws(
-    () => resolveCode('quay-test-3'),
+    () => resolveCode('adhal-test-3'),
     /--unsafe-opaque/,
     'an opaque code must be refused unless explicitly allowed'
   )
@@ -429,7 +429,7 @@ test('a v1 six-word code is named as a version skew, not waved through as opaque
   // NARROW, though: the hand-typed diagnostic secrets this repo's history
   // actually contains must still work, or the check has broken the
   // engine/scratch-*.js tools it was written to protect.
-  for (const diagnostic of ['quay-test-3', 'a3f9c2b18d7e4056', 'acid-acorn', 'trial-deadbeefdeadbeef']) {
+  for (const diagnostic of ['adhal-test-3', 'a3f9c2b18d7e4056', 'acid-acorn', 'trial-deadbeefdeadbeef']) {
     assert.equal(resolveCode(diagnostic, { allowOpaque: true }).kind, 'opaque', diagnostic)
   }
 
@@ -496,11 +496,11 @@ test('an opaque code is canonicalised, so the PAKE can actually use it', () => {
   // of the join, advising the caller about "canonical form, as splitCode
   // produces it" and naming a function that never runs on this path. A
   // documented, deliberately-supported diagnostic input was unusable.
-  const lower = resolveCode('quay-test-3', { allowOpaque: true })
-  for (const variant of ['Quay-Test-3', 'QUAY-TEST-3', '  quay-TEST-3  ']) {
+  const lower = resolveCode('adhal-test-3', { allowOpaque: true })
+  for (const variant of ['Adhal-Test-3', 'ADHAL-TEST-3', '  adhal-TEST-3  ']) {
     const resolved = resolveCode(variant, { allowOpaque: true })
     assert.equal(resolved.kind, 'opaque')
-    assert.equal(resolved.secret, 'quay-test-3', `${variant} must canonicalise`)
+    assert.equal(resolved.secret, 'adhal-test-3', `${variant} must canonicalise`)
     // Same topic, which also removes v1's footgun here: v1 hashed exactly
     // what it was given, so two machines disagreeing on case landed on
     // unrelated topics and presented as a discovery timeout.
@@ -512,7 +512,7 @@ test('an opaque code is canonicalised, so the PAKE can actually use it', () => {
   // separators would make two distinct diagnostic topics the same without
   // saying so.
   assert.throws(
-    () => resolveCode('quay test 3', { allowOpaque: true }),
+    () => resolveCode('adhal test 3', { allowOpaque: true }),
     /may not contain whitespace/
   )
 })

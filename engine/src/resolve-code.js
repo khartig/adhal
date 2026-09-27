@@ -9,7 +9,7 @@
 // two kinds of string legitimately reach those scripts. Generated five-word
 // codes are one. The other is the opaque throwaway secret -- the
 // `crypto.randomBytes(8).toString('hex')` a diagnostic might use, or a
-// hand-typed 'quay-test-3' while reproducing a network measurement -- and
+// hand-typed 'adhal-test-3' while reproducing a network measurement -- and
 // those have to keep working, because the engine/scratch-*.js diagnostics
 // and the swarm tests are built on them.
 //
@@ -21,7 +21,7 @@
 // engine/src/swarm.js, and the single most expensive class of bug to
 // misattribute in this codebase.
 
-const { parseCode, splitCode, WORD_COUNT, SCHEMES_BY_AGE } = require('./code')
+const { parseCode, splitCode, WORD_COUNT, SCHEME_FAMILY } = require('./code')
 const { INDEX } = require('./wordlist')
 const { topicFromNameplate } = require('./topic')
 
@@ -33,15 +33,14 @@ const V1_WORD_COUNT = 6
 // the strict parse and report which word is wrong, instead of quietly
 // accepting it as an opaque secret.
 //
-// Every scheme prefix we recognise counts, not just the current one: a
-// QUAY1: payload is unmistakably an attempt at a word code, and routing it
-// here is what lets parseCode report the version skew by name instead of
-// letting it fall through and be hashed as an opaque topic.
+// Any payload in this protocol's scheme family counts, not just the
+// current version: an ADHAL3: payload is unmistakably an attempt at a word
+// code, and routing it here is what lets parseCode report the version skew
+// by name instead of letting it fall through and be hashed as an opaque
+// topic.
 function looksLikeWordCode (input) {
   const trimmed = input.trim()
-  for (const scheme of SCHEMES_BY_AGE) {
-    if (new RegExp(`^${scheme}:`, 'i').test(trimmed)) return true
-  }
+  if (SCHEME_FAMILY.test(trimmed)) return true
   const tokens = trimmed.toLowerCase().split(/[\s\-_.]+/).filter(Boolean)
   return tokens.length === WORD_COUNT && tokens.every((t) => /^[a-z]+$/.test(t))
 }
@@ -50,7 +49,7 @@ function looksLikeWordCode (input) {
 //
 // NARROW ON PURPOSE. It is not enough for the token count to be wrong:
 // a hand-typed diagnostic secret can be any shape, and several in this
-// repo's history are two or three words ('quay-test-3', 'acid-acorn').
+// repo's history are two or three words ('adhal-test-3', 'acid-acorn').
 // So this asks for exactly SIX tokens that are ALL in the word list --
 // which a hand-typed string is not going to be by accident, and which a
 // v1 generated code always is.
@@ -72,7 +71,7 @@ function looksLikeV1Code (tokens) {
 //
 // A generated word code carries ~20.7 bits in its public nameplate and
 // ~31.0 in its secret. An opaque code carries whatever the caller typed,
-// and the real ones in this repo's history include `quay-test-3`.
+// and the real ones in this repo's history include `adhal-test-3`.
 //
 // They stay, because the diagnostics in engine/scratch-*.js and several
 // tests are built on being able to name a topic by hand, and removing
@@ -81,13 +80,13 @@ function looksLikeV1Code (tokens) {
 // is the actual failure mode: `swarm-send.js <whatever you typed>` used
 // to accept any string at all as a drop code, silently.
 function allowOpaqueByDefault () {
-  return process.env.QUAY_UNSAFE_OPAQUE === '1'
+  return process.env.ADHAL_UNSAFE_OPAQUE === '1'
 }
 
 /**
  * @param {string} input
  * @param {{ allowOpaque?: boolean }} [options]
- *   `allowOpaque` defaults to the QUAY_UNSAFE_OPAQUE=1 environment
+ *   `allowOpaque` defaults to the ADHAL_UNSAFE_OPAQUE=1 environment
  *   variable, so a diagnostic session can be opted in once rather than
  *   per call. The CLIs expose it as `--unsafe-opaque`.
  * @returns {{ code: string, nameplate: string, secret: string, topic: Buffer, kind: 'words' | 'opaque' }}
@@ -106,7 +105,7 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
 
   // Lowercased, not merely trimmed, and this was a real bug rather than
   // tidying. The opaque code becomes the PAKE password, and
-  // ./handshake.js requires a canonical secret -- so 'Quay-Test-3'
+  // ./handshake.js requires a canonical secret -- so 'Adhal-Test-3'
   // resolved fine here and then threw a bare TypeError out of the join
   // advising the caller about "canonical form, as splitCode produces it",
   // naming a function that never runs on this path. A documented,
@@ -114,8 +113,8 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
   // way.
   //
   // Lowercasing also removes the footgun v1 had here: v1's topicFromCode
-  // hashed exactly what it was given, so 'Quay-Test-3' on one machine and
-  // 'quay-test-3' on the other produced unrelated topics and a discovery
+  // hashed exactly what it was given, so 'Adhal-Test-3' on one machine and
+  // 'adhal-test-3' on the other produced unrelated topics and a discovery
   // timeout -- which resolve-code.js's own header calls the most
   // expensive class of bug to misattribute in this codebase. Nothing
   // regresses: every opaque code that worked before was already
@@ -157,7 +156,7 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
       'chosen: run the receiver with no argument and it will print one. ' +
       'If you meant to use an arbitrary string as a topic -- which is ' +
       'dictionary-attackable and only appropriate for diagnostics -- pass ' +
-      '--unsafe-opaque or set QUAY_UNSAFE_OPAQUE=1.'
+      '--unsafe-opaque or set ADHAL_UNSAFE_OPAQUE=1.'
     )
   }
 
@@ -170,7 +169,7 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
     throw new Error(
       'an opaque code may not contain whitespace: it is used directly as the ' +
       'PAKE secret, which must be canonical. Use hyphens instead ' +
-      '(e.g. quay-test-3).'
+      '(e.g. adhal-test-3).'
     )
   }
 
@@ -182,8 +181,8 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
   // property is deliberately voided, and it would otherwise be invisible:
   // the call looks identical to the word-code call above, and every
   // downstream module behaves the same way. An observer who scrapes this
-  // topic off the DHT holds hash("quay-v2:topic" || secret) and can grind
-  // candidates offline at full speed, which for 'quay-test-3' is instant.
+  // topic off the DHT holds hash("adhal-v2:topic" || secret) and can grind
+  // candidates offline at full speed, which for 'adhal-test-3' is instant.
   // The PAKE still runs and still works; it simply has nothing left to
   // protect, because the password is committed to in public.
   //

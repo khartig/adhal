@@ -33,7 +33,7 @@ security work that had been deferred is done (Stage 0).**
   proves it against the real public DHT, which needs outbound UDP
   reachability to Hyperswarm's bootstrap nodes -- this can time out in
   sandboxed environments that only permit TCP/HTTPS egress.
-  `QUAY_JOIN_TIMEOUT=<ms>` overrides the 30s peer-discovery timeout (0
+  `ADHAL_JOIN_TIMEOUT=<ms>` overrides the 30s peer-discovery timeout (0
   disables it) if you need a longer budget while diagnosing a slow
   network. Note that a longer budget does not help the announce-propagation
   race described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) -- that
@@ -49,11 +49,11 @@ security work that had been deferred is done (Stage 0).**
              ^^^^^^^^^^^^^^ secret, ~31.0 bits   never hashed into anything
   ```
 
-  The QR carries the same payload uppercased (`QUAY2:ACID-ACORN-...`),
+  The QR carries the same payload uppercased (`ADHAL2:ACID-ACORN-...`),
   which keeps it a 29x29 version-3 symbol -- now at ECC level H (~30%
   damage tolerance) rather than Q, because the shorter code bought the
   upgrade at the identical symbol size. `pnpm run code` prints one;
-  `quay-receive`/`swarm-receive.js` generates its own when given no code,
+  `ad-hal-receive`/`swarm-receive.js` generates its own when given no code,
   and shows the QR at the moment it becomes discoverable. See
   [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-drop-code-d1).
 - **The code is un-grindable, which is the point of the split.** A
@@ -132,8 +132,8 @@ its AEAD channel are in. See
 
 ```
 quay/
-├── engine/   @quay/engine -- transport-agnostic framing, manifest, chunking, hashing
-├── cli/      @quay/cli    -- send/receive command-line proof of concept
+├── engine/   @ad-hal/engine -- transport-agnostic framing, manifest, chunking, hashing
+├── cli/      @ad-hal/cli    -- send/receive command-line proof of concept
 └── docs/     plan, architecture, threat model, protocol spec, setup
 ```
 
@@ -177,7 +177,7 @@ node cli/src/swarm-receive.js --new ~/Downloads
 node cli/src/swarm-send.js acid-acorn-acre-acts-afar ./some-file.bin
 ```
 
-Both sides show a progress bar while the transfer runs (`QUAY_NO_PROGRESS=1`
+Both sides show a progress bar while the transfer runs (`ADHAL_NO_PROGRESS=1`
 turns it off), and Ctrl-C on either side cancels the drop deliberately: the
 other end reports a cancellation with your reason, rather than a dropped
 connection. That is true on both sides as of Stage 0 -- it had been
@@ -197,9 +197,9 @@ An existing file is never overwritten: a drop that collides with one lands
 as `name (1)` unless you pass `--replace`.
 
 The sender accepts the code in any casing or separator style, and accepts a
-scanned QR payload (`QUAY2:ACID-...`) verbatim; all of them normalize to
+scanned QR payload (`ADHAL2:ACID-...`) verbatim; all of them normalize to
 the same topic. If a word is mistyped, it says which one, before it spends
-any time on the network. `QUAY_QR_WIDE=1` switches to a double-width
+any time on the network. `ADHAL_QR_WIDE=1` switches to a double-width
 symbol for console fonts lacking the half-block glyphs, and `NO_COLOR`
 drops the ANSI colors (at the cost of relying on a light terminal
 background -- a QR only scans dark-on-light).
