@@ -132,6 +132,8 @@ async function main () {
   console.log(`[swarm-send] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
+    // Set once connectOnce resolves; see swarm-receive.js.
+    let paired = false
     const { socket, peerInfo, pending, sendKey, receiveKey, caps } = await connectOnce(swarm, topic, {
       // Proves the peer knows the drop secret before we transmit a byte of
       // the file to it. The topic alone is public once the receiver
@@ -153,10 +155,18 @@ async function main () {
       onCandidate: (info) => {
         console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., awaiting HELLO`)
       },
+      // See swarm-receive.js: after pairing, only counted failures arrive.
       onCandidateDropped: (info, reason) => {
-        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before proving (${reason}); still looking`)
+        const who = `candidate ${info.publicKey.toString('hex').slice(0, 12)}...`
+        console.log(paired
+          ? `[swarm-send] ${who} failed to prove the code during the transfer (${reason}); it counts toward this drop's attempt limit`
+          : `[swarm-send] ${who} dropped before proving (${reason}); still looking`)
+      },
+      onDropTaken: (info) => {
+        console.log(`[swarm-send] another receiver (${info.publicKey.toString('hex').slice(0, 12)}...) also has this code; it was told the drop is taken. If you gave the code to only one person, someone else has it.`)
       }
     })
+    paired = true
     console.log(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // Without a listener, a late socket-level error (e.g. after the
     // transfer completes, while tearing down) throws as an uncaught

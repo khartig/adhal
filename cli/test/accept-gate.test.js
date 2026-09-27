@@ -475,3 +475,94 @@ test('end to end: an empty file is offered, accepted and confirmed', async (t) =
   assert.equal(received.size, 0)
   assert.deepEqual(await fs.promises.readdir(outputDir), ['source.bin'])
 })
+
+// --- ERR_DROP_TAKEN: a peer that paired with someone else first -----------
+//
+// ./swarm.js keeps answering candidates after it pairs, and a late one that
+// proves the code is sent DECLINE{code: ERR_DROP_TAKEN} as the first sealed
+// frame and closed. These pin how each role hears that, and that it is
+// accepted nowhere else: DECLINE is otherwise the receiver's answer to an
+// offer, and a sender that could send it at any point would be a peer
+// ending transfers with a reason the protocol does not allow.
+
+test('a receiver that paired elsewhere: the sender reports ERR_DROP_TAKEN, and sends nothing', async (t) => {
+  const { sourcePath } = await fixture(t, 'drop-taken-sender')
+  const { txSocket, keys, manifest, frames, answer } = receiverPeer()
+
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
+  await manifest
+  answer(TYPE_DECLINE, declineBody('already paired', 'ERR_DROP_TAKEN'))
+
+  const outcome = await sent
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.error.code, 'ERR_DROP_TAKEN', 'its own code, not ERR_DECLINED: nothing about this file was refused')
+  assert.equal(outcome.error.peerReason, 'already paired')
+  assert.equal(outcome.error.bytes, 0)
+  assert.deepEqual(frames.map((f) => f.type), [TYPE_MANIFEST])
+  assert.match(describeError(outcome.error), /already used by another peer/)
+})
+
+test('DECLINE{ERR_DROP_TAKEN} after the receiver has already answered is a protocol error', async (t) => {
+  // The prefix phase: the receiver asked to resume, the sender sent
+  // PREFIX, and only now a "drop taken" arrives. The receiver has already
+  // answered the offer, so this cannot be the first frame it sent.
+  const { sourcePath } = await fixture(t, 'drop-taken-late', 2 * 1024 * 1024)
+  const { txSocket, keys, manifest, frames, answer } = receiverPeer()
+
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys, caps: ['resume'] }))
+  await manifest
+  answer(TYPE_ACCEPT, acceptBody({ resumeFrom: 1024 * 1024 }))
+  await tick()
+  answer(TYPE_DECLINE, declineBody('', 'ERR_DROP_TAKEN'))
+
+  const outcome = await sent
+  assert.equal(outcome.error.code, 'ERR_PROTOCOL')
+  assert.match(outcome.error.message, /only valid as the first frame/)
+  assert.ok(frames.every((f) => f.type !== TYPE_CHUNK), 'no file byte was sent')
+})
+
+test('a sender that paired elsewhere: the receiver reports ERR_DROP_TAKEN and writes nothing', async (t) => {
+  const { outputDir } = await fixture(t, 'drop-taken-receiver')
+  const { socket, keys, send, received } = sealedSender()
+
+  const outcome = settle(receiveFile(socket, outputDir, { ...keys }))
+  send(TYPE_DECLINE, declineBody('already paired', 'ERR_DROP_TAKEN'))
+
+  const result = await outcome
+  assert.equal(result.ok, false)
+  assert.equal(result.error.code, 'ERR_DROP_TAKEN')
+  assert.equal(result.error.peerReason, 'already paired')
+  assert.deepEqual(received, [], 'the receiver answers nothing: there is no offer to answer')
+  assert.deepEqual(await fs.promises.readdir(outputDir), [], 'no partial, no file')
+  assert.match(describeError(result.error), /already used by another peer/)
+})
+
+test('any other DECLINE from a sender is a protocol error, first frame or not', async (t) => {
+  const { outputDir } = await fixture(t, 'drop-taken-other')
+
+  // First frame, but not the one code a sender may send.
+  {
+    const { socket, keys, send } = sealedSender()
+    const outcome = settle(receiveFile(socket, outputDir, { ...keys }))
+    send(TYPE_DECLINE, declineBody('no thanks', 'ERR_NO_SPACE'))
+    const result = await outcome
+    assert.equal(result.error.code, 'ERR_PROTOCOL')
+    assert.match(result.error.message, /only to say the drop is already taken/)
+  }
+
+  // The right code, but after a MANIFEST: not the first frame.
+  {
+    const { socket, keys, send } = sealedSender()
+    const outcome = settle(receiveFile(socket, outputDir, {
+      ...keys,
+      // Holds the offer open, so the DECLINE arrives while it is considered.
+      onOffer: () => new Promise((resolve) => setTimeout(() => resolve(true), 200))
+    }))
+    send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifestFor(Buffer.alloc(16))), 'utf8'))
+    await tick()
+    send(TYPE_DECLINE, declineBody('', 'ERR_DROP_TAKEN'))
+    const result = await outcome
+    assert.equal(result.error.code, 'ERR_PROTOCOL')
+  }
+  assert.deepEqual(await fs.promises.readdir(outputDir), [])
+})

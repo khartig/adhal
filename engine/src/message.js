@@ -282,13 +282,22 @@ function decodeAccept (body) {
 // only those, so a later receiver's new code reaches the sender's
 // automation intact; the character class is what keeps a hostile peer from
 // putting an escape sequence in a field a CLI may print.
+//
+// ONE CODE IS NOT A REFUSAL OF AN OFFER. ERR_DROP_TAKEN is sent by a side
+// that has already paired with someone else, to a late peer that proved
+// the code anyway (./swarm.js, declineLate). It is the only DECLINE either
+// side may send, and only as the first sealed frame after CONFIRM -- so a
+// receiver sends it before any MANIFEST has arrived, and a sender sends it
+// in place of one.
+const ERR_DROP_TAKEN = 'ERR_DROP_TAKEN'
 const DECLINE_CODES = [
   'ERR_MANIFEST_INVALID', // a manifest field failed validation
   'ERR_UNSAFE_NAME', // the name is not one the receiver will write
   'ERR_NO_SPACE', // the declared size does not fit
   'ERR_EXISTS', // no partial could be opened without destroying a file
   'ERR_DECLINED', // a person or policy (onOffer) said no
-  'ERR_RECEIVER_FAILED' // a local fault; the reason names only its errno
+  'ERR_RECEIVER_FAILED', // a local fault; the reason names only its errno
+  ERR_DROP_TAKEN // already paired with another peer; either side, first frame only
 ]
 const DECLINE_CODE_SHAPE = /^ERR_[A-Z0-9_]{1,48}$/
 
@@ -435,6 +444,7 @@ module.exports = {
   declineBody,
   decodeDecline,
   DECLINE_CODES,
+  ERR_DROP_TAKEN,
   checkpointBody,
   decodeCheckpoint,
   endBody,

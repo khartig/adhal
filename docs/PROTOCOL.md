@@ -372,7 +372,7 @@ Inside the AEAD channel:
 0x02 CHUNK      raw bytes
 0x03 CANCEL     {reason}
 0x04 ACCEPT     {resumeFrom}         accept step AND resume, one message
-0x05 DECLINE    {reason, code}       prose for people, code for software (§4.0)
+0x05 DECLINE    {reason, code}       R->S answer to an offer (§4.0); either side, first frame only, for ERR_DROP_TAKEN
 0x06 CHECKPOINT {offset}             R->S, periodic, post-fsync
 0x07 RESULT     {ok, sha256} | {error}
 0x08 END        {sha256}             streaming trailer, when size was null
@@ -476,6 +476,7 @@ with:
 | `ERR_EXISTS` | no partial could be opened without destroying a file |
 | `ERR_DECLINED` | a person or policy said no |
 | `ERR_RECEIVER_FAILED` | a local fault; the reason names its errno, the code does not |
+| `ERR_DROP_TAKEN` | not a refusal of this offer: the drop is already paired with someone else (below) |
 
 A sender accepts any `code` matching `^ERR_[A-Z0-9_]{1,48}$`, not only
 these, so a later receiver's new code reaches automation intact. Anything
@@ -492,6 +493,43 @@ is withheld for the same reason.
 The receiver does not time the sender out while its own policy decides,
 since that is not the peer stalling. The sender bounds the wait instead
 (`ACCEPT_TIMEOUT_MS`, 5 minutes, sized for a person deciding).
+
+**A drop that is already taken.** The code is a bearer capability: anyone
+who holds it can complete the handshake, and "first handshake wins". So a
+second party with the code — a forwarded code, one read off a shared
+screen, or someone racing the intended peer — must get an answer rather
+than silence, and the side that paired must learn there was a race.
+
+- After pairing, each side keeps answering candidates on the topic for as
+  long as its transfer runs. A late candidate runs the full handshake of
+  §3, with fresh scalars, the same per-candidate deadline, the same
+  backoff and the same `sid` check.
+- A late candidate that confirms is sent exactly one frame, as the first
+  sealed frame after CONFIRM, and the connection is closed:
+
+  ```
+  R -> S   HELLO        S -> R   REPLY        R -> S   CONFIRM
+  X -> Y   DECLINE{reason, code: "ERR_DROP_TAKEN"}      X is the side that had paired
+  ```
+
+  A receiver sends it before any MANIFEST has arrived; a sender sends it
+  in place of a MANIFEST. Only a peer that proved the secret ever learns
+  the drop was taken.
+- A late candidate that fails confirmation counts toward the attempt cap
+  (§6) exactly as it would have before pairing. If the cap is exhausted,
+  answering stops; the transfer already under way is not affected.
+- The side that receives `DECLINE{ERR_DROP_TAKEN}` fails with
+  `ERR_DROP_TAKEN` (§10), having transferred nothing.
+- It is valid only as the first frame. `ERR_DROP_TAKEN` after a receiver
+  has answered the offer, or any other DECLINE from a sender, is
+  `ERR_PROTOCOL`.
+- A second connection from the peer already paired with is transport
+  duplicate handling, not a candidate, and is not answered.
+
+Both humans are told: the side that paired reports that another peer
+holding the code tried to connect, and the side that lost reports that
+the code was used by someone else. Either way, one of the two peers was
+not the one intended, and only the people involved can say which.
 
 ### 4.1 Why there is no per-chunk ACK
 
@@ -665,6 +703,11 @@ the human that someone was guessing.
 
 A repeated `sid` from a peer counts as a failed attempt too — see §3.2,
 where that mitigation is why a receiver-chosen `sid` is acceptable.
+
+The count covers the whole drop, including candidates that arrive after
+pairing (§4.0, "A drop that is already taken"): guessing does not become
+free because a transfer is running. Exhausting the cap after pairing stops
+answering late candidates and does not end the transfer.
 
 **Never count dropped candidates.** Stale DHT announces routinely produce
 dead candidates — measured in this repo, three were once enough to starve
@@ -1190,6 +1233,7 @@ project's own measurement instrument to its wording.
 | `ERR_NO_PEER` | join timed out having seen nobody |
 | `ERR_NO_HANDSHAKE` | join timed out having seen peers that never confirmed |
 | `ERR_ATTEMPT_CAP` | the drop was burned after N failed PAKE confirmations (§6) |
+| `ERR_DROP_TAKEN` | this side proved the code, and its peer had already paired with someone else (§4.0); `.peerReason` is the peer's sentence |
 
 `ERR_ATTEMPT_CAP` **is thrown as of W11** (`engine/src/attempts.js`). It
 was deliberately absent from `engine/src/errors.js` until then: there was

@@ -180,6 +180,16 @@ function describeError (err) {
         'would give them another hundred guesses. Generate a new one, and consider ' +
         'whether the way you shared the last one is how they found it.'
 
+    case 'ERR_DROP_TAKEN':
+      // Two people held the code and the other got there first. Nobody was
+      // guessing -- this side proved the secret -- but one of the two
+      // peers was not the one intended, and only the humans can tell
+      // which. So the line says what happened and what to check, rather
+      // than just "retry".
+      return 'FAILED: this drop code was already used by another peer, which paired first. ' +
+        'Nothing was transferred. If you expected no one else to have the code, someone ' +
+        'else does: check with the other person, and use a new code rather than this one.'
+
     case 'ERR_NO_PEER':
     case 'ERR_NO_HANDSHAKE':
       // These already carry long, carefully-worded diagnostics from

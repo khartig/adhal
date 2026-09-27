@@ -17,6 +17,7 @@ const {
   declineBody,
   decodeDecline,
   DECLINE_CODES,
+  ERR_DROP_TAKEN,
   checkpointBody,
   decodeCheckpoint,
   endBody,
@@ -167,6 +168,23 @@ function reasonForPeer (err) {
     return err.message
   }
   return `the receiver could not take the file (${err && typeof err.code === 'string' ? err.code : 'internal error'})`
+}
+
+// What a side reports when its peer answered the handshake with
+// DECLINE{ERR_DROP_TAKEN}: the peer had already paired with someone else
+// who used the same code (./swarm.js, declineLate). The peer's own sentence
+// is kept in `.peerReason` and not printed, as for every peer string.
+/**
+ * @param {'sender' | 'receiver'} peer the role of the side that declined
+ * @param {string} peerReason
+ * @returns {InstanceType<typeof TransferError>}
+ */
+function dropTakenError (peer, peerReason) {
+  return new TransferError(
+    'ERR_DROP_TAKEN',
+    `the ${peer} is already paired with another peer that used this drop code; nothing was transferred`,
+    { peerReason, bytes: 0 }
+  )
 }
 
 // The DECLINE code for the same error: its own code when it is one the
@@ -748,11 +766,18 @@ async function offerAndSend (socket, {
           return
         }
         if (type === TYPE_DECLINE) {
+          const { reason: peerReason, code: declineCode } = decodeDecline(body)
+          // Not a refusal of this offer: the receiver paired with someone
+          // else before this side finished its handshake. Legal only as
+          // the receiver's first frame, which in the offer phase it is.
+          if (declineCode === ERR_DROP_TAKEN) {
+            if (phase === 'offer') throw dropTakenError('receiver', peerReason)
+            throw new TransferError('ERR_PROTOCOL', 'the receiver sent DECLINE{ERR_DROP_TAKEN} after answering the offer; it is only valid as the first frame')
+          }
           // `.code` stays ERR_DECLINED: section 10's codes say how THIS
           // side's drop ended, and the sender's file was not an unsafe
           // name or a full disk. The receiver's reason for it is
           // `.declineCode`, for anything automated to switch on.
-          const { reason: peerReason, code: declineCode } = decodeDecline(body)
           throw new TransferError(
             'ERR_DECLINED',
             peerReason ? `the receiver declined the file: ${peerReason}` : 'the receiver declined the file',
@@ -1859,6 +1884,17 @@ function receiveFile (socket, outputDir, {
           throw new TransferError(
             'ERR_PROTOCOL',
             `the sender sent ${TYPE_NAMES.get(type)} before its offer was answered; only CANCEL may precede ACCEPT`
+          )
+        }
+        // The one frame a sender may send instead of a MANIFEST: it paired
+        // with another receiver first. Any other DECLINE from a sender is
+        // out of turn -- declining is otherwise the receiver's move.
+        if (type === TYPE_DECLINE) {
+          const { reason: peerReason, code: declineCode } = decodeDecline(body)
+          if (declineCode === ERR_DROP_TAKEN) throw dropTakenError('sender', peerReason)
+          throw new TransferError(
+            'ERR_PROTOCOL',
+            'the sender sent DECLINE, which a sender may send only as its first frame and only to say the drop is already taken'
           )
         }
         if (type !== TYPE_MANIFEST) {

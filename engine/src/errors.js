@@ -52,6 +52,14 @@
 //                         is the receiver's sentence and `.declineCode` its
 //                         code, for automation to switch on. The receiver
 //                         itself reports the specific code it declined for.
+//   ERR_DROP_TAKEN        this side proved the code to its peer and was
+//                         told the drop is already paired with someone
+//                         else: DECLINE{code: ERR_DROP_TAKEN} as the first
+//                         sealed frame, from either side. Two people held
+//                         the code and the other got there first. Not a
+//                         fault and not guessing -- the loser proved the
+//                         secret -- but worth a human's attention, because
+//                         one of the two was not the intended peer.
 //   ERR_NO_PEER           join timed out having seen nobody.
 //   ERR_NO_HANDSHAKE      join timed out having seen peers that never
 //                         completed the handshake. A different

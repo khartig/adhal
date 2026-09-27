@@ -5,6 +5,8 @@ const { TransferError, abortError } = require('./errors')
 const { MessageReader } = require('./reader')
 const { Initiator, Responder, assertHandshakeInputs, ERR_CONFIRMATION } = require('./handshake')
 const { AttemptCap, sidReusedError, ERR_SID_REUSED } = require('./attempts')
+const { Channel } = require('./channel')
+const { TYPE_DECLINE, declineBody, ERR_DROP_TAKEN } = require('./message')
 
 // The readiness handshake, which is also v2's PAKE exchange. The receiver
 // writes HELLO once its connection is confirmed stable; three messages
@@ -257,6 +259,68 @@ function timeoutError (phase, timeout, candidates) {
   )
 }
 
+// AFTER PAIRING, A LATE CANDIDATE IS TOLD THE DROP IS TAKEN (PROTOCOL.md
+// section 4, DECLINE; W15a). The code is a bearer capability, so a second
+// person holding it -- a forwarded code, one read off a shared screen, or
+// someone racing the intended peer -- can complete the handshake just as
+// the first did. Before this, whoever confirmed second was simply never
+// answered and waited out its own timeout with no idea why, while the
+// winner's human had no idea there had been a race at all.
+//
+// Now both acceptOnce and connectOnce keep answering candidates after they
+// resolve. A late candidate runs the SAME handshake code as the one that
+// paired -- same per-connection scalars, same deadline, same backoff, same
+// sid check, same attempt cap -- so there is no second implementation to
+// drift. One that confirms is sent a single sealed frame,
+// DECLINE{code: ERR_DROP_TAKEN}, and closed. Only a peer that proved the
+// secret learns the drop was taken, which is exactly the audience that
+// needs to: the other human in the race.
+//
+// A late candidate that fails its confirmation is still counted: guessing
+// does not become free because a transfer is running. If that burns the
+// cap, answering stops -- the transfer already under way is not touched.
+//
+// Answering stops when the caller calls `stopAnswering()` from the
+// resolved value, or when it destroys the swarm, which every CLI does in a
+// `finally` once the transfer ends.
+
+// How long a late candidate's socket is given to flush the DECLINE before
+// it is destroyed. Only bounds a peer that never closes its end.
+const LATE_FLUSH_MS = 2000
+
+const DROP_TAKEN_REASON = 'this drop code has already been used by another peer'
+
+// A second connection from the peer we paired with is Hyperswarm's own
+// duplicate-connection handling, not a candidate, and is left alone.
+/**
+ * @param {any} peerInfo
+ * @param {any} paired
+ * @returns {boolean}
+ */
+function samePeer (peerInfo, paired) {
+  const a = peerInfo && peerInfo.publicKey
+  const b = paired && paired.publicKey
+  return Boolean(a && b && Buffer.isBuffer(a) && a.equals(b))
+}
+
+// Seals the one frame a late candidate gets and closes. `first` is any
+// handshake message that must precede it -- the receiver's CONFIRM, without
+// which the late sender never finishes its handshake to read the DECLINE.
+/**
+ * @param {any} socket
+ * @param {{ sendKey: Buffer, receiveKey: Buffer }} keys
+ * @param {Buffer | null} first
+ */
+function declineLate (socket, { sendKey, receiveKey }, first) {
+  socket.on('error', () => {})
+  const channel = new Channel({ sendKey, receiveKey, onMessage: () => {} })
+  if (first) socket.write(first)
+  socket.end(channel.seal(TYPE_DECLINE, declineBody(DROP_TAKEN_REASON, ERR_DROP_TAKEN)))
+  const timer = setTimeout(() => socket.destroy(), LATE_FLUSH_MS)
+  if (typeof timer.unref === 'function') timer.unref()
+  socket.once('close', () => clearTimeout(timer))
+}
+
 // Joins `topic` and resolves with the first peer to complete the readiness
 // handshake *and* prove it knows the code. One drop, one peer -- the Hyperswarm work
 // doesn't need to handle multiple simultaneous peers, but it does need to
@@ -288,22 +352,29 @@ function timeoutError (phase, timeout, candidates) {
  *   onAnnounced?: () => void,
  *   onCandidate?: (peerInfo: any) => void,
  *   attemptCap?: InstanceType<typeof AttemptCap>,
- *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void
+ *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void,
+ *   onDropTaken?: (peerInfo: any) => void
  * }} options not optional, because `secret` and `nameplate` are not
  *   `attemptCap` counts failed confirmations for THIS drop (section 6);
  *   one is created per join, so burning it burns only this drop.
  *   `secret` and `nameplate` are the two halves of the drop code -- see
  *   splitCode in ./code.js and resolveCode in ./resolve-code.js. The
  *   secret is the PAKE password and must be the canonical form.
+ *   `onDropTaken` hears each late candidate that proved the secret and
+ *   was told the drop is taken (see declineLate); after pairing, a late
+ *   candidate that fails is reported through `onCandidateDropped` only if
+ *   its failure was counted.
  * @returns {Promise<{
  *   socket: any, peerInfo: any, pending: Buffer | null,
- *   sendKey: Buffer, receiveKey: Buffer, caps: string[]
+ *   sendKey: Buffer, receiveKey: Buffer, caps: string[],
+ *   stopAnswering: () => void
  * }>}
  *   `sendKey`/`receiveKey` are this side's directional channel keys
  *   (k_r2s and k_s2r respectively for a receiver). Pass both to
- *   receiveFile, which seals every frame under them.
+ *   receiveFile, which seals every frame under them. `stopAnswering`
+ *   stops telling late candidates the drop is taken.
  */
-function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onAnnounced, onCandidate, onCandidateDropped }) {
+function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onAnnounced, onCandidate, onCandidateDropped, onDropTaken }) {
   // Validated up front rather than per connection, and required rather
   // than defaulted. A missing secret can only mean a caller that was not
   // updated for v2, and the failure mode of quietly carrying on without
@@ -318,9 +389,20 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
   assertHandshakeInputs(secret, nameplate)
   return new Promise((resolve, reject) => {
     let settled = false
+    // Separate from `settled`: pairing settles the promise but keeps the
+    // listener, so late candidates can be told the drop is taken. Every
+    // per-candidate check below is on this, not on `settled`.
+    let listening = true
+    /** @type {any} */
+    let paired = null
     let candidates = 0
     /** @type {(() => void) | null} */
     let stopRefreshing = null
+
+    const stopListening = () => {
+      listening = false
+      swarm.removeListener('connection', onConnection)
+    }
 
     const finish = () => {
       settled = true
@@ -340,7 +422,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
     function onAbort () {
       if (settled) return
       finish()
-      swarm.removeListener('connection', onConnection)
+      stopListening()
       reject(abortError(0, signal.reason))
     }
 
@@ -348,15 +430,16 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       ? setTimeout(() => {
         if (settled) return
         finish()
-        swarm.removeListener('connection', onConnection)
+        stopListening()
         reject(timeoutError('waiting for a peer', timeout, candidates))
       }, timeout)
       : null
 
     function onConnection (socket, peerInfo) {
-      if (settled) return
+      if (!listening) return
+      if (paired && samePeer(peerInfo, paired)) return
       candidates++
-      if (onCandidate) onCandidate(peerInfo)
+      if (!paired && onCandidate) onCandidate(peerInfo)
 
       // SECTION 3.2 TRAP #1, AND THE LINE THAT SATISFIES IT. Constructing
       // the Initiator here -- inside the per-connection handler -- is what
@@ -411,7 +494,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       // candidates would let the DHT's own stale announces burn a
       // legitimate drop (section 6).
       function onFailed (err) {
-        if (settled) return
+        if (!listening) return
         // THE ONE THING THAT IS COUNTED, and the check is on the CODE
         // rather than the message: a confirmation failure means a peer
         // reached the nameplate without the secret, which is either
@@ -419,9 +502,8 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
         // here -- a dead punch, a socket reset, a candidate that went
         // quiet -- is network noise and must not be counted, or the DHT's
         // own stale announces would burn a legitimate drop (section 6).
-        const burned = err && err.code === ERR_CONFIRMATION
-          ? attemptCap.fail()
-          : false
+        const counted = Boolean(err && err.code === ERR_CONFIRMATION)
+        const burned = counted ? attemptCap.fail() : false
         detach()
         // detach() just removed the only 'error' listener, and destroy()
         // on a NoiseSecretStream can emit one asynchronously -- "connection
@@ -438,7 +520,9 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
         // remaining life because there is no longer anyone to tell.
         socket.on('error', () => {})
         socket.destroy()
-        if (onCandidateDropped) {
+        // After pairing, only a counted failure is worth a line: dead punches
+        // mid-transfer would only interleave with the progress bar.
+        if (onCandidateDropped && (!paired || counted)) {
           onCandidateDropped(
             peerInfo,
             err ? err.message : 'closed before confirming',
@@ -452,14 +536,15 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
         // dropped-candidate line, so a log reads in the order things
         // happened: the hundredth failure, then the drop ending.
         if (burned) {
+          stopListening()
+          if (paired) return // the transfer under way is not ours to end
           finish()
-          swarm.removeListener('connection', onConnection)
           reject(attemptCap.error())
         }
       }
 
       function onData (chunk) {
-        if (settled) return
+        if (!listening) return
         reader.push(chunk)
 
         /** @type {ReturnType<InstanceType<typeof Initiator>['readReply']>} */
@@ -477,13 +562,20 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
         if (!confirmed) return // still arriving; wait for the rest
 
         detach()
+        if (paired) {
+          // CONFIRM first: the late sender cannot read a sealed frame until
+          // its own handshake has completed.
+          declineLate(socket, confirmed, confirmed.confirm)
+          if (onDropTaken) onDropTaken(peerInfo)
+          return
+        }
         // Stop the flow until the caller has attached its own reader.
         // Removing a 'data' listener does not pause a stream, so without
         // this, bytes arriving in the gap between resolving and
         // receiveFile attaching would be dropped on the floor.
         socket.pause()
         finish()
-        swarm.removeListener('connection', onConnection)
+        paired = peerInfo
         // CONFIRM. Written before resolving so the sender is released into
         // sendFile only after we are on our way into receiveFile.
         socket.write(confirmed.confirm)
@@ -500,7 +592,8 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
           pending: reader.rest(),
           sendKey: confirmed.sendKey,
           receiveKey: confirmed.receiveKey,
-          caps: confirmed.caps
+          caps: confirmed.caps,
+          stopAnswering: stopListening
         })
       }
 
@@ -527,7 +620,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
         socket.write(handshake.hello())
       } else {
         helloTimer = setTimeout(() => {
-          if (settled || socket.destroyed) return
+          if (!listening || socket.destroyed) return
           socket.write(handshake.hello())
         }, backoff)
         if (typeof helloTimer.unref === 'function') helloTimer.unref()
@@ -538,7 +631,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
 
     if (signal) {
       if (signal.aborted) {
-        swarm.removeListener('connection', onConnection)
+        stopListening()
         // finish() as well as removing the listener: without it the join
         // timer stayed armed after an already-aborted signal short-
         // circuited the join, holding the event loop open for the full
@@ -561,7 +654,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       (err) => {
         if (settled) return
         finish()
-        swarm.removeListener('connection', onConnection)
+        stopListening()
         reject(err)
       }
     )
@@ -584,7 +677,8 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   attemptCap?: InstanceType<typeof AttemptCap>,
  *   signal?: AbortSignal,
  *   onCandidate?: (peerInfo: any) => void,
- *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void
+ *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void,
+ *   onDropTaken?: (peerInfo: any) => void
  * }} options not optional, because `secret` and `nameplate` are not
  *   `attemptCap` is where the SENDER's extra duty lives: as well as
  *   counting failed confirmations it remembers the sid values it has seen
@@ -593,21 +687,35 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   choice is acceptable at all.
  * @returns {Promise<{
  *   socket: any, peerInfo: any, pending: Buffer | null,
- *   sendKey: Buffer, receiveKey: Buffer, caps: string[]
+ *   sendKey: Buffer, receiveKey: Buffer, caps: string[],
+ *   stopAnswering: () => void
  * }>}
  *   For a sender, `sendKey` is k_s2r and `receiveKey` is k_r2s -- the
- *   mirror of acceptOnce's view. Pass both to sendFile.
+ *   mirror of acceptOnce's view. Pass both to sendFile. `onDropTaken` and
+ *   `stopAnswering` are as for acceptOnce: a sender that has paired tells
+ *   a second receiver the drop is taken.
  */
-function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onCandidate, onCandidateDropped }) {
+function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onCandidate, onCandidateDropped, onDropTaken }) {
   // See acceptOnce: required rather than defaulted, and validated up
   // front, because carrying on without a secret would silently hand a file
   // to whoever answered.
   assertHandshakeInputs(secret, nameplate)
   return new Promise((resolve, reject) => {
     let settled = false
+    // Separate from `settled`: pairing settles the promise but keeps the
+    // listener, so late candidates can be told the drop is taken. Every
+    // per-candidate check below is on this, not on `settled`.
+    let listening = true
+    /** @type {any} */
+    let paired = null
     let candidates = 0
     /** @type {(() => void) | null} */
     let stopRefreshing = null
+
+    const stopListening = () => {
+      listening = false
+      swarm.removeListener('connection', onConnection)
+    }
 
     const finish = () => {
       settled = true
@@ -621,7 +729,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
     function onAbort () {
       if (settled) return
       finish()
-      swarm.removeListener('connection', onConnection)
+      stopListening()
       reject(abortError(0, signal.reason))
     }
 
@@ -629,7 +737,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
       ? setTimeout(() => {
         if (settled) return
         finish()
-        swarm.removeListener('connection', onConnection)
+        stopListening()
         reject(timeoutError('looking for a peer', timeout, candidates))
       }, timeout)
       : null
@@ -638,9 +746,10 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
     // just until a 'connection' event fires. A peer can connect and then
     // die before confirming, and that must not hang the drop forever.
     function onConnection (socket, peerInfo) {
-      if (settled) return
+      if (!listening) return
+      if (paired && samePeer(peerInfo, paired)) return
       candidates++
-      if (onCandidate) onCandidate(peerInfo)
+      if (!paired && onCandidate) onCandidate(peerInfo)
 
       // A connection can fail between the 'connection' event and the
       // server's READY byte -- observed as "connection reset by peer"
@@ -680,12 +789,11 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
       }
 
       function onFailed (err) {
-        if (settled) return
+        if (!listening) return
         // See acceptOnce's copy: only a confirmation failure or a reused
         // sid is counted, never a dead punch or a reset socket.
-        const burned = err && (err.code === ERR_CONFIRMATION || err.code === ERR_SID_REUSED)
-          ? attemptCap.fail()
-          : false
+        const counted = Boolean(err && (err.code === ERR_CONFIRMATION || err.code === ERR_SID_REUSED))
+        const burned = counted ? attemptCap.fail() : false
         detach()
         // detach() just removed the only 'error' listener, and destroy()
         // on a NoiseSecretStream can emit one asynchronously -- "connection
@@ -702,7 +810,9 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
         // remaining life because there is no longer anyone to tell.
         socket.on('error', () => {})
         socket.destroy()
-        if (onCandidateDropped) {
+        // After pairing, only a counted failure is worth a line: dead punches
+        // mid-transfer would only interleave with the progress bar.
+        if (onCandidateDropped && (!paired || counted)) {
           onCandidateDropped(
             peerInfo,
             err ? err.message : 'closed before confirming',
@@ -711,8 +821,9 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
         }
 
         if (burned) {
+          stopListening()
+          if (paired) return // the transfer under way is not ours to end
           finish()
-          swarm.removeListener('connection', onConnection)
           reject(attemptCap.error())
         }
       }
@@ -723,7 +834,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
       // 'connection' event can prevent the server from ever confirming the
       // connection (see acceptOnce).
       function onData (chunk) {
-        if (settled) return
+        if (!listening) return
         reader.push(chunk)
 
         /** @type {ReturnType<InstanceType<typeof Responder>['readConfirm']>} */
@@ -767,7 +878,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
               socket.write(answer.reply)
             } else {
               replyTimer = setTimeout(() => {
-                if (settled || socket.destroyed) return
+                if (!listening || socket.destroyed) return
                 socket.write(answer.reply)
               }, backoff)
               if (typeof replyTimer.unref === 'function') replyTimer.unref()
@@ -787,8 +898,21 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
         if (!confirmed) return
 
         detach()
+        if (paired) {
+          declineLate(socket, confirmed, null)
+          if (onDropTaken) onDropTaken(peerInfo)
+          return
+        }
+        // Paused until sendFile attaches its reader, as acceptOnce does for
+        // receiveFile. It used to matter less: the receiver wrote nothing
+        // until it had the MANIFEST. A receiver that paired with someone
+        // else now writes DECLINE{ERR_DROP_TAKEN} straight after CONFIRM,
+        // and without the pause it could arrive while sendFile is still
+        // hashing the file, with no listener, and be lost -- leaving the
+        // losing sender to report a disconnect instead of the reason.
+        socket.pause()
         finish()
-        swarm.removeListener('connection', onConnection)
+        paired = peerInfo
         // Leftovers are handed back, exactly as acceptOnce does.
         //
         // This used to read "sendFile never reads, so leftover bytes would
@@ -805,7 +929,8 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
           pending: reader.rest(),
           sendKey: confirmed.sendKey,
           receiveKey: confirmed.receiveKey,
-          caps: confirmed.caps
+          caps: confirmed.caps,
+          stopAnswering: stopListening
         })
       }
 
@@ -834,7 +959,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
     // which is the thing whose absence let this survive.
     if (signal) {
       if (signal.aborted) {
-        swarm.removeListener('connection', onConnection)
+        stopListening()
         finish()
         reject(abortError(0, signal.reason))
         return

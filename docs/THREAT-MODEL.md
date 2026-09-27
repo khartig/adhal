@@ -233,6 +233,7 @@ and is covered by tests in `cli/test/hardening.test.js`.
 | Outrun the disk and grow memory without bound | `writeStream.write()`'s return value discarded | Honoured; the socket pauses |
 | Prove, then send nothing, forever | No timer once the socket was handed over | `ERR_STALLED` on a manifest deadline and a no-progress deadline |
 | Hold a connection slot without handshaking | Candidate sockets lived until the swarm died | 15 s per-candidate handshake deadline |
+| Race the intended peer with a forwarded or overheard code | First handshake won silently; the loser timed out with no reason and the winner's human never knew | Still first-handshake-wins, but a late peer that proves the code is told `ERR_DROP_TAKEN`, and the side that paired reports that someone else holds the code (PROTOCOL.md §4.0, W15a). Guesses during the transfer still count toward the attempt cap |
 
 **Still true, and not fixable here:** a peer who knows the code can send you
 *any file*. The displayed SHA-256 proves the bytes arrived intact; it

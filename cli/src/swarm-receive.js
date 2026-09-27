@@ -157,6 +157,9 @@ async function main () {
   console.log(`[swarm-receive] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
+    // Set once acceptOnce resolves; the late-candidate callbacks above
+    // read it, because they keep firing after that.
+    let paired = false
     const { socket, peerInfo, pending, sendKey, receiveKey, caps } = await acceptOnce(swarm, topic, {
       // Announcing the topic makes the NAMEPLATE public; the secret stays
       // private, and it is what proves a peer is the intended one rather
@@ -182,8 +185,20 @@ async function main () {
       onCandidate: (info) => {
         console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., sent HELLO, awaiting REPLY`)
       },
+      // After pairing, the engine reports only failures it COUNTED -- a
+      // peer guessing at the code while the transfer runs -- so the line
+      // stops saying "still waiting", which is no longer true.
       onCandidateDropped: (info, reason) => {
-        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}... dropped before proving (${reason}); still waiting`)
+        const who = `candidate ${info.publicKey.toString('hex').slice(0, 12)}...`
+        console.log(paired
+          ? `[swarm-receive] ${who} failed to prove the code during the transfer (${reason}); it counts toward this drop's attempt limit`
+          : `[swarm-receive] ${who} dropped before proving (${reason}); still waiting`)
+      },
+      // A second peer proved the code after we paired, and was told the
+      // drop is taken. The race is invisible to this human otherwise, and
+      // it means someone other than the intended sender holds the code.
+      onDropTaken: (info) => {
+        console.log(`[swarm-receive] another peer (${info.publicKey.toString('hex').slice(0, 12)}...) also has this code and tried to send; it was told the drop is taken. If you gave the code to only one person, someone else has it.`)
       },
       // Only now are we actually discoverable. The sender must not start
       // looking before this point -- see engine/src/swarm.js. This is
@@ -203,6 +218,7 @@ async function main () {
         }
       }
     })
+    paired = true
     console.log(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // Without a listener, a late socket-level error (e.g. after the
     // transfer completes, while tearing down) throws as an uncaught
