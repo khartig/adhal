@@ -27,7 +27,7 @@ const {
   encodeQrPayload,
   splitCode,
   topicFromNameplate,
-  TOPIC_PREFIX,
+  TOPIC_LABEL,
   WORD_COUNT,
   NAMEPLATE_WORDS,
   SECRET_WORDS,
@@ -189,12 +189,13 @@ test('the topic commits to the nameplate and to nothing else', () => {
   )
 
   // And what makes a v1/v2 collision impossible rather than merely
-  // unlikely: the domain prefix. v1 hashed 'adhal-v1:' || code, v2 hashes
-  // 'adhal-v2:topic' || nameplate, so the two never land on one topic and a
-  // v1-against-v2 pairing surfaces as ERR_NO_PEER rather than as frame
-  // corruption. Asserted on the constant because that is the mechanism;
-  // re-deriving a v1 topic here would only test this test's own arithmetic.
-  assert.equal(TOPIC_PREFIX, 'adhal-v2:topic')
+  // unlikely: the domain label. v1 hashed a v1 prefix concatenated with the
+  // whole code; v2 hashes lv_cat('adhal-v2:topic', nameplate), so the two
+  // never land on one topic and a v1-against-v2 pairing surfaces as
+  // ERR_NO_PEER rather than as frame corruption. Asserted on the constant
+  // because that is the mechanism; re-deriving a v1 topic here would only
+  // test this test's own arithmetic.
+  assert.equal(TOPIC_LABEL, 'adhal-v2:topic')
 })
 
 test('a bad code is rejected with a message that locates the problem', () => {

@@ -35,9 +35,9 @@
 //   - the hash is BLAKE2b-256, checked against the PUBLISHED digest of
 //     "abc". That value is external to this repo, so it is evidence and
 //     not a pin.
-//   - the input is "adhal-v2:topic" || nameplate, literal, no separator,
-//     checked by building that byte string here and hashing it directly
-//     instead of calling topicFromNameplate.
+//   - the input is lv_cat("adhal-v2:topic", nameplate), checked by
+//     building that byte string here, length bytes and all, and hashing it
+//     directly instead of calling topicFromNameplate or cpace.js's lvCat.
 //
 // Together those are what a pinned digest cannot distinguish: a changed
 // hash function and a changed input construction would both present as
@@ -53,7 +53,7 @@ const {
   topicFromNameplate,
   blake2b256,
   encodeQrPayload,
-  TOPIC_PREFIX
+  TOPIC_LABEL
 } = require('@ad-hal/engine')
 
 // BLAKE2b-256 of "abc", from the BLAKE2 reference vectors. Not computed
@@ -66,8 +66,8 @@ const BLAKE2B_256_OF_ABC =
   'bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319'
 
 // Each vector: what a human or a camera might supply, and everything that
-// must fall out of it. `topic` is BLAKE2b-256("adhal-v2:topic" || nameplate),
-// hex.
+// must fall out of it. `topic` is BLAKE2b-256(lv_cat("adhal-v2:topic",
+// nameplate)), hex.
 const VECTORS = [
   {
     // Also the first five words of the list, so this doubles as the
@@ -77,7 +77,7 @@ const VECTORS = [
     code: 'acid-acorn-acre-acts-afar',
     nameplate: 'acid-acorn',
     secret: 'acre-acts-afar',
-    topic: 'd6f1423db950f2573d0a5db14f43a2e377099bd2acb38cc2c239552fafcdceb8',
+    topic: 'dd7117c6402f3abdd3270411218bcdbc7b2c251a7ed8ce98a56883c10cd7aef6',
     payload: 'ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR'
   },
   {
@@ -89,7 +89,7 @@ const VECTORS = [
     code: 'acid-acorn-acre-acts-afar',
     nameplate: 'acid-acorn',
     secret: 'acre-acts-afar',
-    topic: 'd6f1423db950f2573d0a5db14f43a2e377099bd2acb38cc2c239552fafcdceb8',
+    topic: 'dd7117c6402f3abdd3270411218bcdbc7b2c251a7ed8ce98a56883c10cd7aef6',
     payload: 'ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR'
   },
   {
@@ -100,7 +100,7 @@ const VECTORS = [
     code: 'acid-acorn-acre-acts-afar',
     nameplate: 'acid-acorn',
     secret: 'acre-acts-afar',
-    topic: 'd6f1423db950f2573d0a5db14f43a2e377099bd2acb38cc2c239552fafcdceb8',
+    topic: 'dd7117c6402f3abdd3270411218bcdbc7b2c251a7ed8ce98a56883c10cd7aef6',
     payload: 'ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR'
   },
   {
@@ -110,7 +110,7 @@ const VECTORS = [
     code: 'zero-zesty-zippy-zone-zoom',
     nameplate: 'zero-zesty',
     secret: 'zippy-zone-zoom',
-    topic: '81df9e2b52944e117a5eab83f0aaeea8a3eb4079e4c8ec1a0a168d8ff91da84d',
+    topic: 'e519c40cc6716a6c78f303d22eccc00806fb58da2386c8422ae26076e6bf634b',
     payload: 'ADHAL2:ZERO-ZESTY-ZIPPY-ZONE-ZOOM'
   },
   {
@@ -121,7 +121,7 @@ const VECTORS = [
     code: 'acorn-affix-agent-agile-aging',
     nameplate: 'acorn-affix',
     secret: 'agent-agile-aging',
-    topic: '944e50f3d68e755bed43dc38fec0bdd52ed9fed527dd89a835a0cf9a0f068d6c',
+    topic: '1558ca9929049240b971e8a02df3458115e2c7dca1169ce6927cc8c28b8d36cc',
     payload: 'ADHAL2:ACORN-AFFIX-AGENT-AGILE-AGING'
   },
   {
@@ -133,7 +133,7 @@ const VECTORS = [
     code: 'acid-acid-acid-acid-acid',
     nameplate: 'acid-acid',
     secret: 'acid-acid-acid',
-    topic: 'cd07125af48f5e3340008b1ac0abe53d9b89dcc321e317e1c8e126aab16f5d73',
+    topic: '857c812853bb711d903f108b7e502463174bbd216acd7dc86c866119e172eef8',
     payload: 'ADHAL2:ACID-ACID-ACID-ACID-ACID'
   }
 ]
@@ -173,21 +173,30 @@ test('the topic hash is BLAKE2b-256, against the published digest', () => {
 })
 
 test('each vector topic is the hash of the spec byte string, built explicitly', () => {
-  // topicFromNameplate is deliberately NOT called here. The byte string is
-  // assembled the way PROTOCOL.md section 2 writes it -- the prefix
-  // concatenated with the nameplate, literal, no separator and no length
-  // prefix -- and hashed directly.
+  // topicFromNameplate is deliberately NOT called here, and neither is
+  // cpace.js's lvCat. The byte string is assembled the way PROTOCOL.md
+  // section 2 writes it -- each field preceded by its length -- and hashed
+  // directly:
   //
-  // This is what the pinned digests above cannot check: an extra ':', a
-  // length prefix, a trailing NUL, or hashing the whole code instead of
-  // the nameplate would each produce a self-consistent set of vectors and
-  // fail only here. The last of those is the one that matters, because it
-  // is v1's behaviour and it is what v2 exists to stop.
+  //   [14] "adhal-v2:topic" [len] nameplate
+  //
+  // Every length here is under 128, so LEB128 is a single byte and is
+  // written as one, with the bound asserted rather than assumed.
+  //
+  // This is what the pinned digests above cannot check: a missing length
+  // byte (the pre-W15a concatenation), a separator, a trailing NUL, or
+  // hashing the whole code instead of the nameplate would each produce a
+  // self-consistent set of vectors and fail only here. The last of those
+  // is the one that matters, because it is v1's behaviour and it is what
+  // v2 exists to stop.
+  const field = (/** @type {string} */ text) => {
+    const bytes = Buffer.from(text, 'utf8')
+    assert.ok(bytes.length < 128, 'single-byte LEB128 only')
+    return Buffer.concat([Buffer.from([bytes.length]), bytes])
+  }
   for (const v of VECTORS) {
-    const built = Buffer.concat([
-      Buffer.from('adhal-v2:topic', 'utf8'),
-      Buffer.from(v.nameplate, 'utf8')
-    ])
+    const built = Buffer.concat([field('adhal-v2:topic'), field(v.nameplate)])
+    assert.equal(built[0], 14, 'the label is 14 bytes')
     assert.equal(blake2b256(built).toString('hex'), v.topic, `explicit byte string for ${v.what}`)
     assert.equal(
       topicFromNameplate(v.nameplate).toString('hex'),
@@ -196,15 +205,22 @@ test('each vector topic is the hash of the spec byte string, built explicitly', 
     )
   }
 
-  // And the prefix the engine uses really is that string, so the two
+  // And the label the engine uses really is that string, so the two
   // computations are not agreeing by coincidence over a different constant.
-  assert.equal(TOPIC_PREFIX, 'adhal-v2:topic')
+  assert.equal(TOPIC_LABEL, 'adhal-v2:topic')
+
+  // The unprefixed concatenation this replaced must not also produce the
+  // pinned topics, or the vectors would not show which encoding is in use.
+  for (const v of VECTORS) {
+    const concatenated = blake2b256(Buffer.from(`adhal-v2:topic${v.nameplate}`, 'utf8')).toString('hex')
+    assert.notEqual(concatenated, v.topic, `the pre-W15a concatenation must not match (${v.what})`)
+  }
 
   // The secret must not be reachable from the topic, stated as the
   // negative it is: hashing the whole code gives a different digest, so no
   // vector's topic commits to its secret.
   for (const v of VECTORS) {
-    const wholeCode = blake2b256(Buffer.from(`adhal-v2:topic${v.code}`, 'utf8')).toString('hex')
+    const wholeCode = blake2b256(Buffer.concat([field('adhal-v2:topic'), field(v.code)])).toString('hex')
     assert.notEqual(wholeCode, v.topic, `the topic must not commit to the whole code (${v.what})`)
   }
 })

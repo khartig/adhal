@@ -1,10 +1,11 @@
 'use strict'
 
 const crypto = require('hypercore-crypto')
+const { lvCat } = require('./cpace')
 
 // The Hyperswarm topic, per PROTOCOL.md section 2:
 //
-//   topic = BLAKE2b-256("adhal-v2:topic" || nameplate)
+//   topic = BLAKE2b-256(lv_cat("adhal-v2:topic", nameplate))
 //
 // WHAT CHANGED FROM v1, AND WHY IT IS THE POINT OF v2. v1 hashed the whole
 // code: topic = hash(v1 prefix || code). A receiver must announce its
@@ -27,20 +28,25 @@ const crypto = require('hypercore-crypto')
 // The one caller that deliberately does this is the opaque-code path in
 // ./resolve-code.js, which says so in those words and is gated behind
 // --unsafe-opaque.
-const TOPIC_PREFIX = 'adhal-v2:topic'
+const TOPIC_LABEL = 'adhal-v2:topic'
 
 // `hypercore-crypto.hash` is BLAKE2b-256 -- checked against the published
 // digest of "abc" (bddd813c...52319) rather than assumed from the name, so
 // section 2's derivation needs no new dependency.
 //
-// The prefix is concatenated with no separator, per section 2's
-// literal `"adhal-v2:topic" || nameplate`. The byte string for the nameplate
-// 'acid-acorn' is therefore "adhal-v2:topicacid-acorn". That is unambiguous
-// only because the prefix is a fixed length and the word charset excludes
-// ':' -- worth stating, because "hash a prefix and a value" with a
-// variable-length prefix is how domain separation gets quietly lost.
+// LENGTH-PREFIXED, NOT CONCATENATED. The label and the nameplate each go
+// through lv_cat -- the same LEB128 length-prefixing ./cpace.js applies to
+// every CPace hash input -- so the byte string for the nameplate
+// 'acid-acorn' is [14]"adhal-v2:topic"[10]"acid-acorn". Before W15a this was
+// a bare concatenation, "adhal-v2:topicacid-acorn", which was unambiguous
+// only because the label was a fixed length and the word charset excluded
+// ':'. Both facts were true and neither was enforced: an opaque code is any
+// string, and the next label change would have been one character from a
+// collision nobody would see. With a length on each field, no two
+// (label, nameplate) pairs produce the same bytes, whatever either
+// contains.
 //
-// v1 and v2 topics cannot collide: the prefixes differ, so a v1 peer and a
+// v1 and v2 topics cannot collide: the encodings differ, so a v1 peer and a
 // v2 peer simply never meet, and the failure surfaces as ERR_NO_PEER
 // rather than as a corrupt frame.
 /**
@@ -52,7 +58,7 @@ function topicFromNameplate (nameplate) {
   if (typeof nameplate !== 'string' || nameplate.length === 0) {
     throw new TypeError('nameplate must be a non-empty string')
   }
-  return blake2b256(Buffer.from(`${TOPIC_PREFIX}${nameplate}`, 'utf8'))
+  return blake2b256(lvCat(Buffer.from(TOPIC_LABEL, 'utf8'), Buffer.from(nameplate, 'utf8')))
 }
 
 // The hash itself, exported so that the conformance vectors can check the
@@ -61,9 +67,9 @@ function topicFromNameplate (nameplate) {
 //   - that this really is BLAKE2b-256, by running the published digest of
 //     "abc" through it -- an external acceptance criterion, not a value
 //     this repo chose;
-//   - that topicFromNameplate's input really is the prefix concatenated
-//     with the nameplate and nothing else, by building that byte string in
-//     the test and hashing it here.
+//   - that topicFromNameplate's input really is lv_cat(label, nameplate)
+//     and nothing else, by building that byte string by hand in the test
+//     and hashing it here.
 //
 // Without the split, a vector file could only pin the composite digest, and
 // a change of hash function and a change of input construction would be
@@ -80,4 +86,4 @@ function blake2b256 (bytes) {
   return crypto.hash(bytes)
 }
 
-module.exports = { topicFromNameplate, blake2b256, TOPIC_PREFIX }
+module.exports = { topicFromNameplate, blake2b256, TOPIC_LABEL }

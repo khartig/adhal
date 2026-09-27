@@ -181,7 +181,7 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
   // property is deliberately voided, and it would otherwise be invisible:
   // the call looks identical to the word-code call above, and every
   // downstream module behaves the same way. An observer who scrapes this
-  // topic off the DHT holds hash("adhal-v2:topic" || secret) and can grind
+  // topic off the DHT holds hash(lv_cat(label, secret)) and can grind
   // candidates offline at full speed, which for 'adhal-test-3' is instant.
   // The PAKE still runs and still works; it simply has nothing left to
   // protect, because the password is committed to in public.

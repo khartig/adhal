@@ -63,9 +63,20 @@ What forces the break:
 ```
 code   = nameplate(2 words) + secret(3 words)        5 words total
          ~20.7 bits           ~31.0 bits
-topic  = BLAKE2b-256("adhal-v2:topic" || nameplate)   public, findable
-secret -> PAKE                                       never hashed into anything public
+topic  = BLAKE2b-256(lv_cat("adhal-v2:topic", nameplate))   public, findable
+secret -> PAKE                                     never hashed into anything public
 ```
+
+`lv_cat` is the CPace draft's length-prefixed concatenation, the same one
+§3.2 uses for every CPace input: each field is preceded by its length as
+an unsigned LEB128 integer. For the nameplate `acid-acorn` the hashed bytes
+are `0e "adhal-v2:topic" 0a "acid-acorn"`. The nameplate is its canonical
+form (lowercase, hyphen-separated) in UTF-8.
+
+*Amended in W15a.* The topic was previously the bare concatenation
+`"adhal-v2:topic" || nameplate`. That was unambiguous only because the
+label had a fixed length and no word contains `:`. The length prefixes
+make the encoding unambiguous whatever either field contains.
 
 Words come from the vendored EFF short list #1 (1295 words, 3-5 letters);
 see [`ARCHITECTURE.md`](ARCHITECTURE.md) for why that list and not BIP39.

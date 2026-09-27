@@ -166,8 +166,8 @@ shorter code.
 
 ```
 code   = nameplate(2 words) + secret(3 words)
-topic  = BLAKE2b("adhal-v2:topic" || nameplate)     public, findable
-secret -> PAKE                                     never hashed into anything public
+topic  = BLAKE2b(lv_cat("adhal-v2:topic", nameplate))   public, findable
+secret -> PAKE                                         never hashed into anything public
 ```
 
 The topic commits only to the nameplate. The secret is never hashed into
