@@ -124,20 +124,23 @@ Long-term identity (optional, "Keep this device")
 **The invariant: the keypair a drop announces to the DHT is generated for
 that drop and discarded with it.**
 
-Today this is true *by accident*. `createSwarm` passes no `keyPair`, so
-Hyperswarm generates a fresh one per process. Nothing declares that as a
-requirement and nothing tests it, so any future change that adds a
-persistent device identity — which is exactly what a "Keep this device"
-feature wants — would silently make every drop by one user linkable by the
-DHT nodes that see them, and would let a well-placed observer build a
-social graph of who transfers with whom. That is a privacy property that
-cannot be retrofitted once it is lost, because the linkage is in records
-other people already hold.
+Until W15b this was true *by accident*: `createSwarm` passed no `keyPair`,
+so Hyperswarm generated a fresh one per swarm, and nothing declared or
+tested that. Any change that added a persistent device identity — which is
+exactly what a "Keep this device" feature wants — would have silently made
+every drop by one user linkable by the DHT nodes that see them, and let a
+well-placed observer build a social graph of who transfers with whom. That
+is a privacy property that cannot be retrofitted once it is lost, because
+the linkage is in records other people already hold.
 
-So the accident is promoted to a stated invariant here, before the feature
-that would break it is designed. If a long-term identity is ever added, it
-is presented *inside* the authenticated channel, to the peer, after the
-PAKE — never as the swarm keypair, and never to the DHT.
+It is now enforced in code (W15b, Q-12). `createSwarm` generates the
+announce keypair itself, for every swarm, and throws if a caller passes
+one. `cli/test/announce-key.test.js` checks that two drops from one
+process are seen by their peer under different keys, on a real DHT.
+
+The rule that follows: if a long-term identity is ever added, it is
+presented *inside* the authenticated channel, to the peer, after the PAKE
+— never as the swarm keypair, and never to the DHT.
 
 This is also the single privacy property a trusted-device product cannot
 copy without abandoning its own design.
@@ -259,6 +262,17 @@ something a reasonable person might assume.
   can observe that a drop happened, between which addresses, and when.
 - **No protection against a compromised endpoint.** Malware on either
   machine reads the file and the code.
+- **No guarantee that secrets leave memory.** The code, the PAKE's
+  intermediates and the channel keys live in a Node.js process, which
+  cannot reliably erase memory. As a best effort (W15b, Q-18), the
+  handshake zeroes its private scalar, K, the ISK, the MAC key and the
+  password bytes as soon as it is done with them, and each transfer zeroes
+  its channel keys when it ends. The code itself is a JavaScript string and
+  cannot be wiped, and copies made inside the crypto libraries are out of
+  reach. So a core dump or swapped page taken during or shortly after a
+  drop may contain them. On a machine where that matters, disable core
+  dumps (`ulimit -c 0`) and use encrypted swap. Once the drop has closed,
+  the code is spent in any case.
 - **No protection against the human you sent the code to.** They are the
   intended recipient. If they are not, that is a code-handling failure,
   and it is why the code should be carried over a channel appropriate to

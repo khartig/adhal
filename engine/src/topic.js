@@ -27,7 +27,7 @@ const { lvCat } = require('./cpace')
 // restore v1's grindable topic exactly, and nothing downstream could tell.
 // The one caller that deliberately does this is the opaque-code path in
 // ./resolve-code.js, which says so in those words and is gated behind
-// --unsafe-opaque.
+// --insecure-opaque-code.
 const TOPIC_LABEL = 'adhal-v2:topic'
 
 // `hypercore-crypto.hash` is BLAKE2b-256 -- checked against the published

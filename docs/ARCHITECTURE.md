@@ -719,7 +719,7 @@ like a five-word code is held to the strict parse and reports which word
 is wrong, rather than being waved through as an opaque secret.
 
 **Opaque codes void all of this, deliberately and behind a flag.** An
-opaque code (`--unsafe-opaque`, diagnostics only) becomes its own
+opaque code (`--insecure-opaque-code`, diagnostics only) becomes its own
 nameplate *and* its own secret, which puts the secret into the announced
 topic and reintroduces exactly the offline grinding target v2 exists to
 remove. `engine/src/resolve-code.js` says so in those words at the call
@@ -734,7 +734,7 @@ Verified by `cli/test/code.test.js`, which decodes the printed matrix with
 a real QR decoder (`jsqr`, test-only) and confirms the scan lands on the
 same topic the receiver joined, and by `cli/test/code-vectors.test.js`,
 which freezes code → nameplate/secret → topic as fixed pairs — the first
-of the Quay-specific vectors §11 requires.
+of the Ad-ḫal-specific vectors §11 requires.
 
 Step D7 of the data path above and resume (D5's offset persistence)
 belong to later stages and are not yet built. Protomux-based channel

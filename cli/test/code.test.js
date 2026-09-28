@@ -396,12 +396,43 @@ test('resolveCode holds a five-word-shaped input to the strict parse', () => {
 
   // And the gate itself: the default refuses, naming the way out. This
   // is the product-surface guarantee -- no CLI can emit a weak drop
-  // without someone having typed --unsafe-opaque.
+  // without someone having typed --insecure-opaque-code.
   assert.throws(
     () => resolveCode('adhal-test-3'),
-    /--unsafe-opaque/,
+    /--insecure-opaque-code/,
     'an opaque code must be refused unless explicitly allowed'
   )
+})
+
+test('opaque codes are off unless the insecure opt-in is named, and the old name no longer works', (t) => {
+  // Q-15. The opt-in was --unsafe-opaque / *_UNSAFE_OPAQUE, which reads
+  // like a mild warning. It is renamed to say what it does, and the old
+  // variable must not quietly keep working: a script that still sets it
+  // should find out, rather than keep publishing its secret in the topic.
+  const saved = { ...process.env }
+  t.after(() => {
+    for (const key of ['ADHAL_INSECURE_OPAQUE_CODE', 'ADHAL_UNSAFE_OPAQUE']) {
+      if (key in saved) process.env[key] = saved[key]
+      else delete process.env[key]
+    }
+  })
+  delete process.env.ADHAL_INSECURE_OPAQUE_CODE
+  delete process.env.ADHAL_UNSAFE_OPAQUE
+
+  assert.throws(() => resolveCode('adhal-test-3'), /not a 5-word drop code/, 'off by default')
+
+  process.env.ADHAL_UNSAFE_OPAQUE = '1'
+  assert.throws(() => resolveCode('adhal-test-3'), /not a 5-word drop code/, 'the old name is inert')
+
+  process.env.ADHAL_INSECURE_OPAQUE_CODE = '1'
+  assert.equal(resolveCode('adhal-test-3').kind, 'opaque', 'the new name opts in')
+
+  // Only the exact value "1" opts in: a variable set to anything else,
+  // including an empty string, leaves the gate shut.
+  for (const value of ['', '0', 'true', 'yes']) {
+    process.env.ADHAL_INSECURE_OPAQUE_CODE = value
+    assert.throws(() => resolveCode('adhal-test-3'), /not a 5-word drop code/, `ADHAL_INSECURE_OPAQUE_CODE=${JSON.stringify(value)}`)
+  }
 })
 
 test('the hand-typed diagnostic secrets still resolve as opaque codes when asked', () => {

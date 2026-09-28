@@ -54,15 +54,15 @@ function looksLikeWordCode (input) {
 // is the actual failure mode: `swarm-send.js <whatever you typed>` used
 // to accept any string at all as a drop code, silently.
 function allowOpaqueByDefault () {
-  return process.env.ADHAL_UNSAFE_OPAQUE === '1'
+  return process.env.ADHAL_INSECURE_OPAQUE_CODE === '1'
 }
 
 /**
  * @param {string} input
  * @param {{ allowOpaque?: boolean }} [options]
- *   `allowOpaque` defaults to the ADHAL_UNSAFE_OPAQUE=1 environment
+ *   `allowOpaque` defaults to the ADHAL_INSECURE_OPAQUE_CODE=1 environment
  *   variable, so a diagnostic session can be opted in once rather than
- *   per call. The CLIs expose it as `--unsafe-opaque`.
+ *   per call. The CLIs expose it as `--insecure-opaque-code`.
  * @returns {{ code: string, nameplate: string, secret: string, topic: Buffer, kind: 'words' | 'opaque' }}
  *   `code` is the canonical form for a word code, or the input verbatim for
  *   an opaque one. Both peers must pass the *same* thing here, which for
@@ -109,13 +109,20 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
     // put all five words -- secret included -- on stderr, undoing
     // cli/src/read-code.js's whole reason for existing. The token count
     // is the diagnostic; the words are not.
+    //
+    // THE FLAG IS OFFERED AS A DIAGNOSTIC, NEVER AS A FIX. This is the
+    // message a person sees for a mistyped code -- a lost word, a stray
+    // separator -- and the likeliest wrong response to "not a drop code,
+    // pass --flag" is to pass the flag, which puts the whole code into the
+    // public topic. So the fix comes first, and the flag is named only
+    // with what it costs.
     throw new Error(
       `that is not a ${WORD_COUNT}-word drop code (it has ${tokens.length} ` +
-      'words or word-like parts). Codes are generated, not ' +
-      'chosen: run the receiver with no argument and it will print one. ' +
-      'If you meant to use an arbitrary string as a topic -- which is ' +
-      'dictionary-attackable and only appropriate for diagnostics -- pass ' +
-      '--unsafe-opaque or set ADHAL_UNSAFE_OPAQUE=1.'
+      'words or word-like parts). Check it against the code the other side ' +
+      'shows, or have the receiver generate a new one by running it with no ' +
+      'code. For diagnostics only, --insecure-opaque-code accepts an ' +
+      'arbitrary string, which anyone watching the DHT can guess offline -- ' +
+      'never use it for a real transfer.'
     )
   }
 
@@ -145,7 +152,7 @@ function resolveCode (input, { allowOpaque = allowOpaqueByDefault() } = {}) {
   // The PAKE still runs and still works; it simply has nothing left to
   // protect, because the password is committed to in public.
   //
-  // Acceptable only because this path is gated behind --unsafe-opaque and
+  // Acceptable only because this path is gated behind --insecure-opaque-code and
   // documented as diagnostics-only. It must never acquire a product
   // surface. If one is ever wanted, the fix is a separate topic secret,
   // not a relaxation of the gate.

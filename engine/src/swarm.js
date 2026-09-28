@@ -1,6 +1,7 @@
 'use strict'
 
 const Hyperswarm = require('hyperswarm')
+const HyperDHT = require('hyperdht')
 const { TransferError, abortError } = require('./errors')
 const { MessageReader } = require('./reader')
 const { Initiator, Responder, assertHandshakeInputs, ERR_CONFIRMATION } = require('./handshake')
@@ -118,11 +119,30 @@ const HANDSHAKE_TIMEOUT_MS = 15000
 // guidance, that's reserved for the one or two persistent nodes that
 // provide the network's routing infrastructure (the testnet's own bootstrap
 // node already is one); regular peers just point at that bootstrap.
+//
+// A FRESH ANNOUNCE KEYPAIR PER SWARM, GENERATED HERE (THREAT-MODEL.md
+// section 4, Q-12). Every DHT node near the topic sees the public key a
+// swarm announces under. If two drops ever shared one, those nodes could
+// link them, and "nothing links two drops" would be false in records other
+// people hold. Until W15b this held only because Hyperswarm happens to
+// generate a keypair when none is passed. That is a library default, not
+// a decision, and a default can change in an upgrade. So the key is made
+// here, explicitly, and a caller cannot pass one in: a persistent device
+// identity (a future "keep this device") belongs inside the authenticated
+// channel and never in front of the DHT.
 /**
  * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number }} [options]
  */
-function createSwarm ({ bootstrap, maxParallel = MAX_PARALLEL } = {}) {
+function createSwarm (options = {}) {
+  if (options && 'keyPair' in options) {
+    throw new TypeError(
+      'createSwarm does not take a keyPair: every drop announces under a fresh one, ' +
+      'so that DHT nodes cannot link two drops (THREAT-MODEL.md section 4)'
+    )
+  }
+  const { bootstrap, maxParallel = MAX_PARALLEL } = options
   const swarm = new Hyperswarm({
+    keyPair: HyperDHT.keyPair(),
     maxParallel,
     ...(bootstrap ? { bootstrap } : {})
   })
@@ -316,6 +336,8 @@ function declineLate (socket, { sendKey, receiveKey }, first) {
   const channel = new Channel({ sendKey, receiveKey, onMessage: () => {} })
   if (first) socket.write(first)
   socket.end(channel.seal(TYPE_DECLINE, declineBody(DROP_TAKEN_REASON, ERR_DROP_TAKEN)))
+  // The one frame this connection will ever carry is sealed (Q-18).
+  channel.wipe()
   const timer = setTimeout(() => socket.destroy(), LATE_FLUSH_MS)
   if (typeof timer.unref === 'function') timer.unref()
   socket.once('close', () => clearTimeout(timer))

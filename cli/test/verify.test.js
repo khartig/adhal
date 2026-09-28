@@ -225,3 +225,85 @@ test('a sender that disconnects before sending anything says so plainly', async 
     assert.match(err.message, /before sending a manifest/)
   })
 })
+
+// --- one descriptor for the hash and the send (Q-16) ----------------------
+
+// Open descriptors in this process, where the platform exposes them.
+function openFds () {
+  for (const dir of ['/proc/self/fd', '/dev/fd']) {
+    try { return fs.readdirSync(dir).length } catch {}
+  }
+  return null
+}
+
+test('a file swapped at its path after hashing is not what gets sent', async (t) => {
+  // The sender hashes, offers, and waits for ACCEPT; the receiver's policy
+  // runs in between. That is the window in which a local attacker (or a
+  // build tool) can rename a different file over the path. The sender used
+  // to reopen the path to send, so it hashed one file and sent another.
+  // It now sends through the descriptor it hashed, so the swap is invisible
+  // to the transfer: the receiver gets exactly the bytes the manifest
+  // described.
+  const dir = await tmpDir(t, 'q16-swap')
+  const sourcePath = path.join(dir, 'report.bin')
+  const original = crypto.randomBytes(200 * 1024)
+  await fs.promises.writeFile(sourcePath, original)
+  const decoy = path.join(dir, 'decoy.bin')
+  await fs.promises.writeFile(decoy, crypto.randomBytes(original.length))
+  const outputDir = path.join(dir, 'out')
+  await fs.promises.mkdir(outputDir)
+
+  const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
+  const [sent, received] = await Promise.all([
+    sendFile(txSocket, sourcePath, { ...keys.sender }),
+    receiveFile(rxSocket, outputDir, {
+      ...keys.receiver,
+      onOffer: async () => {
+        await fs.promises.rename(decoy, sourcePath)
+        return true
+      }
+    })
+  ])
+
+  const expected = crypto.createHash('sha256').update(original).digest('hex')
+  assert.equal(sent.sha256, expected)
+  assert.equal(received.sha256, expected)
+  assert.deepEqual(await fs.promises.readFile(path.join(outputDir, 'report.bin')), original, 'the bytes that were hashed, not the decoy')
+})
+
+test('the sender releases its descriptor however the transfer ends', { skip: openFds() === null && 'no fd listing on this platform' }, async (t) => {
+  const dir = await tmpDir(t, 'q16-fd')
+  const sourcePath = path.join(dir, 'a.bin')
+  await fs.promises.writeFile(sourcePath, crypto.randomBytes(64 * 1024))
+  const outputDir = path.join(dir, 'out')
+  await fs.promises.mkdir(outputDir)
+  const before = openFds()
+
+  // Completed.
+  {
+    const [txSocket, rxSocket] = duplexPair()
+    const keys = channelKeys()
+    await Promise.all([sendFile(txSocket, sourcePath, { ...keys.sender }), receiveFile(rxSocket, outputDir, { ...keys.receiver, replace: true })])
+  }
+  // Declined, so the send fails after the file was opened and hashed.
+  {
+    const [txSocket, rxSocket] = duplexPair()
+    const keys = channelKeys()
+    const [sent] = await Promise.allSettled([
+      sendFile(txSocket, sourcePath, { ...keys.sender }),
+      receiveFile(rxSocket, outputDir, { ...keys.receiver, onOffer: () => false })
+    ])
+    assert.equal(sent.status, 'rejected')
+  }
+  // The duplex pair's own handles are not file descriptors, so any growth
+  // here is the source file left open.
+  assert.equal(openFds(), before, 'no descriptor was left open')
+})
+
+test('a path that is not a regular file is refused before anything is offered', async (t) => {
+  const dir = await tmpDir(t, 'q16-dir')
+  const [txSocket] = duplexPair()
+  const keys = channelKeys()
+  await assert.rejects(sendFile(txSocket, dir, { ...keys.sender }), /not a regular file/)
+})

@@ -21,7 +21,7 @@
 // this project's own measurement harness once classified failures by
 // regex-matching prose.
 
-const { displayName } = require('@ad-hal/engine')
+const { displayName, displayText } = require('@ad-hal/engine')
 
 /** @param {any} err */
 function isLocalCancellation (err) {
@@ -55,10 +55,26 @@ function partialNote (err) {
 
 /**
  * A single line, already prefixed by the caller's label.
+ *
+ * ESCAPED AS A WHOLE, on the way out. The engine cleans every peer string
+ * it puts into a message (notJson, validateManifest's quote,
+ * sanitizeReason), and this is the backstop for the one it misses, the
+ * next branch added below, and the message nobody thought of as
+ * peer-controlled. A single escape at the exit is checkable in one place;
+ * a rule that every branch must remember is not (Q-11).
+ *
  * @param {any} err
  * @returns {string}
  */
 function describeError (err) {
+  return displayText(describeUnescaped(err))
+}
+
+/**
+ * @param {any} err
+ * @returns {string}
+ */
+function describeUnescaped (err) {
   const code = err && err.code
 
   switch (code) {

@@ -209,17 +209,29 @@ function hashFile (filePath) {
 //
 // A read chunk does not respect the boundaries, so it is split at them;
 // `hash.copy()` finalises a snapshot without disturbing the running state.
+//
+// Given a FileHandle and a size, exactly that many bytes are hashed through
+// that handle -- see sendFile for why. Given a path, the whole file is.
 /**
- * @param {string} filePath
+ * @param {string | import('fs').promises.FileHandle} source
+ * @param {number} [size] with a FileHandle: how many bytes to hash
  * @returns {Promise<{ sha256: string, prefixes: Buffer[] }>}
  */
-function hashFileWithPrefixes (filePath) {
+function hashFileWithPrefixes (source, size) {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash('sha256')
     /** @type {Buffer[]} */
     const prefixes = []
     let position = 0
-    const stream = fs.createReadStream(filePath)
+    if (typeof source !== 'string' && size === 0) {
+      // A read stream cannot be asked for zero bytes (`end: -1` reads the
+      // whole file), and there is nothing to hash.
+      resolve({ sha256: hash.digest('hex'), prefixes })
+      return
+    }
+    const stream = typeof source === 'string'
+      ? fs.createReadStream(source)
+      : source.createReadStream({ start: 0, end: /** @type {number} */ (size) - 1, autoClose: false })
     stream.on('data', (/** @type {Buffer} */ chunk) => {
       let offset = 0
       while (offset < chunk.length) {
@@ -411,28 +423,50 @@ function progressReporter (onProgress, total) {
 async function sendFile (socket, filePath, options = /** @type {any} */ ({})) {
   const { chunkSize = DEFAULT_CHUNK_SIZE } = options
   return offerAndSend(socket, options, async () => {
-    const stat = await fs.promises.stat(filePath)
-    const size = stat.size
-    const { sha256, prefixes } = await hashFileWithPrefixes(filePath)
-    return {
-      name: path.basename(filePath),
-      size,
-      sha256,
-      // What PREFIX carries for a resumeFrom the sender has already checked
-      // is on a boundary or is the whole file (onAccept). The whole file's
-      // prefix digest is the manifest's own.
-      prefixDigest: (/** @type {number} */ n) => n === size ? Buffer.from(sha256, 'hex') : prefixes[n / PREFIX_BOUNDARY - 1],
-      // stat, hashFile and createReadStream are three separate reads of a
-      // file that nothing stops changing underneath us. Capping the read at
-      // the size we hashed and declared means a file that GREW mid-send is
-      // sent as the manifest describes rather than overrunning it; a file
-      // that SHRANK is caught by the assertion after 'end'. Before this, a
-      // shrunk file resolved *successfully* having sent short, and the
-      // receiver was left waiting for bytes that were never coming.
-      //
-      // `start` is the receiver's resumeFrom: a resumed transfer reads the
-      // file from there, and the bytes before it are never read again.
-      open: (start) => fs.createReadStream(filePath, { highWaterMark: chunkSize, start, end: size - 1 })
+    // ONE OPEN, ONE DESCRIPTOR, for the size, the hash and every byte sent
+    // (Q-16). These were three separate opens of a path -- stat, then a read
+    // stream to hash, then another to send -- so a file swapped at that
+    // path between them (a rename over it, a symlink retargeted) was
+    // hashed as one file and sent as another. Now the manifest and the
+    // bytes both come from whatever inode this open reached.
+    //
+    // What it does NOT stop is the same file being edited in place while
+    // it is sent. Nothing short of a private copy could, and it fails
+    // closed: the receiver's digest disagrees, it discards the file, and
+    // RESULT says so. The size is capped either way -- see `open` below.
+    const handle = await fs.promises.open(filePath, 'r')
+    try {
+      const stat = await handle.stat()
+      if (!stat.isFile()) {
+        throw new TypeError(`${path.basename(filePath)} is not a regular file; use streaming for a pipe or device`)
+      }
+      const size = stat.size
+      // Exactly `size` bytes, so a file that grows while it is hashed
+      // cannot yield a digest over more than the manifest declares.
+      const { sha256, prefixes } = await hashFileWithPrefixes(handle, size)
+      return {
+        name: path.basename(filePath),
+        size,
+        sha256,
+        // What PREFIX carries for a resumeFrom the sender has already checked
+        // is on a boundary or is the whole file (onAccept). The whole file's
+        // prefix digest is the manifest's own.
+        prefixDigest: (/** @type {number} */ n) => n === size ? Buffer.from(sha256, 'hex') : prefixes[n / PREFIX_BOUNDARY - 1],
+        // Capping the read at the size we hashed and declared means a file
+        // that GREW mid-send is sent as the manifest describes rather than
+        // overrunning it; a file that SHRANK is caught by the assertion
+        // after 'end'. Before that cap, a shrunk file resolved
+        // *successfully* having sent short, and the receiver was left
+        // waiting for bytes that were never coming.
+        //
+        // `start` is the receiver's resumeFrom: a resumed transfer reads the
+        // file from there, and the bytes before it are never read again.
+        open: (start) => handle.createReadStream({ highWaterMark: chunkSize, start, end: size - 1, autoClose: false }),
+        close: () => handle.close()
+      }
+    } catch (err) {
+      await handle.close().catch(() => {})
+      throw err
     }
   })
 }
@@ -497,7 +531,7 @@ async function sendStream (socket, readable, options) {
 /**
  * @param {any} socket
  * @param {any} options see sendFile and sendStream
- * @param {() => Promise<{ name: string, size: number | null, sha256: string | null, prefixDigest?: (n: number) => Buffer, open: (start: number) => import('stream').Readable }>} describe
+ * @param {() => Promise<{ name: string, size: number | null, sha256: string | null, prefixDigest?: (n: number) => Buffer, open: (start: number) => import('stream').Readable, close?: () => Promise<void> }>} describe
  * @returns {Promise<{ name: string, size: number, sha256: string, resumedFrom: number }>}
  */
 async function offerAndSend (socket, {
@@ -519,21 +553,49 @@ async function offerAndSend (socket, {
   // First, before the abort check and any filesystem work, so a caller
   // without keys is told so rather than succeeding at a cancel.
   const channel = openChannel({ sendKey, receiveKey }, (type, body) => onInbound(type, body))
+  try {
+    // The receiver refuses a manifest declaring more than MAX_CHUNK_SIZE, and
+    // the channel refuses to seal a larger body -- so a chunk size above it
+    // cannot produce a working transfer, and is refused here, where the
+    // caller can see it, rather than from inside the read stream's 'data'
+    // handler, where a throw has no one to reach.
+    if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0 || chunkSize > MAX_CHUNK_SIZE) {
+      throw new RangeError(`chunkSize must be 1..${MAX_CHUNK_SIZE}, got ${chunkSize}`)
+    }
 
-  // The receiver refuses a manifest declaring more than MAX_CHUNK_SIZE, and
-  // the channel refuses to seal a larger body -- so a chunk size above it
-  // cannot produce a working transfer, and is refused here, where the
-  // caller can see it, rather than from inside the read stream's 'data'
-  // handler, where a throw has no one to reach.
-  if (!Number.isSafeInteger(chunkSize) || chunkSize <= 0 || chunkSize > MAX_CHUNK_SIZE) {
-    throw new RangeError(`chunkSize must be 1..${MAX_CHUNK_SIZE}, got ${chunkSize}`)
+    // Before any filesystem work, so an already-cancelled transfer costs
+    // nothing and cannot half-open a file.
+    if (signal && signal.aborted) throw abortError(0, signal.reason)
+
+    const source = await describe()
+    try {
+      return await offerSource(socket, channel, source, {
+        caps, onCheckpoint, chunkSize, signal, onProgress, pending, acceptTimeout, resultTimeout
+      }, (handler) => { onInbound = handler })
+    } finally {
+      // The descriptor sendFile opened, released however the transfer ended.
+      if (source.close) await source.close().catch(() => {})
+    }
+  } finally {
+    // Every frame this side will send has been sealed, or never will be
+    // (Q-18). Covers the refusals above as well as the transfer.
+    channel.wipe()
   }
+}
 
-  // Before any filesystem work, so an already-cancelled transfer costs
-  // nothing and cannot half-open a file.
-  if (signal && signal.aborted) throw abortError(0, signal.reason)
-
-  const source = await describe()
+// The offer and everything after it, for a source that has been described.
+// Split from offerAndSend only so that the source can be closed around it.
+/**
+ * @param {any} socket
+ * @param {InstanceType<typeof Channel>} channel
+ * @param {any} source
+ * @param {any} options
+ * @param {(handler: (type: number, body: Buffer) => void) => void} setInbound
+ * @returns {Promise<{ name: string, size: number, sha256: string, resumedFrom: number }>}
+ */
+async function offerSource (socket, channel, source, {
+  caps, onCheckpoint, chunkSize, signal, onProgress, pending, acceptTimeout, resultTimeout
+}, setInbound) {
   const { size } = source
   const streamed = size === null
 
@@ -750,7 +812,7 @@ async function offerAndSend (socket, {
     //
     // A frame that fails to open throws out of channel.push, and onData
     // turns that into a failed send: a forged RESULT is not a verdict.
-    onInbound = (type, body) => {
+    setInbound((type, body) => {
       if (settled) return
       if (type === TYPE_CANCEL) {
         const peerReason = decodeCancelReason(body)
@@ -806,7 +868,7 @@ async function offerAndSend (socket, {
         'ERR_PROTOCOL',
         `receiver sent ${TYPE_NAMES.get(type)} during a transfer; only CANCEL or RESULT is expected`
       )
-    }
+    })
 
     // The receiver's durable offset. It is part of the resume capability
     // (section 3.2) and only means something for a transfer that could be
@@ -965,11 +1027,17 @@ async function offerAndSend (socket, {
  *   caller has to say on purpose.
  */
 function validateManifest (manifest, maxSize) {
+  // EVERY PEER VALUE IN THESE MESSAGES GOES THROUGH displayName, the field
+  // name included: an unknown key is the peer's choice, and so is every
+  // value quoted below. JSON.stringify alone escapes control characters
+  // but leaves a bidi override (U+202E) raw, and these messages are
+  // printed to a terminal and carried to the sender in a DECLINE (Q-11).
   const invalid = (field, detail) => new TransferError(
     'ERR_MANIFEST_INVALID',
-    `manifest field ${field} is invalid: ${detail}`,
-    { field }
+    `manifest field ${displayName(field)} is invalid: ${detail}`,
+    { field: displayName(field) }
   )
+  const quote = (/** @type {unknown} */ value) => displayName(String(JSON.stringify(value)))
 
   if (manifest === null || typeof manifest !== 'object' || Array.isArray(manifest)) throw invalid('(root)', 'not an object')
   // First, so a v1 peer is told its version is wrong rather than that its
@@ -977,7 +1045,7 @@ function validateManifest (manifest, maxSize) {
   // and wrong is a peer we cannot safely parse; saying so beats guessing
   // at its layout.
   if (manifest.v !== MANIFEST_VERSION) {
-    throw invalid('v', `unsupported manifest version ${JSON.stringify(manifest.v)} (this build speaks v${MANIFEST_VERSION})`)
+    throw invalid('v', `unsupported manifest version ${quote(manifest.v)} (this build speaks v${MANIFEST_VERSION})`)
   }
   // Closed, not open: see MANIFEST_FIELDS. Object.keys sees an own
   // "__proto__" that JSON.parse created, so that is refused here too.
@@ -988,7 +1056,7 @@ function validateManifest (manifest, maxSize) {
   // null is streaming (section 4.3), and it is not the same as absent: a
   // manifest that omits `size` is malformed, not a stream.
   if (manifest.size !== null && (!Number.isSafeInteger(manifest.size) || manifest.size < 0)) {
-    throw invalid('size', `expected a non-negative safe integer or null, got ${JSON.stringify(manifest.size)}`)
+    throw invalid('size', `expected a non-negative safe integer or null, got ${quote(manifest.size)}`)
   }
   if (manifest.sha256 !== null && (typeof manifest.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(manifest.sha256))) {
     throw invalid('sha256', 'not a lowercase 64-character hex digest, or null')
@@ -1002,7 +1070,7 @@ function validateManifest (manifest, maxSize) {
     throw invalid('sha256', 'size and sha256 must both be declared, or both be null for a streamed transfer')
   }
   if (!Number.isSafeInteger(manifest.blockSize) || manifest.blockSize <= 0 || manifest.blockSize > MAX_CHUNK_SIZE) {
-    throw invalid('blockSize', `expected 1..${MAX_CHUNK_SIZE}, got ${JSON.stringify(manifest.blockSize)}`)
+    throw invalid('blockSize', `expected 1..${MAX_CHUNK_SIZE}, got ${quote(manifest.blockSize)}`)
   }
   // A CAP APPLIES UNLESS ONE IS REFUSED. This used to read "optional, and
   // off by default: the engine enforces no size cap of its own", on the
@@ -1112,15 +1180,23 @@ function suffixed (outputPath, n) {
  * racy against another process by a few microseconds and is still right
  * about the case that matters: a file that was already sitting there.
  *
+ * REPORTED, NOT SILENT (Q-19). Which path was taken comes back as
+ * `method`, and receiveFile's result carries it as `published`, so a CLI
+ * can tell its user when the no-overwrite guarantee was the weaker one: a
+ * local process that creates the destination in the gap between the check
+ * and the rename has it replaced. `replace` is reported too, because the
+ * caller asked for exactly that.
+ *
  * @param {string} partPath
  * @param {string} outputPath
  * @param {{ replace?: boolean }} options
- * @returns {Promise<string>} the path actually written
+ * @returns {Promise<{ path: string, method: 'link' | 'check-then-rename' | 'replace' }>}
+ *   `path` is the path actually written
  */
 async function publish (partPath, outputPath, { replace = false }) {
   if (replace) {
     await fs.promises.rename(partPath, outputPath)
-    return outputPath
+    return { path: outputPath, method: 'replace' }
   }
 
   let linkable = true
@@ -1131,7 +1207,7 @@ async function publish (partPath, outputPath, { replace = false }) {
       try {
         await fs.promises.link(partPath, candidate)
         await fs.promises.unlink(partPath)
-        return candidate
+        return { path: candidate, method: 'link' }
       } catch (err) {
         if (err.code === 'EEXIST') continue
         if (err.code !== 'EPERM' && err.code !== 'ENOSYS' && err.code !== 'EXDEV' && err.code !== 'ENOTSUP') throw err
@@ -1146,7 +1222,7 @@ async function publish (partPath, outputPath, { replace = false }) {
       continue // it exists; try the next suffix
     } catch {
       await fs.promises.rename(partPath, candidate)
-      return candidate
+      return { path: candidate, method: 'check-then-rename' }
     }
   }
 
@@ -1400,7 +1476,7 @@ async function checkFreeSpace (dir, size) {
  *   the socket and returns leftover bytes rather than swallowing them.
  *   `replace: true` opts back in to overwriting an existing file.
  *   Timeouts are in ms; 0 disables one.
- * @returns {Promise<{ name: string, declaredName: string, size: number, sha256: string, path: string, resumedFrom: number }>}
+ * @returns {Promise<{ name: string, declaredName: string, size: number, sha256: string, path: string, resumedFrom: number, published: 'link' | 'check-then-rename' | 'replace' }>}
  */
 function receiveFile (socket, outputDir, {
   sendKey,
@@ -1419,10 +1495,13 @@ function receiveFile (socket, outputDir, {
   checkpointInterval = CHECKPOINT_INTERVAL_MS,
   checkSpace = true
 } = /** @type {any} */ ({})) {
+  /** @type {InstanceType<typeof Channel> | null} */
+  let opened = null
   return new Promise((resolve, reject) => {
     // First, as in sendFile: a caller without keys is refused before the
     // abort check or any listener, and the throw becomes this rejection.
     const channel = openChannel({ sendKey, receiveKey }, onMessage)
+    opened = channel
 
     /** @type {any} */
     let manifest = null
@@ -1676,8 +1755,9 @@ function receiveFile (socket, outputDir, {
       let parsed
       try {
         parsed = JSON.parse(body.toString('utf8'))
-      } catch (err) {
-        throw new TransferError('ERR_MANIFEST_INVALID', `manifest is not valid JSON: ${err.message}`, { field: null })
+      } catch {
+        // By length, never by content: see notJson in ./message.js.
+        throw new TransferError('ERR_MANIFEST_INVALID', `manifest is not valid JSON (${body.length} bytes)`, { field: null })
       }
 
       // Everything is checked before a single filesystem call, so a
@@ -2035,7 +2115,7 @@ function receiveFile (socket, outputDir, {
         // Link-then-unlink rather than rename, so a file we did not
         // create is never destroyed. See `publish`.
         publish(partPath, outputPath, { replace }).then(
-          (finalPath) => {
+          ({ path: finalPath, method: published }) => {
             progress.final()
             // After the publish, not after the digest: {ok} tells the
             // sender the file is on disk under its name, and a publish
@@ -2046,7 +2126,8 @@ function receiveFile (socket, outputDir, {
               size: received,
               sha256: digest,
               path: finalPath,
-              resumedFrom: resumeFrom
+              resumedFrom: resumeFrom,
+              published
             }))
           },
           (err) => discardPartial().then(() => refuse(err), () => refuse(err))
@@ -2091,6 +2172,10 @@ function receiveFile (socket, outputDir, {
     // stays flowing while an offer is considered, so a CANCEL sent during
     // it is heard; nothing else may arrive then.
     if (typeof socket.resume === 'function') socket.resume()
+  }).finally(() => {
+    // Both settle paths have flushed their last sealed frame -- RESULT
+    // before resolving, a DECLINE or CANCEL before rejecting (Q-18).
+    if (opened) opened.wipe()
   })
 }
 

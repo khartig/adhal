@@ -171,6 +171,16 @@ function checkKey (key, what) {
   if (!Buffer.isBuffer(key) || key.length !== KEY_SIZE) {
     throw new TypeError(`${what} must be a ${KEY_SIZE}-byte Buffer`)
   }
+  // A zero key is one a finished transfer wiped (Channel#wipe). Keys are
+  // single-use: each transfer takes the keys from its own handshake.
+  // Without this the refusal would surface as "sendKey and receiveKey
+  // must differ", which is true and explains nothing.
+  if (key.every((byte) => byte === 0)) {
+    throw new TypeError(
+      `${what} is all zeros: these keys were already used by a transfer, which wiped ` +
+      'them when it ended. Each transfer needs the keys from its own handshake'
+    )
+  }
 }
 
 // Both directions of one connection's channel.
@@ -222,6 +232,8 @@ class Channel {
     // this latch "a failed open is terminal" is a claim a comment makes
     // and the code does not keep.
     this._failed = false
+    // See wipe().
+    this._wiped = false
     this.maxChunk = maxChunkSize(maxFrameSize)
 
     // Reuses ./frame.js unchanged, which is the point of that module
@@ -242,6 +254,7 @@ class Channel {
    * @returns {Buffer}
    */
   seal (type, body) {
+    if (this._wiped) throw protocolError('this channel has been closed and its keys wiped')
     if (!Buffer.isBuffer(body)) throw new TypeError('body must be a Buffer')
     // Checked against the same budget the peer's decoder will enforce, so
     // an oversize body fails here -- where the caller can see which of its
@@ -289,8 +302,27 @@ class Channel {
    * @param {Buffer} chunk
    */
   push (chunk) {
+    if (this._wiped) throw protocolError('this channel has been closed and its keys wiped')
     if (this._failed) throw this._deadError()
     this._decoder.push(chunk)
+  }
+
+  /**
+   * Zeroes both directional keys, and refuses every seal and open after.
+   * Called by ./transfer.js when a transfer ends however it ends.
+   *
+   * BEST EFFORT, and said so (Q-18). This clears the two Buffers this
+   * channel was handed -- which are the caller's own, so its copy is
+   * cleared too; channel keys are single-use by construction -- but Node
+   * gives no way to clear the copies OpenSSL made for each cipher, or
+   * anything the garbage collector has already moved. What it does do is
+   * shorten how long the keys sit in the process's memory, and so in a
+   * core dump or swap.
+   */
+  wipe () {
+    this._sendKey.fill(0)
+    this._receiveKey.fill(0)
+    this._wiped = true
   }
 
   /** @returns {{ sent: bigint, received: bigint }} frame counts per direction */

@@ -29,11 +29,8 @@ const { readCode } = require('./read-code')
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
+const { parseBootstrap } = require('./env')
 
-function parseBootstrap () {
-  const raw = process.env.ADHAL_BOOTSTRAP
-  return raw ? JSON.parse(raw) : undefined
-}
 
 // ADHAL_JOIN_TIMEOUT overrides how long we wait for a peer, in ms (0
 // disables the timeout). 30s is deliberate: on the public DHT a join that
@@ -72,7 +69,7 @@ function maxSize () {
 // stays unambiguously "that's a code", exactly as the Hyperswarm CLI defined it: a bare
 // path and a bare code are not reliably distinguishable, and guessing wrong
 // would silently save into a directory named after a word.
-const KNOWN_FLAGS = new Set(['--new', '--unsafe-opaque', '--replace', '--code-stdin'])
+const KNOWN_FLAGS = new Set(['--new', '--insecure-opaque-code', '--replace', '--code-stdin', '--verbose'])
 
 function parseArgs (argv) {
   const flags = argv.filter((a) => a.startsWith('--'))
@@ -84,12 +81,13 @@ function parseArgs (argv) {
   }
 
   const common = {
-    allowOpaque: flags.includes('--unsafe-opaque'),
+    allowOpaque: flags.includes('--insecure-opaque-code'),
     // Opt back in to overwriting an existing file. Off by default: see
     // `publish` in engine/src/transfer.js for why the old overwrite
     // default was a security bug rather than a UI question.
     replace: flags.includes('--replace'),
-    fromStdin: flags.includes('--code-stdin')
+    fromStdin: flags.includes('--code-stdin'),
+    verbose: flags.includes('--verbose')
   }
 
   if (wantsNew) {
@@ -146,15 +144,27 @@ async function main () {
   }
   const { code, topic, nameplate, secret } = resolved
 
+  let bootstrap
+  try {
+    bootstrap = parseBootstrap()
+  } catch (err) {
+    console.error(`[swarm-receive] ${err.message}`)
+    process.exitCode = 1
+    return
+  }
+
   const outputDir = parsed.outputDirArg ? path.resolve(parsed.outputDirArg) : process.cwd()
   await fs.promises.mkdir(outputDir, { recursive: true })
 
-  const swarm = createSwarm({ bootstrap: parseBootstrap() })
+  const swarm = createSwarm({ bootstrap })
   const cancel = installCancelHandler({ label: 'swarm-receive' })
   const progress = createProgressReporter({ label: 'swarm-receive' })
   /** @type {Error | null} */
   let socketError = null
-  console.log(`[swarm-receive] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
+  // The topic is a commitment to the nameplate, and this line lands in
+  // scrollback, CI logs and bug reports. It is shown only when asked for
+  // (Q-17); the nameplate itself is already on screen in the code.
+  console.log(`[swarm-receive] joining topic${parsed.verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
     // Set once acceptOnce resolves; the late-candidate callbacks above
@@ -289,6 +299,11 @@ async function main () {
       console.log(`[swarm-receive] renamed: the peer asked for ${JSON.stringify(displayName(result.declaredName))}`)
     }
     console.log(`[swarm-receive] saved to: ${result.path}`)
+    // See `publish` in engine/src/transfer.js (Q-19).
+    if (result.published === 'check-then-rename') {
+      console.log('[swarm-receive] note: this filesystem has no hard links, so the file was landed with a check-then-rename; ' +
+        'another process creating the same name at that instant could have been overwritten. Prefer an output directory on a local disk.')
+    }
 
     // receiveFile has written RESULT, but "written" is a local flush.
     // Destroying now could drop it and leave the sender reporting an

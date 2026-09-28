@@ -85,6 +85,9 @@ async function main () {
           console.log(`[receive] renamed: the peer asked for ${JSON.stringify(result.declaredName)}`)
         }
         console.log(`[receive] saved to: ${result.path}`)
+        if (result.published === 'check-then-rename') {
+          console.log('[receive] note: no hard links on this filesystem, so the file was landed with a racy check-then-rename (see engine/src/transfer.js, publish)')
+        }
       }).catch((err) => {
         progress.close()
         console.error(`[receive] ${describeError(err)}`)

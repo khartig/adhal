@@ -25,9 +25,16 @@ const {
   safeOutputName,
   displayName,
   TYPE_CHUNK,
-  DEFAULT_MAX_SIZE
+  DEFAULT_MAX_SIZE,
+  decodeDecline,
+  decodeCancelReason,
+  declineBody,
+  cancelBody,
+  decodeResult,
+  displayText
 } = require('@ad-hal/engine')
 const { sealedSender } = require('../test-helpers/sealed')
+const { describeError } = require('../src/report')
 
 async function tmpDir (t, label) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
@@ -356,4 +363,110 @@ test('a receiver slower than its sender pauses the socket instead of buffering w
   assert.equal(result.size, body.length)
   assert.equal(result.sha256, crypto.createHash('sha256').update(body).digest('hex'))
   assert.deepEqual(await fs.promises.readFile(result.path), body)
+})
+
+// --- peer bytes in error messages (Q-11) ----------------------------------
+//
+// Filenames were already printed through displayName. These are the paths
+// that bypassed it: a peer that passed the PAKE could put raw ESC or a bidi
+// override into the receiver's terminal through an error message rather
+// than a name. Each case checks both layers -- the engine's message, and the
+// line report.js prints -- because either alone is one missed branch away
+// from the bug coming back.
+
+const ESC = '\u001b'
+const RLO = '‮'
+
+/** @param {string} text */
+function assertPrintable (text, what) {
+  assert.ok(!text.includes(ESC), `${what} contains a raw ESC: ${JSON.stringify(text)}`)
+  assert.ok(!text.includes(RLO), `${what} contains a raw U+202E: ${JSON.stringify(text)}`)
+}
+
+test('a manifest that is not JSON is reported by length, not by echoing it', async (t) => {
+  const outputDir = await tmpDir(t, 'q11-json')
+  const { received } = offer(outputDir, Buffer.from(`${ESC}[2J${ESC}[Hverified: ok`, 'utf8'))
+  const err = await rejectsWith(received, 'ERR_MANIFEST_INVALID')
+  assertPrintable(err.message, 'the engine message')
+  assert.match(err.message, /not valid JSON \(\d+ bytes\)/)
+  assert.doesNotMatch(err.message, /verified/, 'none of the body is echoed')
+  assertPrintable(describeError(err), 'the printed line')
+})
+
+test('a hostile manifest key or value is escaped in the message and in .field', async (t) => {
+  const outputDir = await tmpDir(t, 'q11-field')
+
+  // An unknown key is the peer's choice, and becomes both part of the
+  // message and err.field, which report.js prints.
+  {
+    const manifest = { ...manifestFor(Buffer.alloc(8)), [`x${RLO}${ESC}[2J`]: 1 }
+    const err = await rejectsWith(offer(outputDir, manifest).received, 'ERR_MANIFEST_INVALID')
+    assertPrintable(err.message, 'the message for a hostile key')
+    assertPrintable(String(err.field), '.field for a hostile key')
+    assert.match(err.message, /\\u202e/, 'escaped, not stripped: the reader can see something was there')
+    assertPrintable(describeError(err), 'the printed line for a hostile key')
+  }
+
+  // A value quoted in the message. JSON.stringify escapes ESC but keeps
+  // U+202E raw, which is the gap this closes.
+  {
+    const manifest = manifestFor(Buffer.alloc(8), { v: `2${RLO}` })
+    const err = await rejectsWith(offer(outputDir, manifest).received, 'ERR_MANIFEST_INVALID')
+    assertPrintable(err.message, 'the message for a hostile value')
+    assertPrintable(describeError(err), 'the printed line for a hostile value')
+  }
+})
+
+test('a peer reason cannot carry a bidi override, and no decoder echoes a malformed body', () => {
+  for (const decoded of [
+    decodeDecline(declineBody(`no${RLO}thanks`)).reason,
+    decodeCancelReason(cancelBody(`stop${RLO}now`)),
+    decodeDecline(Buffer.from(JSON.stringify({ reason: `raw${RLO}${ESC}[2J` }), 'utf8')).reason
+  ]) {
+    assertPrintable(decoded, 'a peer reason')
+  }
+
+  // Every JSON decoder reports a malformed body by its length.
+  assert.throws(() => decodeResult(Buffer.from(`${ESC}[2J`, 'utf8')), (err) => {
+    assertPrintable(/** @type {Error} */ (err).message, 'a RESULT parse error')
+    return /not valid JSON \(4 bytes\)/.test(/** @type {Error} */ (err).message)
+  })
+})
+
+test('describeError escapes the whole line, whatever the error carried', () => {
+  // The backstop: an error from anywhere, with peer bytes the engine did
+  // not clean, still prints safely.
+  const line = describeError({ code: 'ERR_PROTOCOL', message: `bad${ESC}[2J${RLO}frame` })
+  assertPrintable(line, 'the printed line')
+  assert.match(line, /\\u001b\[2J\\u202e/)
+  assert.equal(displayText('a'.repeat(5000)).length < 5000, true, 'bounded, for a string that has somehow grown absurd')
+  assert.equal(displayText('x'.repeat(600)), 'x'.repeat(600), 'but not at a filename\'s length: long diagnostics survive whole')
+})
+
+// --- the publish fallback is reported (Q-19) ------------------------------
+
+test('a filesystem without hard links still lands the file, and says it used the weaker path', async (t) => {
+  // FAT and some network mounts refuse link() with EPERM/ENOSYS/EXDEV. The
+  // engine then falls back to check-then-rename, which is racy against a
+  // local process creating the same name. The fallback is right to exist;
+  // what it must not be is silent.
+  const outputDir = await tmpDir(t, 'q19-nolink')
+  const body = crypto.randomBytes(4096)
+
+  const normal = await offer(outputDir, manifestFor(body, { name: 'a.bin' }), body).received
+  assert.equal(normal.published, 'link', 'hard links are the default path')
+
+  const realLink = fs.promises.link
+  fs.promises.link = async () => { throw Object.assign(new Error('operation not permitted'), { code: 'EPERM' }) }
+  t.after(() => { fs.promises.link = realLink })
+
+  const fallback = await offer(outputDir, manifestFor(body, { name: 'b.bin' }), body).received
+  assert.equal(fallback.published, 'check-then-rename')
+  assert.deepEqual(await fs.promises.readFile(path.join(outputDir, 'b.bin')), body)
+
+  // And the no-overwrite rule still holds on that path for a file that is
+  // already there: it lands beside it.
+  const again = await offer(outputDir, manifestFor(body, { name: 'b.bin' }), body).received
+  assert.equal(again.name, 'b (1).bin')
+  assert.equal(again.published, 'check-then-rename')
 })

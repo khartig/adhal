@@ -1,8 +1,8 @@
-# Quay
+# Ad-ḫal
 
-<img src="assets/AppIcon-preview-rounded.png" width="120" alt="Project logo" />
+<img src="assets/app-icon.jpg" width="120" alt="Project logo" />
 
-Quay is a one-shot, no-account file drop between two devices: QR or 5-word
+Ad-ḫal is a one-shot, no-account file drop between two devices: QR or 5-word
 code, LAN first, DHT second, relay if a direct connection can't be
 established. No intermediary server sees your file unless a relay carries
 ciphertext on your behalf.
@@ -138,7 +138,7 @@ quay/
 
 `engine` stays pure JS with no UI/runtime framework attached, per the plan's
 Phase A instruction. Holepunch packages (hyperswarm, hyperdht,
-hypercore-crypto, compact-encoding, b4a) are already installed in
+hypercore-crypto, b4a) are already installed in
 `engine/` from the Hyperswarm work onward, even though the loopback transport is plain
 Node `net`/`fs`/`crypto`. `protomux` was installed alongside them and never
 used; W10 decided against it and removed it (`docs/PROTOCOL.md` §8.2).

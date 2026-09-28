@@ -154,13 +154,29 @@ const MAX_REASON_BYTES = 256
  */
 function sanitizeReason (reason) {
   if (typeof reason !== 'string') return ''
+  // Bidi overrides go with the control characters: U+202E reverses how
+  // the rest of the line renders, so a reason carrying one can make the
+  // CLI's own words around it read as something else (Q-11).
   // eslint-disable-next-line no-control-regex
-  const stripped = reason.replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ')
+  const stripped = reason.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ')
   const capped = Buffer.from(stripped, 'utf8').subarray(0, MAX_REASON_BYTES).toString('utf8')
   // A multi-byte character can be cut in half by the byte cap above;
   // toString leaves U+FFFD behind for the fragment, which is fine to show
   // but not worth trailing whitespace around.
   return capped.trim()
+}
+
+// A body that is not JSON is reported by its length, never its content.
+// V8's parse error quotes a snippet of the input verbatim -- a peer's
+// bytes, ESC and all -- and these messages reach a terminal (Q-11). What
+// the reader needs is which message was malformed, not what it said.
+/**
+ * @param {string} what e.g. "the receiver's RESULT"
+ * @param {Buffer} body
+ * @returns {InstanceType<typeof TransferError>}
+ */
+function notJson (what, body) {
+  return new TransferError('ERR_PROTOCOL', `${what} is not valid JSON (${body.length} bytes)`)
 }
 
 // A BODY, NOT A FRAME, and the name says so on purpose. These used to be
@@ -225,8 +241,8 @@ function decodeResult (body) {
   let parsed
   try {
     parsed = JSON.parse(body.toString('utf8'))
-  } catch (err) {
-    throw new TransferError('ERR_PROTOCOL', `the receiver's RESULT is not valid JSON: ${err.message}`)
+  } catch {
+    throw notJson("the receiver's RESULT", body)
   }
   if (parsed && parsed.ok === true && typeof parsed.sha256 === 'string' && SHA256_HEX.test(parsed.sha256)) {
     return { ok: true, sha256: parsed.sha256 }
@@ -262,8 +278,8 @@ function decodeAccept (body) {
   let parsed
   try {
     parsed = JSON.parse(body.toString('utf8'))
-  } catch (err) {
-    throw new TransferError('ERR_PROTOCOL', `the receiver's ACCEPT is not valid JSON: ${err.message}`)
+  } catch {
+    throw notJson("the receiver's ACCEPT", body)
   }
   if (!parsed || !Number.isSafeInteger(parsed.resumeFrom) || parsed.resumeFrom < 0) {
     throw new TransferError('ERR_PROTOCOL', 'the receiver\'s ACCEPT does not carry a non-negative integer resumeFrom')
@@ -349,8 +365,8 @@ function decodeCheckpoint (body) {
   let parsed
   try {
     parsed = JSON.parse(body.toString('utf8'))
-  } catch (err) {
-    throw new TransferError('ERR_PROTOCOL', `the receiver's CHECKPOINT is not valid JSON: ${err.message}`)
+  } catch {
+    throw notJson("the receiver's CHECKPOINT", body)
   }
   if (!parsed || !Number.isSafeInteger(parsed.offset) || parsed.offset < 0) {
     throw new TransferError('ERR_PROTOCOL', 'the receiver\'s CHECKPOINT does not carry a non-negative integer offset')
@@ -379,8 +395,8 @@ function decodeEnd (body) {
   let parsed
   try {
     parsed = JSON.parse(body.toString('utf8'))
-  } catch (err) {
-    throw new TransferError('ERR_PROTOCOL', `the sender's END is not valid JSON: ${err.message}`)
+  } catch {
+    throw notJson("the sender's END", body)
   }
   if (!parsed || typeof parsed.sha256 !== 'string' || !SHA256_HEX.test(parsed.sha256)) {
     throw new TransferError('ERR_PROTOCOL', 'the sender\'s END does not carry a lowercase hex sha256')
@@ -423,8 +439,8 @@ function decodePrefix (body) {
   let parsed
   try {
     parsed = JSON.parse(body.toString('utf8'))
-  } catch (err) {
-    throw new TransferError('ERR_PROTOCOL', `the sender's PREFIX is not valid JSON: ${err.message}`)
+  } catch {
+    throw notJson("the sender's PREFIX", body)
   }
   if (!parsed || typeof parsed.sha256 !== 'string' || !SHA256_HEX.test(parsed.sha256)) {
     throw new TransferError('ERR_PROTOCOL', 'the sender\'s PREFIX does not carry a lowercase hex sha256')

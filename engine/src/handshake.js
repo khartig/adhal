@@ -448,6 +448,18 @@ function takeLengthPrefixed (reader, min, max, what) {
 // ./swarm.js constructs this inside its per-connection handler for exactly
 // that reason, and there is deliberately no way to inject a scalar or a
 // sid from outside.
+// Zeroes handshake intermediates once nothing needs them (Q-18): the
+// private scalar, K, the ISK, the MAC key, the password bytes and the
+// generator derived from them. Best effort, for the reason Channel#wipe
+// gives: it shortens how long they sit in memory, and it cannot reach
+// copies made inside @noble or OpenSSL. The channel keys are not wiped
+// here; they are handed to the caller, and ./transfer.js wipes them when
+// the transfer ends.
+/** @param {...(Buffer | Uint8Array | null | undefined)} buffers */
+function wipe (...buffers) {
+  for (const b of buffers) if (b) b.fill(0)
+}
+
 class Initiator {
   /**
    * @param {{ secret: string, nameplate: string, caps?: string[] }} options
@@ -459,15 +471,16 @@ class Initiator {
     this._sid = crypto.randomBytes(SID_SIZE)
     this._ya = sampleScalar()
 
-    const g = calculateGenerator(
-      Buffer.from(secret, 'utf8'),
-      channelIdentifier(nameplate),
-      this._sid
-    )
+    const prs = Buffer.from(secret, 'utf8')
+    const g = calculateGenerator(prs, channelIdentifier(nameplate), this._sid)
     // Ya = X25519(ya, g), with the draft's mandatory abort. The generator
     // is derived from the password, so a wrong secret puts this side in a
     // group it cannot relate to the peer's -- which is the whole trick.
-    this._Ya = scalarMultVfy(this._ya, g)
+    try {
+      this._Ya = scalarMultVfy(this._ya, g)
+    } finally {
+      wipe(prs, g)
+    }
     this._adA = associatedData(this._caps)
     this._done = false
   }
@@ -494,7 +507,7 @@ class Initiator {
    * Verifies REPLY and produces CONFIRM.
    *
    * @param {InstanceType<(typeof import('./reader'))['MessageReader']>} reader
-   * @returns {{ confirm: Buffer, sendKey: Buffer, receiveKey: Buffer, caps: string[], isk: Buffer } | null}
+   * @returns {{ confirm: Buffer, sendKey: Buffer, receiveKey: Buffer, caps: string[] } | null}
    *   null if REPLY has not fully arrived yet.
    */
   readReply (reader) {
@@ -508,29 +521,37 @@ class Initiator {
     // whatever parseCaps makes of them.
     const capsS = body.subarray(REPLY_FIXED)
 
-    const theirTokens = parseCaps(capsS)
-    // K = scalar_mult_vfy(ya, Yb), aborting on the neutral element. A peer
-    // that sends a low-order or twist point learns nothing but would
-    // otherwise force both sides onto a key it also knows.
-    const K = scalarMultVfy(this._ya, Yb)
-    const derived = deriveAll(
-      this._sid,
-      K,
-      transcriptIR(this._Ya, this._adA, Yb, associatedData(capsS))
-    )
+    // From here the handshake ends, one way or the other, so `ya` is
+    // wiped on every path out -- including the throws.
+    let derived = null
+    let K = null
+    try {
+      const theirTokens = parseCaps(capsS)
+      // K = scalar_mult_vfy(ya, Yb), aborting on the neutral element. A peer
+      // that sends a low-order or twist point learns nothing but would
+      // otherwise force both sides onto a key it also knows.
+      K = scalarMultVfy(this._ya, Yb)
+      derived = deriveAll(
+        this._sid,
+        K,
+        transcriptIR(this._Ya, this._adA, Yb, associatedData(capsS))
+      )
 
-    if (!confirmationMatches(derived.confirmS, theirConfirm)) {
-      throw handshakeError(CONFIRMATION_FAILED, ERR_CONFIRMATION)
-    }
+      if (!confirmationMatches(derived.confirmS, theirConfirm)) {
+        wipe(derived.kR2S, derived.kS2R, derived.confirmR)
+        throw handshakeError(CONFIRMATION_FAILED, ERR_CONFIRMATION)
+      }
 
-    this._done = true
-    return {
-      confirm: derived.confirmR,
-      // The receiver sends under k_r2s and receives under k_s2r.
-      sendKey: derived.kR2S,
-      receiveKey: derived.kS2R,
-      caps: effectiveCaps(this._capsTokens, theirTokens),
-      isk: derived.isk
+      this._done = true
+      return {
+        confirm: derived.confirmR,
+        // The receiver sends under k_r2s and receives under k_s2r.
+        sendKey: derived.kR2S,
+        receiveKey: derived.kS2R,
+        caps: effectiveCaps(this._capsTokens, theirTokens)
+      }
+    } finally {
+      wipe(this._ya, K, derived && derived.isk, derived && derived.macKey, derived && derived.confirmS)
     }
   }
 }
@@ -586,22 +607,30 @@ class Responder {
     const capsR = body.subarray(HELLO_FIXED)
     const theirTokens = parseCaps(capsR)
 
+    // HELLO is read once, so the scalar, the generator, K and the password
+    // bytes are finished with here, on success or on an abort (see wipe).
     const yb = sampleScalar()
-    const g = calculateGenerator(this._secret, this._ci, sid)
-    const Yb = scalarMultVfy(yb, g)
-    const K = scalarMultVfy(yb, Ya)
+    let g = null
+    let K = null
+    try {
+      g = calculateGenerator(this._secret, this._ci, sid)
+      const Yb = scalarMultVfy(yb, g)
+      K = scalarMultVfy(yb, Ya)
 
-    const derived = deriveAll(
-      sid,
-      K,
-      transcriptIR(Ya, associatedData(capsR), Yb, associatedData(this._caps))
-    )
-    this._pending = { sid, derived, theirTokens }
+      const derived = deriveAll(
+        sid,
+        K,
+        transcriptIR(Ya, associatedData(capsR), Yb, associatedData(this._caps))
+      )
+      this._pending = { sid, derived, theirTokens }
 
-    return {
-      // REPLY = [len][Yb][confirmS][caps_s]
-      reply: withLength(Buffer.concat([Yb, derived.confirmS, this._caps])),
-      sid
+      return {
+        // REPLY = [len][Yb][confirmS][caps_s]
+        reply: withLength(Buffer.concat([Yb, derived.confirmS, this._caps])),
+        sid
+      }
+    } finally {
+      wipe(yb, g, K, this._secret)
     }
   }
 
@@ -609,7 +638,7 @@ class Responder {
    * Verifies CONFIRM.
    *
    * @param {InstanceType<(typeof import('./reader'))['MessageReader']>} reader
-   * @returns {{ sendKey: Buffer, receiveKey: Buffer, caps: string[], isk: Buffer } | null}
+   * @returns {{ sendKey: Buffer, receiveKey: Buffer, caps: string[] } | null}
    *   null if CONFIRM has not fully arrived yet.
    */
   readConfirm (reader) {
@@ -618,9 +647,14 @@ class Responder {
     if (!theirConfirm) return null
 
     const { derived, theirTokens } = this._pending
+    // Nothing but the channel keys outlives this call, whichever way it
+    // goes (see wipe).
+    wipe(derived.isk, derived.macKey, derived.confirmS)
     if (!confirmationMatches(derived.confirmR, theirConfirm)) {
+      wipe(derived.confirmR, derived.kR2S, derived.kS2R)
       throw handshakeError(CONFIRMATION_FAILED, ERR_CONFIRMATION)
     }
+    wipe(derived.confirmR)
 
     return {
       // The sender sends under k_s2r and receives under k_r2s -- the
@@ -628,8 +662,7 @@ class Responder {
       // class serve both roles.
       sendKey: derived.kS2R,
       receiveKey: derived.kR2S,
-      caps: effectiveCaps(this._capsTokens, theirTokens),
-      isk: derived.isk
+      caps: effectiveCaps(this._capsTokens, theirTokens)
     }
   }
 }

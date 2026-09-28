@@ -22,11 +22,8 @@ const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
+const { parseBootstrap } = require('./env')
 
-function parseBootstrap () {
-  const raw = process.env.ADHAL_BOOTSTRAP
-  return raw ? JSON.parse(raw) : undefined
-}
 
 // See swarm-receive.js for why the public-DHT default is this generous.
 function joinTimeout () {
@@ -57,9 +54,11 @@ function refreshInterval () {
 
 async function main () {
   const argv = process.argv.slice(2)
-  // `--unsafe-opaque` opts in to non-word codes; see resolveCode. Pulled
+  // `--insecure-opaque-code` opts in to non-word codes; see resolveCode. Pulled
   // out before the positionals so it can appear anywhere.
-  const allowOpaque = argv.includes('--unsafe-opaque')
+  const allowOpaque = argv.includes('--insecure-opaque-code')
+  // Prints the topic hex; see the "joining topic" line.
+  const verbose = argv.includes('--verbose')
   const positional = argv.filter((a) => !a.startsWith('--') || a === '--code-stdin')
   const [codeArg, filePathArg] = positional
   const nameFlag = argv.find((a) => a.startsWith('--name='))
@@ -69,7 +68,7 @@ async function main () {
     console.error('Usage: swarm-send.js <code> <filePath>')
     console.error('       swarm-send.js - <filePath>            read the code from stdin')
     console.error('       swarm-send.js <code> - [--name=<name>]  stream stdin as the file')
-    console.error('       swarm-send.js <code> <filePath> --unsafe-opaque')
+    console.error('       swarm-send.js <code> <filePath> --insecure-opaque-code')
     process.exitCode = 1
     return
   }
@@ -124,12 +123,22 @@ async function main () {
   // display the code at all: it is not showing it to anybody.
   if (code !== codeInput) console.log(`[swarm-send] code resolved to nameplate ${nameplate} (secret not shown)`)
 
-  const swarm = createSwarm({ bootstrap: parseBootstrap() })
+  let bootstrap
+  try {
+    bootstrap = parseBootstrap()
+  } catch (err) {
+    console.error(`[swarm-send] ${err.message}`)
+    process.exitCode = 1
+    return
+  }
+
+  const swarm = createSwarm({ bootstrap })
   const cancel = installCancelHandler({ label: 'swarm-send' })
   const progress = createProgressReporter({ label: 'swarm-send' })
   /** @type {Error | null} */
   let socketError = null
-  console.log(`[swarm-send] joining topic ${topic.toString('hex')} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
+  // See swarm-receive.js: the topic hex only on request (Q-17).
+  console.log(`[swarm-send] joining topic${verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
 
   try {
     // Set once connectOnce resolves; see swarm-receive.js.

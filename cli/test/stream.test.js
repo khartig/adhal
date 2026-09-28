@@ -146,14 +146,15 @@ test('the sender offers size and sha256 as null, reads nothing before ACCEPT, an
 
 test('a sender refuses to offer a stream the handshake did not negotiate', async () => {
   const [txSocket] = duplexPair()
-  const keys = channelKeys()
   let written = 0
   const realWrite = txSocket.write.bind(txSocket)
   txSocket.write = (/** @type {any[]} */ ...args) => { written++; return realWrite(...args) }
   const { readable, reads } = producer([Buffer.from('data')])
 
   for (const caps of [[], ['resume'], undefined]) {
-    const outcome = await settle(sendStream(txSocket, readable, { ...keys.sender, name: 'pipe', caps: /** @type {any} */ (caps) }))
+    // Fresh keys per attempt: a refused send still wipes the keys it was
+    // handed, because keys are single-use.
+    const outcome = await settle(sendStream(txSocket, readable, { ...channelKeys().sender, name: 'pipe', caps: /** @type {any} */ (caps) }))
     assert.equal(outcome.ok, false)
     assert.equal(outcome.error.code, 'ERR_PROTOCOL')
     assert.equal(outcome.error.capability, 'stream')

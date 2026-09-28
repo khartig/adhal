@@ -98,15 +98,15 @@ function exchange (override = {}) {
   return { code, nameplate, secret, initiator, responder, receiver: confirmed, sender: settled }
 }
 
-test('both sides derive the same ISK and the same pair of channel keys', () => {
+test('both sides derive the same pair of channel keys', () => {
   const { receiver, sender } = exchange()
 
   // The property everything else rests on. If these diverge, both
   // confirmations would have failed -- so reaching here already proves
   // agreement; asserting it directly is what tells a future reader WHICH
-  // value disagreed when something breaks.
-  assert.deepEqual(receiver.isk, sender.isk)
-  assert.equal(receiver.isk.length, 64, 'the ISK is SHA-512 output')
+  // value disagreed when something breaks. The ISK itself is no longer
+  // handed out: the handshake wipes it once the keys are derived (Q-18),
+  // and its value is pinned by handshake-vectors.test.js instead.
 
   // Directional, and mirrored: the receiver sends under k_r2s, which is
   // what the sender receives under.
@@ -261,7 +261,7 @@ test('the same secret with a different nameplate derives different keys', () => 
   const secret = splitCode(generateCode()).secret
   const a = exchange({ receiver: { nameplate: 'acid-acorn', secret }, sender: { nameplate: 'acid-acorn', secret } })
   const b = exchange({ receiver: { nameplate: 'zero-zesty', secret }, sender: { nameplate: 'zero-zesty', secret } })
-  assert.notDeepEqual(a.receiver.isk, b.receiver.isk)
+  assert.notDeepEqual(a.receiver.sendKey, b.receiver.sendKey)
 })
 
 test('two runs of one drop derive different keys, because sid is fresh', () => {
@@ -272,7 +272,7 @@ test('two runs of one drop derive different keys, because sid is fresh', () => {
   const first = exchange({ receiver: { nameplate, secret }, sender: { nameplate, secret } })
   const second = exchange({ receiver: { nameplate, secret }, sender: { nameplate, secret } })
   assert.notDeepEqual(first.receiver.sendKey, second.receiver.sendKey)
-  assert.notDeepEqual(first.receiver.isk, second.receiver.isk)
+  assert.notDeepEqual(first.receiver.receiveKey, second.receiver.receiveKey)
 })
 
 // --- capabilities ---------------------------------------------------------
@@ -338,7 +338,7 @@ test('an unknown capability stays bound in the transcript and is merely ignored'
   })
 
   // The handshake completes: an unknown token is not an error.
-  assert.deepEqual(done.receiver.isk, done.sender.isk)
+  assert.deepEqual(done.receiver.sendKey, done.sender.receiveKey)
 
   // But it is not acted on. The effective set is the intersection,
   // restricted to what this build knows.
@@ -353,7 +353,7 @@ test('an unknown capability stays bound in the transcript and is merely ignored'
     receiver: { nameplate, secret },
     sender: { nameplate, secret, caps: ['resume', 'stream'] }
   })
-  assert.notDeepEqual(done.sender.isk, without.sender.isk)
+  assert.notDeepEqual(done.sender.sendKey, without.sender.sendKey)
 })
 
 test('a stripped capability is detected, because caps are inside the transcript', () => {
@@ -843,4 +843,29 @@ test('a REPLY captured off a real exchange cannot be replayed at a receiver', sl
   )
   assert.equal(completed, false, 'a replayed REPLY must not complete the handshake')
   assert.ok(capturedSid, 'the capture really happened through a full HELLO')
+})
+
+// --- secrets are wiped once used (Q-18) ------------------------------------
+
+const isZero = (/** @type {Buffer} */ b) => b.every((byte) => byte === 0)
+
+test('the handshake zeroes its scalar and password bytes, on success and on a wrong secret', () => {
+  // Best effort, and white-box on purpose: the private fields are the
+  // thing being wiped, and nothing public would show it.
+  const done = exchange()
+  assert.ok(isZero(/** @type {any} */ (done.initiator)._ya), 'the receiver\'s scalar')
+  assert.ok(isZero(/** @type {any} */ (done.responder)._secret), 'the sender\'s password bytes')
+  assert.equal(isZero(done.receiver.sendKey), false, 'the channel keys are the caller\'s, and intact')
+
+  // A failed confirmation wipes as well: a guesser's run leaves nothing.
+  const { nameplate, secret } = splitCode(generateCode())
+  const initiator = new Initiator({ nameplate, secret })
+  const responder = new Responder({ nameplate, secret: splitCode(generateCode()).secret })
+  const atSender = new MessageReader()
+  const atReceiver = new MessageReader()
+  atSender.push(initiator.hello())
+  atReceiver.push(/** @type {any} */ (responder.readHello(atSender)).reply)
+  assert.throws(() => initiator.readReply(atReceiver), (err) => /** @type {any} */ (err).code === ERR_CONFIRMATION)
+  assert.ok(isZero(/** @type {any} */ (initiator)._ya))
+  assert.ok(isZero(/** @type {any} */ (responder)._secret))
 })

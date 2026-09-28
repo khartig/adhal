@@ -12,7 +12,6 @@
     "@noble/curves": "2.4.0",
     "@noble/hashes": "2.4.0",
     "b4a": "1.9.0",
-    "compact-encoding": "3.5.0",
     "hypercore-crypto": "3.7.0",
     "hyperdht": "6.34.0",
     "hyperswarm": "4.17.1"

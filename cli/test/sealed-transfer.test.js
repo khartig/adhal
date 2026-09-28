@@ -323,3 +323,30 @@ test('a stream handshake with a silent peer times out rather than hanging', asyn
   assert.equal(outcome.error.phase, 'handshake')
   assert.equal(txSocket.listenerCount('data'), 0, 'its listeners come back off')
 })
+
+test('both sides wipe their channel keys when the transfer ends, however it ends (Q-18)', async (t) => {
+  const zero = (/** @type {Buffer} */ b) => b.every((byte) => byte === 0)
+
+  // Completed. Each side gets its own copies, as a real handshake gives
+  // them, so each side's wipe is observed separately.
+  {
+    const { sourcePath, outputDir } = await fixture(t, 'wipe-done', crypto.randomBytes(8 * 1024))
+    const [txSocket, rxSocket] = duplexPair()
+    const keys = channelKeys()
+    const tx = { sendKey: Buffer.from(keys.sender.sendKey), receiveKey: Buffer.from(keys.sender.receiveKey) }
+    const rx = { sendKey: Buffer.from(keys.receiver.sendKey), receiveKey: Buffer.from(keys.receiver.receiveKey) }
+    await Promise.all([sendFile(txSocket, sourcePath, tx), receiveFile(rxSocket, outputDir, rx)])
+    for (const [side, view] of [['sender', tx], ['receiver', rx]]) {
+      assert.ok(zero(/** @type {any} */ (view).sendKey) && zero(/** @type {any} */ (view).receiveKey), `${side} keys wiped after success`)
+    }
+  }
+
+  // Refused before anything was sealed: still wiped.
+  {
+    const [txSocket] = duplexPair()
+    const keys = channelKeys()
+    const tx = { sendKey: Buffer.from(keys.sender.sendKey), receiveKey: Buffer.from(keys.sender.receiveKey) }
+    await assert.rejects(sendFile(txSocket, '/nonexistent/adhal-wipe', tx))
+    assert.ok(zero(tx.sendKey) && zero(tx.receiveKey), 'sender keys wiped after a refusal')
+  }
+})

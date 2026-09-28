@@ -31,7 +31,7 @@ It is also the direct input to two things the plan already asks for:
 
 ## What it does per trial
 
-1. Derives a fresh drop code from `sha256("quay-trial:<seed>:<index>")`.
+1. Derives a fresh drop code from `sha256("adhal-trial:<seed>:<index>")`.
 2. Creates a **new** Hyperswarm and joins the topic for that code.
 3. Receiver: `acceptOnce` → `receiveFile` into a temp dir, then compares the
    hash it computed off the wire against the hash in the sender's manifest.
@@ -126,7 +126,7 @@ The two ends are on different machines with **no channel between them**.
    secrets, on the reasoning that "a topic is a 32-byte hash either way".
    That stopped being true under v2: an opaque code becomes its own
    nameplate *and* its own secret, so every trial would have run down the
-   `--unsafe-opaque` path — publishing each trial's secret in its own
+   `--insecure-opaque-code` path — publishing each trial's secret in its own
    announced topic and measuring a configuration no user can reach. The
    instrument would have been measuring something other than the product.
    The derivation from `(seed, index)` is unchanged in spirit and
@@ -222,7 +222,7 @@ instrument this project has to prose: rewording a sentence in
 `engine/src/swarm.js` would silently re-bucket results and nothing would
 have said so. The codes live in `engine/src/errors.js`. The regexes remain
 only as a documented fallback for errors that predate the vocabulary — a
-raw socket error, or something thrown by a dependency. **If a Quay error
+raw socket error, or something thrown by a dependency. **If an Ad-ḫal error
 starts landing in `transfer-error`, the fix is to give it a code, not to
 add a pattern.**
 

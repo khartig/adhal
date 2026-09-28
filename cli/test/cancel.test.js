@@ -142,7 +142,10 @@ test('an already-aborted signal rejects before a single byte moves', async (t) =
   assert.equal(bytesSeen, 0, 'not even a manifest should be written')
 
   // Same on the receiving side, and without creating anything on disk.
-  const received = await settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, signal: controller.signal }))
+  // Its own keys: a transfer wipes the keys it was given when it ends,
+  // aborted or not, and in this test the two sides would otherwise share
+  // one pair of Buffers.
+  const received = await settle(receiveFile(rxSocket, outputDir, { ...channelKeys().receiver, signal: controller.signal }))
   assert.equal(received.ok, false)
   assert.equal(received.error.name, 'AbortError')
   assert.deepEqual(await fs.promises.readdir(outputDir), [])

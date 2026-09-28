@@ -27,12 +27,18 @@ const { duplexPair } = require('./duplex-pair')
  *   sender: { sendKey: Buffer, receiveKey: Buffer }
  * }}
  */
+//
+// EACH SIDE GETS ITS OWN COPIES, as it does from a real handshake, where the
+// two views are derived on two machines. A transfer wipes the keys it was
+// handed when it ends (Channel#wipe), so two sides sharing one Buffer would
+// have the first to finish zero the other's keys mid-transfer -- which
+// failed resume.test.js about one run in eight before this copy existed.
 function channelKeys () {
   const r2s = crypto.randomBytes(32)
   const s2r = crypto.randomBytes(32)
   return {
-    receiver: { sendKey: r2s, receiveKey: s2r },
-    sender: { sendKey: s2r, receiveKey: r2s }
+    receiver: { sendKey: Buffer.from(r2s), receiveKey: Buffer.from(s2r) },
+    sender: { sendKey: Buffer.from(s2r), receiveKey: Buffer.from(r2s) }
   }
 }
 

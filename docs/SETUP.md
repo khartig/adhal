@@ -45,7 +45,7 @@ Two terminals, from the repo root:
 
 ```bash
 # terminal 1 -- prints a drop code
-node cli/src/receive.js 5000 /tmp/quay-received
+node cli/src/receive.js 5000 /tmp/adhal-received
 
 # terminal 2 -- paste the code at the prompt
 node cli/src/send.js 5000 - /path/to/some/file
@@ -73,7 +73,7 @@ pnpm run typecheck
 ```
 
 `hyperswarm`, `hyperdht`, and `hypercore-crypto` ship no type
-declarations at all (`compact-encoding`, `b4a`, `@noble/curves` and
+declarations at all (`b4a`, `@noble/curves` and
 `@noble/hashes` do). Once the swarm code starts
 importing them, expect a `noImplicitAny`/`TS7016` error per package the
 first time it's required -- add a small ambient `.d.ts` shim (only for the

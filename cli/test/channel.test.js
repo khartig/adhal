@@ -462,3 +462,19 @@ test('frames arriving split or coalesced are reassembled by byte count', () => {
   ]))
   assert.deepEqual(got.map((m) => m.type), [TYPE_MANIFEST, TYPE_CHUNK, TYPE_END])
 })
+
+// --- wipe (Q-18) -----------------------------------------------------------
+
+test('a wiped channel has zero keys and refuses to seal or open anything', () => {
+  const sendKey = Buffer.from(K_R2S)
+  const receiveKey = Buffer.from(K_S2R)
+  const channel = new Channel({ sendKey, receiveKey, onMessage: () => {} })
+  channel.wipe()
+  assert.ok(sendKey.every((b) => b === 0) && receiveKey.every((b) => b === 0), 'the caller\'s own Buffers are cleared')
+  assert.throws(() => channel.seal(TYPE_CHUNK, Buffer.alloc(1)), /keys wiped/)
+  assert.throws(() => channel.push(Buffer.alloc(8)), /keys wiped/)
+
+  // And keys that were wiped are named as such if anyone tries again,
+  // rather than failing as "must differ".
+  assert.throws(() => new Channel({ sendKey, receiveKey, onMessage: () => {} }), /already used by a transfer/)
+})

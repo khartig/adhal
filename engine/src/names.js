@@ -80,6 +80,12 @@ const WINDOWS_RESERVED_NAMES = /^(con|prn|aux|nul|com[1-9]|lpt[1-9])$/i
 // peer cannot push a screenful of text through a log line.
 const MAX_DISPLAY_LENGTH = 120
 
+// For a whole message rather than a name: the engine's longest diagnostics
+// (swarm.js's timeout explanations) run to several hundred characters, and
+// truncating one would cut off its advice. This bounds only a string that
+// has somehow grown absurd.
+const MAX_DISPLAY_TEXT_LENGTH = 4096
+
 // Most filesystems cap a single path component at 255 bytes.
 const MAX_NAME_BYTES = 255
 
@@ -97,6 +103,27 @@ const MAX_NAME_BYTES = 255
  * @returns {string}
  */
 function displayName (value) {
+  return escapeForTerminal(value, MAX_DISPLAY_LENGTH)
+}
+
+/**
+ * displayName's escaping for a whole line of text: an error message, or
+ * anything else that may carry a peer's bytes to a terminal. Same escapes,
+ * a longer bound. See MAX_DISPLAY_TEXT_LENGTH.
+ *
+ * @param {unknown} value
+ * @returns {string}
+ */
+function displayText (value) {
+  return escapeForTerminal(value, MAX_DISPLAY_TEXT_LENGTH)
+}
+
+/**
+ * @param {unknown} value
+ * @param {number} maxLength
+ * @returns {string}
+ */
+function escapeForTerminal (value, maxLength) {
   if (typeof value !== 'string') return String(value)
 
   const escape = (/** @type {string} */ ch) => {
@@ -113,8 +140,8 @@ function displayName (value) {
     .replace(CONTROL_CHARS_G, escape)
     .replace(BIDI_OVERRIDES_G, escape)
 
-  if (out.length > MAX_DISPLAY_LENGTH) {
-    out = `${out.slice(0, MAX_DISPLAY_LENGTH)}... (${out.length} chars)`
+  if (out.length > maxLength) {
+    out = `${out.slice(0, maxLength)}... (${out.length} chars)`
   }
   return out
 }
@@ -201,6 +228,7 @@ function safeWriteName (declaredName, { platform = process.platform } = {}) {
 
 module.exports = {
   displayName,
+  displayText,
   safeWriteName,
   MAX_DISPLAY_LENGTH,
   MAX_NAME_BYTES

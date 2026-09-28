@@ -35,7 +35,7 @@
 //    the reasoning that "a topic is a 32-byte hash either way". That
 //    stopped being true: an opaque code is its own nameplate AND its own
 //    secret (see engine/src/resolve-code.js), so every trial would have
-//    run down the --unsafe-opaque path -- publishing its secret in the
+//    run down the --insecure-opaque-code path -- publishing its secret in the
 //    announced topic and measuring a configuration no user can reach. The
 //    instrument would have been measuring something other than the
 //    product. Deriving a word code from the same seed keeps the "neither

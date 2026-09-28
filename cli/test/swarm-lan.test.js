@@ -83,7 +83,7 @@ async function attemptTransfer (t) {
     const bootstrapEnv = JSON.stringify(testnet.bootstrap)
     // A real generated code rather than the `test-<hex>` opaque string
     // this used to use. Opaque codes are now opt-in (see resolveCode), so
-    // the old form would need `--unsafe-opaque` on both spawns -- and a
+    // the old form would need `--insecure-opaque-code` on both spawns -- and a
     // test that has to disable a safety check to pass is testing the
     // wrong path. generateCode() is equally unique per run and exercises
     // what a user actually gets.
