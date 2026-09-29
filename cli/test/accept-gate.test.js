@@ -298,7 +298,40 @@ test('onOffer sees the name that will be written and the one that was asked for'
 
   // The safe name, not the peer's: an accept screen has to show what will
   // actually land on disk, and the peer's original beside it.
-  assert.deepEqual(offers, [{ name: '_aux.txt', declaredName: 'aux.txt', size: 1024, sha256, blockSize: 64 * 1024 }])
+  assert.deepEqual(offers, [{ name: '_aux.txt', declaredName: 'aux.txt', size: 1024, sha256, blockSize: 64 * 1024, partial: 0 }])
+})
+
+test('onOffer is told about a partial it may resume, without it being opened', async (t) => {
+  // The accept prompt's resume note (W15c). onOffer runs before anything
+  // is opened, so the hint is an lstat: a declined offer must leave an
+  // earlier attempt's partial exactly as it was.
+  const { outputDir, body } = await fixture(t, 'gate-onoffer-partial', 4096)
+  const partPath = path.join(outputDir, 'payload.bin.part')
+  const prefix = body.subarray(0, 1000)
+  await fs.promises.writeFile(partPath, prefix)
+  const before = await fs.promises.stat(partPath)
+
+  /** @param {string[]} caps */
+  const partialSeen = async (caps) => {
+    const { socket, keys, offer } = sealedSender()
+    let seen = -1
+    const received = settle(receiveFile(socket, outputDir, { ...keys, caps, onOffer: (o) => { seen = o.partial; return false } }))
+    await offer(manifestFor(body), body)
+    await received
+    return seen
+  }
+
+  assert.equal(await partialSeen(['resume']), 1000)
+  assert.equal(await partialSeen([]), 0, 'without resume negotiated there is nothing to resume')
+  const after = await fs.promises.stat(partPath)
+  assert.deepEqual(await fs.promises.readFile(partPath), prefix, 'the partial is untouched')
+  assert.equal(after.mtimeMs, before.mtimeMs)
+
+  // One reopenPartial would refuse is not offered as resumable either.
+  await fs.promises.rm(partPath)
+  await fs.promises.writeFile(path.join(outputDir, 'elsewhere'), prefix)
+  await fs.promises.symlink(path.join(outputDir, 'elsewhere'), partPath)
+  assert.equal(await partialSeen(['resume']), 0, 'a symlinked partial is not a resume')
 })
 
 test('onOffer can decline, with or without a reason, and nothing is created', async (t) => {

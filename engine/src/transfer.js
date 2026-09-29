@@ -1356,6 +1356,28 @@ async function reopenPartial (outputPath, size) {
 }
 
 /**
+ * What an accept screen may say about resuming, before the offer is
+ * answered: the size of `<outputPath>.part` if reopenPartial could take
+ * it, else 0. An lstat and nothing more, because the fixed order in
+ * receiveFile asks onOffer before anything is opened -- a declined offer
+ * must not have read the partial either. So this is a hint: the partial
+ * can still be refused when it is reopened, or fail its PREFIX check.
+ *
+ * @param {string} outputPath
+ * @param {number} size the declared size
+ * @returns {Promise<number>}
+ */
+async function partialHint (outputPath, size) {
+  try {
+    const stat = await fs.promises.lstat(`${outputPath}.part`)
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size > size) return 0
+    return stat.size
+  } catch {
+    return 0
+  }
+}
+
+/**
  * Refuses a transfer that cannot possibly fit, before it opens anything.
  *
  * Deliberately advisory: `statfs` is missing on some platforms and lies
@@ -1439,7 +1461,7 @@ async function checkFreeSpace (dir, size) {
  *   sendKey: Buffer,
  *   receiveKey: Buffer,
  *   caps?: string[],
- *   onOffer?: (offer: { name: string, declaredName: string, size: number | null, sha256: string | null, blockSize: number }) => boolean | string | Promise<boolean | string>,
+ *   onOffer?: (offer: { name: string, declaredName: string, size: number | null, sha256: string | null, blockSize: number, partial: number }) => boolean | string | Promise<boolean | string>,
  *   onManifest?: (manifest: any, accepted: { resumeFrom: number }) => void,
  *   pending?: Buffer | null,
  *   signal?: AbortSignal,
@@ -1463,7 +1485,10 @@ async function checkFreeSpace (dir, size) {
  *   declines with that string as the reason the sender is shown. Anything
  *   else declines too -- an accept screen whose hook forgot to return must
  *   not have said yes. Omitted, every offer that passes the checks is
- *   accepted, which is what both CLIs want today.
+ *   accepted. The offer's `partial` is the size of an earlier
+ *   `<name>.part` that may be resumed, or 0: a hint for the accept screen,
+ *   from an lstat alone, and the partial is only trusted once it has been
+ *   reopened and re-hashed after the answer.
  *   `onManifest` is a notification, after the offer is accepted, with
  *   `{ resumeFrom }` as its second argument.
  *   `caps` containing `resume` also makes a declared-size transfer
@@ -1788,7 +1813,10 @@ function receiveFile (socket, outputDir, {
           declaredName: parsed.name,
           size: parsed.size,
           sha256: parsed.sha256,
-          blockSize: parsed.blockSize
+          blockSize: parsed.blockSize,
+          partial: caps.includes('resume') && parsed.size !== null
+            ? await partialHint(safe.outputPath, parsed.size)
+            : 0
         })
         if (settled) return
         if (verdict !== true) {

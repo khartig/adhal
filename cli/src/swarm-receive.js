@@ -7,11 +7,11 @@
 // only the transport changes, from a bare TCP socket to an end-to-end
 // Noise-encrypted Hyperswarm connection.
 //
-// Usage: swarm-receive.js [code] [outputDir]
-//        swarm-receive.js --new [outputDir]
+// Usage: see --help, in ./usage.js. This is the `ad-hal-receive` bin.
 //
 // With no code, or with --new, one is generated and shown as both five
-// words and a QR symbol. An explicit code may be five words in any
+// words and a QR symbol. An explicit code comes from stdin (`-`), or from
+// argv only with --code-on-argv (./read-code.js). It may be five words in any
 // casing/separator style, or an opaque secret -- see
 // engine/src/resolve-code.js for why both are accepted, how they are told
 // apart, and why an opaque one voids v2's central property.
@@ -30,6 +30,9 @@ const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
 const { parseBootstrap } = require('./env')
+const { createConsent } = require('./consent')
+const { createContentionMonitor } = require('./contention')
+const { usage, NOT_ANONYMOUS } = require('./usage')
 
 
 // ADHAL_JOIN_TIMEOUT overrides how long we wait for a peer, in ms (0
@@ -69,7 +72,7 @@ function maxSize () {
 // stays unambiguously "that's a code", exactly as the Hyperswarm CLI defined it: a bare
 // path and a bare code are not reliably distinguishable, and guessing wrong
 // would silently save into a directory named after a word.
-const KNOWN_FLAGS = new Set(['--new', '--insecure-opaque-code', '--replace', '--code-stdin', '--verbose'])
+const KNOWN_FLAGS = new Set(['--new', '--insecure-opaque-code', '--replace', '--code-stdin', '--verbose', '--yes', '--code-on-argv', '--help'])
 
 function parseArgs (argv) {
   const flags = argv.filter((a) => a.startsWith('--'))
@@ -87,7 +90,11 @@ function parseArgs (argv) {
     // default was a security bug rather than a UI question.
     replace: flags.includes('--replace'),
     fromStdin: flags.includes('--code-stdin'),
-    verbose: flags.includes('--verbose')
+    verbose: flags.includes('--verbose'),
+    // Accept the offer without asking; see ./consent.js.
+    yes: flags.includes('--yes'),
+    allowArgv: flags.includes('--code-on-argv'),
+    help: flags.includes('--help')
   }
 
   if (wantsNew) {
@@ -120,9 +127,12 @@ async function main () {
     parsed = parseArgs(process.argv.slice(2))
   } catch (err) {
     console.error(`[swarm-receive] ${err.message}`)
-    console.error('Usage: swarm-receive.js [code] [outputDir]')
-    console.error('       swarm-receive.js --new [outputDir]')
+    console.error(usage('swarm-receive'))
     process.exitCode = 1
+    return
+  }
+  if (parsed.help) {
+    console.log(usage('swarm-receive'))
     return
   }
 
@@ -135,7 +145,7 @@ async function main () {
   try {
     const input = generated
       ? generateCode()
-      : await readCode({ argvCode: parsed.fromStdin ? '-' : parsed.codeArg, label: 'swarm-receive' })
+      : await readCode({ argvCode: parsed.fromStdin ? '-' : parsed.codeArg, label: 'swarm-receive', allowArgv: parsed.allowArgv })
     resolved = resolveCode(input, { allowOpaque: parsed.allowOpaque || undefined })
   } catch (err) {
     console.error(`[swarm-receive] ${err.message}`)
@@ -165,6 +175,10 @@ async function main () {
   // scrollback, CI logs and bug reports. It is shown only when asked for
   // (Q-17); the nameplate itself is already on screen in the code.
   console.log(`[swarm-receive] joining topic${parsed.verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
+  // Q-09: before anything connects, so nobody learns it afterwards.
+  console.log(`[swarm-receive] note: ${NOT_ANONYMOUS}`)
+  const contention = createContentionMonitor({ label: 'swarm-receive' })
+  const consent = createConsent({ yes: parsed.yes, label: 'swarm-receive', signal: cancel.signal })
 
   try {
     // Set once acceptOnce resolves; the late-candidate callbacks above
@@ -198,11 +212,13 @@ async function main () {
       // After pairing, the engine reports only failures it COUNTED -- a
       // peer guessing at the code while the transfer runs -- so the line
       // stops saying "still waiting", which is no longer true.
-      onCandidateDropped: (info, reason) => {
+      onCandidateDropped: (info, reason, code) => {
         const who = `candidate ${info.publicKey.toString('hex').slice(0, 12)}...`
         console.log(paired
           ? `[swarm-receive] ${who} failed to prove the code during the transfer (${reason}); it counts toward this drop's attempt limit`
           : `[swarm-receive] ${who} dropped before proving (${reason}); still waiting`)
+        // The pattern, once there is one (Q-04); see ./contention.js.
+        contention.dropped(info, reason, code)
       },
       // A second peer proved the code after we paired, and was told the
       // drop is taken. The race is invisible to this human otherwise, and
@@ -229,6 +245,7 @@ async function main () {
       }
     })
     paired = true
+    contention.paired()
     console.log(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // Without a listener, a late socket-level error (e.g. after the
     // transfer completes, while tearing down) throws as an uncaught
@@ -271,6 +288,10 @@ async function main () {
       // number a receiver enforces is visible at the call site and one
       // env var away from being changed for a legitimate large drop.
       maxSize: maxSize(),
+      // A person says yes before anything is written, unless --yes said it
+      // for them (Q-02). The engine has already refused what it would
+      // refuse anyway, so nobody is asked about an unsafe name.
+      onOffer: consent.onOffer,
       onManifest: (manifest, { resumeFrom }) => {
         // THE FIRST PEER-CHOSEN STRING THIS PROCESS PRINTS. Straight to a
         // terminal, before anything has validated that it is printable.
@@ -320,6 +341,8 @@ async function main () {
       })
     })
   } catch (err) {
+    // First, so the reason does not land on the question's line.
+    consent.close()
     progress.close()
     console.error(`[swarm-receive] ${describeError(err)}`)
     if (socketError && !isCancellation(err)) {
@@ -327,6 +350,8 @@ async function main () {
     }
     if (!cancel.cancelled()) process.exitCode = 1
   } finally {
+    // A question still on screen after the transfer ended some other way.
+    consent.close()
     cancel.dispose()
     await swarm.destroy()
   }

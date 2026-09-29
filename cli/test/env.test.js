@@ -49,10 +49,12 @@ test('ADHAL_BOOTSTRAP accepts a list of host/port nodes and nothing else', () =>
  * @param {string} script
  * @param {string[]} args
  * @param {Record<string, string>} env
+ * @param {string} [stdin]
  */
-function run (script, args, env) {
+function run (script, args, env, stdin = '') {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [script, ...args], { env: { ...process.env, NO_COLOR: '1', ADHAL_NO_PROGRESS: '1', ...env } })
+    child.stdin.end(stdin)
     let out = ''
     child.stdout.on('data', (c) => { out += c })
     child.stderr.on('data', (c) => { out += c })
@@ -67,7 +69,7 @@ test('the CLIs refuse a bad ADHAL_BOOTSTRAP cleanly, and print the topic only wi
   await fs.promises.writeFile(file, 'x')
 
   // A bad value exits with the reason and no stack trace.
-  const bad = /** @type {any} */ (await run(SWARM_SEND, ['acid-acorn-acre-acts-afar', file], { ADHAL_BOOTSTRAP: '[{host:1}]' }))
+  const bad = /** @type {any} */ (await run(SWARM_SEND, ['-', file], { ADHAL_BOOTSTRAP: '[{host:1}]' }, 'acid-acorn-acre-acts-afar\n'))
   assert.equal(bad.code, 1)
   assert.match(bad.out, /ADHAL_BOOTSTRAP is not valid JSON/)
   assert.doesNotMatch(bad.out, /^\s+at /m, 'no stack trace')
@@ -75,10 +77,12 @@ test('the CLIs refuse a bad ADHAL_BOOTSTRAP cleanly, and print the topic only wi
   // A bootstrap node nobody is listening on, and a short join, so the
   // receiver prints its "joining topic" line and then gives up.
   const env = { ADHAL_BOOTSTRAP: '[{"host":"127.0.0.1","port":9}]', ADHAL_JOIN_TIMEOUT: '1500' }
-  const quiet = /** @type {any} */ (await run(SWARM_RECEIVE, ['--new', dir], env))
+  const quiet = /** @type {any} */ (await run(SWARM_RECEIVE, ['--new', dir, '--yes'], env))
   assert.match(quiet.out, /joining topic \(refresh=/)
   assert.doesNotMatch(quiet.out, /[0-9a-f]{64}/, 'no topic hex by default')
+  // Q-09, said before anything can connect.
+  assert.match(quiet.out, /\[swarm-receive\] note: not anonymous/)
 
-  const verbose = /** @type {any} */ (await run(SWARM_RECEIVE, ['--new', dir, '--verbose'], env))
+  const verbose = /** @type {any} */ (await run(SWARM_RECEIVE, ['--new', dir, '--yes', '--verbose'], env))
   assert.match(verbose.out, /joining topic [0-9a-f]{64} \(refresh=/, 'shown when asked for')
 })

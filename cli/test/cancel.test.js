@@ -390,7 +390,7 @@ test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, an
   // libuv bundles that with DETACHED_PROCESS, which leaves the child with
   // no console, and a console control event cannot reach a process that
   // has no console. See test-helpers/interrupt.js.
-  const receiveProc = spawn(process.execPath, [SWARM_RECEIVE, '--new', tmp], { env })
+  const receiveProc = spawn(process.execPath, [SWARM_RECEIVE, '--new', tmp, '--yes'], { env })
   const out = { stdout: '', stderr: '' }
   receiveProc.stdout.on('data', (c) => { out.stdout += c.toString('utf8') })
   receiveProc.stderr.on('data', (c) => { out.stderr += c.toString('utf8') })
@@ -568,7 +568,8 @@ test('Ctrl-C while the sender CLI looks for a peer exits promptly, cleanly, and 
   }
 
   // A code nobody is listening on, so the sender stays in the join.
-  const sendProc = spawn(process.execPath, [SWARM_SEND, generateCode(), sourcePath], { env })
+  const sendProc = spawn(process.execPath, [SWARM_SEND, '-', sourcePath], { env })
+  sendProc.stdin.end(`${generateCode()}\n`)
   const out = { stdout: '', stderr: '' }
   sendProc.stdout.on('data', (c) => { out.stdout += c.toString('utf8') })
   sendProc.stderr.on('data', (c) => { out.stderr += c.toString('utf8') })

@@ -15,10 +15,13 @@
 // third party to have my file", and a shared build box reading ~/.zsh
 // _history is exactly that third party.
 //
-// Argv still works. It is what the test suite and every scratch
-// diagnostic use, and breaking it to make a point would cost more than it
-// buys. What changes is that it is no longer the only way, and that using
-// it says so once on stderr -- visible to a human, harmless to a pipeline.
+// ARGV IS REFUSED unless asked for (Q-17, decision 5). It used to be
+// accepted with a note on stderr, but a note arrives after the damage: by
+// the time it prints, the code is already in the history file. So a code
+// on the command line now needs `--code-on-argv`, which says in the
+// command itself that the leak is accepted. The prompt and stdin (`-`)
+// are the normal ways in. The one case that needs the flag is a sender
+// streaming stdin as the file, where stdin cannot also carry the code.
 
 const fs = require('fs')
 const readline = require('readline')
@@ -91,12 +94,15 @@ function promptForCode (promptText) {
  * @param {{
  *   argvCode?: string | null,
  *   label: string,
+ *   allowArgv?: boolean,
  *   promptText?: string,
  *   warn?: (line: string) => void
  * }} options
+ *   `allowArgv` is the caller's `--code-on-argv`. Without it a code given
+ *   as an argument is refused, with the ways that do not leak it.
  * @returns {Promise<string>}
  */
-async function readCode ({ argvCode, label, promptText = 'drop code: ', warn = (line) => process.stderr.write(`${line}\n`) }) {
+async function readCode ({ argvCode, label, allowArgv = false, promptText = 'drop code: ', warn = (line) => process.stderr.write(`${line}\n`) }) {
   // `-` is the long-standing convention for "read it from stdin", and it
   // is the form that composes: `pass show drop | ad-hal-send - file.zip`.
   if (argvCode === '-' || argvCode === '--code-stdin') {
@@ -105,6 +111,14 @@ async function readCode ({ argvCode, label, promptText = 'drop code: ', warn = (
   }
 
   if (argvCode) {
+    // The code is not echoed: it is the thing being protected, and this
+    // message lands in scrollback like any other.
+    if (!allowArgv) {
+      throw new Error(
+        'refusing a code given on the command line: it would be saved in your shell history and visible to `ps`. ' +
+        'Pass `-` instead and type or pipe the code in, or add --code-on-argv to accept that risk.'
+      )
+    }
     warn(
       `[${label}] note: the code was passed as a command-line argument, so it is now in ` +
       'your shell history and visible to `ps`. Pass `-` instead to read it from stdin.'

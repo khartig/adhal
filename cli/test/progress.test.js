@@ -217,7 +217,7 @@ test('the CLI prints progress and still prints the exact lines the rest of the s
     child.on('error', reject)
   })
 
-  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir])
+  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir, '--yes'])
   const receiveOut = capture(receiveProc)
   t.after(() => { if (receiveProc.exitCode === null) receiveProc.kill() })
 

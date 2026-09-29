@@ -192,9 +192,21 @@ it off its screen -- by camera or by eye:
 # on the receiving machine
 node cli/src/swarm-receive.js --new ~/Downloads
 
-# on the sending machine, using the words it printed
-node cli/src/swarm-send.js acid-acorn-acre-acts-afar ./some-file.bin
+# on the sending machine: type the words it printed at the prompt
+node cli/src/swarm-send.js - ./some-file.bin
 ```
+
+The receiver shows the offer -- name, size, the sender's SHA-256, and a
+note if an interrupted earlier attempt can be resumed -- and asks before
+anything is written. `--yes` accepts without asking. A file that would run
+code when opened (a program, a script, an installer, an archive, or a
+disguise such as `invoice.pdf.exe`) gets a warning line even with `--yes`.
+With no terminal to ask on and no `--yes`, the offer is declined, and the
+sender is told why.
+
+Neither side is anonymous: each side's IP address is visible to the other,
+and to the DHT nodes near the drop's topic. Both CLIs say so when they
+start.
 
 Both sides show a progress bar while the transfer runs (`ADHAL_NO_PROGRESS=1`
 turns it off), and Ctrl-C on either side cancels the drop deliberately: the
@@ -205,12 +217,11 @@ its abort signal. The receiver prints a `verified:` line only when the
 file it wrote matches the digest the sender declared -- if it does not
 match, nothing is saved.
 
-The code can be kept out of your shell history and out of `ps` by passing
-`-` instead and typing it at the prompt:
-
-```bash
-node cli/src/swarm-send.js - ./some-file.bin
-```
+`-` reads the code from stdin, or from the prompt, so it never reaches
+your shell history or `ps`. A code on the command line is refused unless
+you add `--code-on-argv`, which you need only when stdin carries the file
+itself (`tar c dir | node cli/src/swarm-send.js <code> - --code-on-argv`).
+`--help` on either CLI lists every flag.
 
 An existing file is never overwritten: a drop that collides with one lands
 as `name (1)` unless you pass `--replace`.

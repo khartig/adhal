@@ -205,7 +205,7 @@ test('the receiver CLI reports a dropped candidate and keeps waiting', slow, asy
     NO_COLOR: '1'
   }
 
-  const receiveProc = spawn(process.execPath, [SWARM_RECEIVE, '--new', tmpDir], { env })
+  const receiveProc = spawn(process.execPath, [SWARM_RECEIVE, '--new', tmpDir, '--yes'], { env })
   const output = captureOutput(receiveProc)
   t.after(() => { if (receiveProc.exitCode === null) receiveProc.kill() })
 

@@ -2,15 +2,19 @@
 'use strict'
 
 // Loopback sender half: "send 10 MB, print SHA-256."
-// Usage: send.js <port> <code|-> <filePath|->
+// Usage: send.js <port> <-|code> <filePath|-> [--code-on-argv]
+//
+// TEST-ONLY (Q-13), like receive.js: it dials 127.0.0.1, and the
+// `ad-hal-send` bin is swarm-send.js.
 //
 // A filePath of '-' streams stdin, offered as "stdin" -- see
-// swarm-send.js. Not together with a code of '-': there is one stdin.
+// swarm-send.js. Not together with a code of '-': there is one stdin, so a
+// stream takes its code from argv, with --code-on-argv.
 //
-// <code> is the drop code receive.js printed. Pass `-` to read it from
-// stdin instead, which keeps it out of the shell history and `ps` -- see
-// ./read-code.js. The handshake is the same CPace exchange swarm-send.js
-// runs, over plain TCP; see receive.js for why.
+// The code is the drop code receive.js printed, read from stdin (`-`), or
+// from argv only with --code-on-argv -- see ./read-code.js. The handshake
+// is the same CPace exchange swarm-send.js runs, over plain TCP; see
+// receive.js for why.
 
 const net = require('net')
 const { sendFile, sendStream, connectStream, resolveCode } = require('@ad-hal/engine')
@@ -19,26 +23,32 @@ const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError } = require('./report')
 const { readCode } = require('./read-code')
+const { usage } = require('./usage')
 
 async function main () {
-  const [, , portArg, codeArg, filePathArg] = process.argv
+  const argv = process.argv.slice(2)
+  const [portArg, codeArg, filePathArg] = argv.filter((a) => !a.startsWith('--'))
   const port = portArg === undefined ? NaN : Number(portArg)
 
+  if (argv.includes('--help')) {
+    console.log(usage('send'))
+    return
+  }
   if (Number.isNaN(port) || !codeArg || !filePathArg) {
-    console.error('Usage: send.js <port> <code|-> <filePath|->')
+    console.error(usage('send'))
     process.exitCode = 1
     return
   }
   const streaming = filePathArg === '-'
   if (streaming && codeArg === '-') {
-    console.error('[send] stdin can carry the code or the data, not both')
+    console.error('[send] stdin can carry the code or the data, not both: when streaming, pass the code as an argument, with --code-on-argv')
     process.exitCode = 1
     return
   }
 
   let nameplate, secret
   try {
-    ({ nameplate, secret } = resolveCode(await readCode({ argvCode: codeArg, label: 'send' })))
+    ({ nameplate, secret } = resolveCode(await readCode({ argvCode: codeArg, label: 'send', allowArgv: argv.includes('--code-on-argv') })))
   } catch (err) {
     console.error(`[send] ${err.message}`)
     process.exitCode = 1

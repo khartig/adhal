@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 'use strict'
 
-// The Hyperswarm work sender half. Usage: swarm-send.js <code> <filePath>
+// The Hyperswarm work sender half, and the `ad-hal-send` bin. Usage: see
+// --help, in ./usage.js. The code comes from stdin (`-`), or from argv only
+// with --code-on-argv (./read-code.js).
 //
 // A filePath of '-' streams stdin instead (PROTOCOL.md section 4.3), so
-// `tar c dir | swarm-send.js <code> - --name=dir.tar` works: the receiver
+// `tar c dir | swarm-send.js <code> - --name=dir.tar --code-on-argv` works: the receiver
 // is offered a file of unknown length and verifies it against the digest
 // that arrives when stdin ends. --name is what it is offered under
 // (default "stdin"), since a pipe has no name of its own.
@@ -23,6 +25,7 @@ const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
 const { parseBootstrap } = require('./env')
+const { usage, NOT_ANONYMOUS } = require('./usage')
 
 
 // See swarm-receive.js for why the public-DHT default is this generous.
@@ -59,16 +62,19 @@ async function main () {
   const allowOpaque = argv.includes('--insecure-opaque-code')
   // Prints the topic hex; see the "joining topic" line.
   const verbose = argv.includes('--verbose')
+  // Accepts a code as an argument; see ./read-code.js.
+  const allowArgv = argv.includes('--code-on-argv')
   const positional = argv.filter((a) => !a.startsWith('--') || a === '--code-stdin')
   const [codeArg, filePathArg] = positional
   const nameFlag = argv.find((a) => a.startsWith('--name='))
   const streamName = nameFlag ? nameFlag.slice('--name='.length) : 'stdin'
 
+  if (argv.includes('--help')) {
+    console.log(usage('swarm-send'))
+    return
+  }
   if (!codeArg || !filePathArg) {
-    console.error('Usage: swarm-send.js <code> <filePath>')
-    console.error('       swarm-send.js - <filePath>            read the code from stdin')
-    console.error('       swarm-send.js <code> - [--name=<name>]  stream stdin as the file')
-    console.error('       swarm-send.js <code> <filePath> --insecure-opaque-code')
+    console.error(usage('swarm-send'))
     process.exitCode = 1
     return
   }
@@ -77,21 +83,21 @@ async function main () {
   // it out of the data, and the receiver would verify a stream that
   // silently began at the second line.
   if (streaming && codeArg === '-') {
-    console.error('[swarm-send] stdin can carry the code or the data, not both: pass the code as an argument when streaming')
+    console.error('[swarm-send] stdin can carry the code or the data, not both: when streaming, pass the code as an argument, with --code-on-argv')
     process.exitCode = 1
     return
   }
   // Typing a file into the terminal by hand is never what was meant, and
   // the transfer would sit waiting for an EOF nobody knows to send.
   if (streaming && process.stdin.isTTY) {
-    console.error('[swarm-send] refusing to stream from a terminal: pipe the data in, e.g. tar c dir | swarm-send.js <code> -')
+    console.error('[swarm-send] refusing to stream from a terminal: pipe the data in, e.g. tar c dir | ad-hal-send <code> - --code-on-argv')
     process.exitCode = 1
     return
   }
 
   let codeInput
   try {
-    codeInput = await readCode({ argvCode: codeArg, label: 'swarm-send' })
+    codeInput = await readCode({ argvCode: codeArg, label: 'swarm-send', allowArgv })
   } catch (err) {
     console.error(`[swarm-send] ${err.message}`)
     process.exitCode = 1
@@ -139,6 +145,8 @@ async function main () {
   let socketError = null
   // See swarm-receive.js: the topic hex only on request (Q-17).
   console.log(`[swarm-send] joining topic${verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
+  // Q-09; see swarm-receive.js.
+  console.log(`[swarm-send] note: ${NOT_ANONYMOUS}`)
 
   try {
     // Set once connectOnce resolves; see swarm-receive.js.

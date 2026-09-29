@@ -33,9 +33,12 @@ locally -- no publishing step needed during development.
 - `engine/` -- `@ad-hal/engine`. Pure JS, no UI framework. Owns framing
   (`src/frame.js`), manifest/chunking/hashing (`src/transfer.js`), and will
   own the Hyperswarm/Hyperdht join logic.
-- `cli/` -- `@ad-hal/cli`. `src/send.js` / `src/receive.js` are the two CLI
-  halves for the loopback milestone; `src/demo-loopback.js` orchestrates
-  both for a manual demo; `test/` holds the automated `node:test` suite.
+- `cli/` -- `@ad-hal/cli`. `src/swarm-send.js` / `src/swarm-receive.js`
+  are the real CLIs, published as the `ad-hal-send` / `ad-hal-receive`
+  bins. `src/send.js` / `src/receive.js` are the loopback pair, over
+  127.0.0.1 only: **test-only**, kept for the tests and demos, and not
+  published. `src/demo-loopback.js` orchestrates both for a manual demo;
+  `test/` holds the automated `node:test` suite.
 - `docs/` -- the product/phasing plan, condensed architecture notes, and
   this setup guide.
 
@@ -54,9 +57,11 @@ node cli/src/send.js 5000 - /path/to/some/file
 The two sides run the same CPace handshake as the swarm CLIs, over plain
 TCP, and every frame after it is sealed under the keys it derives
 (`docs/PROTOCOL.md` §3.3–3.4). The code can also be passed in place of
-`-`, at the cost of leaving it in shell history. Both processes print a
-`sha256:` line; they should match. Port `0` in place of `5000` asks the
-OS for a free port (the demo script uses this).
+`-`, with `--code-on-argv`, at the cost of leaving it in shell history.
+Terminal 1 shows the offer and asks before accepting it; `--yes` skips the
+question, and without a terminal to ask on the offer is declined. Both
+processes print a `sha256:` line; they should match. Port `0` in place of
+`5000` asks the OS for a free port (the demo script uses this).
 
 ## TypeScript (checkJs, no build step)
 

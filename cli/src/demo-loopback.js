@@ -35,7 +35,8 @@ async function main () {
   console.log(`[demo] generating ${sizeMb} MB random file at ${sourcePath}`)
   await fs.promises.writeFile(sourcePath, crypto.randomBytes(size))
 
-  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir], {
+  // --yes: nobody is at the receiver's terminal to accept (./consent.js).
+  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir, '--yes'], {
     stdio: ['ignore', 'pipe', 'inherit']
   })
 

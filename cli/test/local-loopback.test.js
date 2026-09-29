@@ -81,7 +81,7 @@ test('two local processes transfer a 10 MB file over a loopback TCP pipe and agr
   await fs.promises.writeFile(sourcePath, crypto.randomBytes(size))
   const expectedHash = await sha256File(sourcePath)
 
-  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir])
+  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir, '--yes'])
   const receiveOutput = captureOutput(receiveProc)
   t.after(() => { if (receiveProc.exitCode === null) receiveProc.kill() })
 
@@ -124,15 +124,16 @@ test('a pipe streams through the CLI: send.js <port> <code> - offers it with no 
   const payload = crypto.randomBytes(3 * 1024 * 1024 + 17)
   const expectedHash = crypto.createHash('sha256').update(payload).digest('hex')
 
-  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir])
+  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir, '--yes'])
   const receiveOutput = captureOutput(receiveProc)
   t.after(() => { if (receiveProc.exitCode === null) receiveProc.kill() })
 
   const boundPort = (await waitForPattern(receiveOutput, /listening on 127\.0\.0\.1:(\d+)/))[1]
   const code = (await waitForPattern(receiveOutput, /\[receive\] code: (\S+)/))[1]
 
-  // The code on argv, because stdin is the data.
-  const sendProc = spawn(process.execPath, [SEND_SCRIPT, boundPort, code, '-'])
+  // The code on argv, because stdin is the data: the one case that
+  // needs --code-on-argv.
+  const sendProc = spawn(process.execPath, [SEND_SCRIPT, boundPort, code, '-', '--code-on-argv'])
   const sendOutput = captureOutput(sendProc)
   sendProc.stdin.end(payload)
 
@@ -159,7 +160,7 @@ test('a transfer killed partway resumes under a new code: the receiver keeps its
   const expectedHash = await sha256File(sourcePath)
 
   async function startReceiver () {
-    const proc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir])
+    const proc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir, '--yes'])
     const output = captureOutput(proc)
     t.after(() => { if (proc.exitCode === null) proc.kill() })
     const port = (await waitForPattern(output, /listening on 127\.0\.0\.1:(\d+)/))[1]
@@ -168,7 +169,8 @@ test('a transfer killed partway resumes under a new code: the receiver keeps its
   }
 
   const first = await startReceiver()
-  const firstSender = spawn(process.execPath, [SEND_SCRIPT, first.port, first.code, sourcePath])
+  const firstSender = spawn(process.execPath, [SEND_SCRIPT, first.port, '-', sourcePath])
+  firstSender.stdin.end(`${first.code}\n`)
   const firstSenderOutput = captureOutput(firstSender)
   await waitForPattern(first.output, /\[receive\] progress: 25%/, 20000)
   firstSender.kill('SIGKILL')
@@ -179,7 +181,8 @@ test('a transfer killed partway resumes under a new code: the receiver keeps its
   assert.ok(kept > 0)
 
   const second = await startReceiver()
-  const secondSender = spawn(process.execPath, [SEND_SCRIPT, second.port, second.code, sourcePath])
+  const secondSender = spawn(process.execPath, [SEND_SCRIPT, second.port, '-', sourcePath])
+  secondSender.stdin.end(`${second.code}\n`)
   const secondSenderOutput = captureOutput(secondSender)
   await Promise.all([waitForExit(secondSender), waitForExit(second.proc)])
 
@@ -189,4 +192,63 @@ test('a transfer killed partway resumes under a new code: the receiver keeps its
   assert.equal(secondSenderOutput.stdout.match(/\[send\] sha256: ([0-9a-f]{64})/)?.[1], expectedHash, secondSenderOutput.stdout + secondSenderOutput.stderr)
   assert.equal(await sha256File(path.join(outputDir, 'source.bin')), expectedHash)
   assert.deepEqual(await fs.promises.readdir(outputDir), ['source.bin'])
+})
+
+/**
+ * Starts a receiver and returns its port and code.
+ * @param {any} t
+ * @param {string} outputDir
+ * @param {string[]} flags
+ */
+async function startLoopbackReceiver (t, outputDir, flags) {
+  const proc = spawn(process.execPath, [RECEIVE_SCRIPT, '0', outputDir, ...flags])
+  const output = captureOutput(proc)
+  t.after(() => { if (proc.exitCode === null) proc.kill() })
+  const port = (await waitForPattern(output, /listening on 127\.0\.0\.1:(\d+)/))[1]
+  const code = (await waitForPattern(output, /\[receive\] code: (\S+)/))[1]
+  return { proc, output, port, code }
+}
+
+/** @param {any} child @returns {Promise<number | null>} */
+const exitCodeOf = (child) => new Promise((resolve) => child.on('exit', resolve))
+
+test('with no terminal and no --yes, the receiver declines and the sender is told why (W15c)', slow, async (t) => {
+  // The deliberate behaviour change: an unattended receiver used to take
+  // any file from anyone holding the code. Now it neither hangs on a
+  // prompt nobody can see nor accepts silently.
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-loopback-consent-'))
+  const sourcePath = path.join(tmpDir, 'report.pdf')
+  const outputDir = path.join(tmpDir, 'received')
+  t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }) })
+  await fs.promises.writeFile(sourcePath, crypto.randomBytes(4096))
+
+  const receiver = await startLoopbackReceiver(t, outputDir, [])
+  const sender = spawn(process.execPath, [SEND_SCRIPT, receiver.port, '-', sourcePath])
+  const senderOutput = captureOutput(sender)
+  sender.stdin.end(`${receiver.code}\n`)
+
+  const [senderExit, receiverExit] = await Promise.all([exitCodeOf(sender), exitCodeOf(receiver.proc)])
+  assert.equal(receiverExit, 1)
+  assert.equal(senderExit, 1)
+  assert.match(receiver.output.stdout, /\[receive\] offer: "report\.pdf" \(4\.0 KB, 4096 bytes\)/)
+  assert.match(receiver.output.stdout, /no terminal to ask on, so the offer is declined\. Pass --yes/)
+  assert.match(senderOutput.stderr, /the receiver declined the file: the receiver is not at a terminal to accept it, and was not started with --yes/)
+  assert.deepEqual(await fs.promises.readdir(outputDir), [], 'nothing was written')
+})
+
+test('--yes accepts unattended, and a risky name is still warned about (W15c)', slow, async (t) => {
+  const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-loopback-risky-'))
+  const sourcePath = path.join(tmpDir, 'invoice.pdf.exe')
+  const outputDir = path.join(tmpDir, 'received')
+  t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }) })
+  await fs.promises.writeFile(sourcePath, crypto.randomBytes(1024))
+
+  const receiver = await startLoopbackReceiver(t, outputDir, ['--yes'])
+  const sender = spawn(process.execPath, [SEND_SCRIPT, receiver.port, '-', sourcePath])
+  sender.stdin.end(`${receiver.code}\n`)
+
+  await Promise.all([waitForExit(sender), waitForExit(receiver.proc)])
+  assert.match(receiver.output.stdout, /\[receive\] WARNING: "invoice\.pdf\.exe" is a program or installer \(\.exe\) made to look like a \.pdf file/)
+  assert.doesNotMatch(receiver.output.stdout, /\[receive\] offer:/, '--yes does not describe the offer, it only warns')
+  assert.deepEqual(await fs.promises.readdir(outputDir), ['invoice.pdf.exe'])
 })

@@ -99,13 +99,15 @@ async function attemptTransfer (t) {
       await fs.promises.writeFile(sourcePath, crypto.randomBytes(size))
       const expectedHash = await sha256File(sourcePath)
 
-      const receiveProc = spawn(process.execPath, [SWARM_RECEIVE_SCRIPT, code, outputDir], { env })
+      const receiveProc = spawn(process.execPath, [SWARM_RECEIVE_SCRIPT, '-', outputDir, '--yes'], { env })
+      receiveProc.stdin.end(`${code}\n`)
       const receiveOutput = captureOutput(receiveProc)
 
       try {
         await waitForPattern(receiveOutput, /waiting for a peer/)
 
-        const sendProc = spawn(process.execPath, [SWARM_SEND_SCRIPT, code, sourcePath], { env })
+        const sendProc = spawn(process.execPath, [SWARM_SEND_SCRIPT, '-', sourcePath], { env })
+        sendProc.stdin.end(`${code}\n`)
         const sendOutput = captureOutput(sendProc)
 
         try {

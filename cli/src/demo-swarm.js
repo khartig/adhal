@@ -68,7 +68,11 @@ async function main () {
   console.log(`  ${code}`)
   console.log()
 
-  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, code, outputDir], { stdio: ['ignore', 'pipe', 'inherit'] })
+  // The code goes in on stdin, on both sides: a code on argv is refused
+  // without --code-on-argv (./read-code.js). --yes because nobody is at
+  // the receiver's terminal to accept the offer (./consent.js).
+  const receiveProc = spawn(process.execPath, [RECEIVE_SCRIPT, '-', outputDir, '--yes'], { stdio: ['pipe', 'pipe', 'inherit'] })
+  receiveProc.stdin.end(`${code}\n`)
   receiveProc.stdout.pipe(process.stdout)
 
   // Wait for the receiver's announcement to flush, not merely for it to have
@@ -78,7 +82,8 @@ async function main () {
   // public DHT. See engine/src/swarm.js REFRESH_INTERVAL.
   await waitForPattern(receiveProc, /announced, waiting for a peer/)
 
-  const sendProc = spawn(process.execPath, [SEND_SCRIPT, code, sourcePath], { stdio: 'inherit' })
+  const sendProc = spawn(process.execPath, [SEND_SCRIPT, '-', sourcePath], { stdio: ['pipe', 'inherit', 'inherit'] })
+  sendProc.stdin.end(`${code}\n`)
 
   await Promise.all([
     waitForExit(sendProc, 'send'),

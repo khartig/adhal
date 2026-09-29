@@ -2,10 +2,15 @@
 'use strict'
 
 // The loopback milestone receiver half: "two processes on one machine, localhost pipe."
-// Usage: receive.js <port> [outputDir]
+// Usage: receive.js <port> [outputDir] [--yes]
 //   port=0 asks the OS for a free port; the bound port is printed so a
 //   wrapper script/test can pick it up, and so is a freshly generated drop
 //   code, which send.js needs.
+//
+// TEST-ONLY (Q-13). It listens on 127.0.0.1 and nowhere else, and exists
+// for the tests and the loopback demo. It is not a published bin: the
+// `ad-hal-receive` bin is swarm-receive.js. It still asks before accepting,
+// like that one, so the tests exercise the same consent path.
 //
 // SINCE v2 THIS RUNS THE SAME PAKE AS THE SWARM PATH, over plain TCP. It
 // used to write cleartext frames with no authentication at all, which was
@@ -24,13 +29,20 @@ const { receiveFile, acceptStream, generateCode, resolveCode } = require('@ad-ha
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError } = require('./report')
+const { createConsent } = require('./consent')
+const { usage } = require('./usage')
 
 async function main () {
-  const [, , portArg, outputDirArg] = process.argv
+  const argv = process.argv.slice(2)
+  const [portArg, outputDirArg] = argv.filter((a) => !a.startsWith('--'))
   const port = portArg === undefined ? NaN : Number(portArg)
 
+  if (argv.includes('--help')) {
+    console.log(usage('receive'))
+    return
+  }
   if (Number.isNaN(port)) {
-    console.error('Usage: receive.js <port> [outputDir]')
+    console.error(usage('receive'))
     process.exitCode = 1
     return
   }
@@ -40,6 +52,7 @@ async function main () {
 
   const { code, nameplate, secret } = resolveCode(generateCode())
   const cancel = installCancelHandler({ label: 'receive' })
+  const consent = createConsent({ yes: argv.includes('--yes'), label: 'receive', signal: cancel.signal })
 
   const server = net.createServer((socket) => {
     // ONE CONNECTION, ONE ATTEMPT. The server stops accepting as soon as
@@ -66,6 +79,7 @@ async function main () {
           pending,
           signal: cancel.signal,
           onProgress: progress.onProgress,
+          onOffer: consent.onOffer,
           onManifest: (manifest, { resumeFrom }) => {
             console.log(`[receive] manifest: ${manifest.name} (${manifest.size === null ? 'streamed, size unknown until it ends' : `${manifest.size} bytes`})`)
             if (resumeFrom > 0) console.log(`[receive] resuming from byte ${resumeFrom} of an earlier, interrupted attempt`)
@@ -89,11 +103,15 @@ async function main () {
           console.log('[receive] note: no hard links on this filesystem, so the file was landed with a racy check-then-rename (see engine/src/transfer.js, publish)')
         }
       }).catch((err) => {
+        consent.close()
         progress.close()
         console.error(`[receive] ${describeError(err)}`)
         if (!cancel.cancelled()) process.exitCode = 1
         socket.destroy()
-      }).finally(() => cancel.dispose())
+      }).finally(() => {
+        consent.close()
+        cancel.dispose()
+      })
   })
 
   // A cancel before anyone connects has nothing else listening for it:

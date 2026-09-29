@@ -468,6 +468,50 @@ them change the wire and the freeze is defined by them.
   not been measured. See W15d.
 
   **W15c — Consent and what the user is told.**
+
+  > **Implemented, not yet committed.** Where the result differed from
+  > the plan below:
+  > - *The resume note needed an engine change.* `onOffer` runs before
+  >   the partial is reopened, so nothing it was given could say "resume".
+  >   The offer now carries `partial`, the size of a `<name>.part` that
+  >   could be resumed. It comes from an `lstat` alone, so a declined offer
+  >   still opens nothing (`accept-gate.test.js`).
+  > - *The prompt needs stdin to be a terminal.* A code piped in on stdin
+  >   (`pass show drop | ad-hal-receive -`) therefore also needs `--yes`.
+  >   Opening `/dev/tty` would avoid that, but a test child that shares
+  >   the runner's session would then block on the developer's terminal.
+  > - *Ctrl-C at the question.* A terminal in raw mode hands Ctrl-C to
+  >   readline, not to the signal handler, so `consent.js` passes it on.
+  >   A question the transfer outlives (the sender cancels, or gives up
+  >   after `ACCEPT_TIMEOUT_MS`) is taken down and never answered, so no
+  >   DECLINE goes out behind a CANCEL. Checked on a real pty: y, n and
+  >   Ctrl-C.
+  > - *A no carries a reason.* A bare `false` put the engine's default
+  >   sentence on the wire, and the sender printed "the receiver declined
+  >   the file: the receiver declined the file".
+  > - *Risky names* also include disk images, shortcut files and
+  >   macro-enabled documents. `.bin` is deliberately left out: every test
+  >   and demo file uses it, and it runs nothing when opened.
+  > - *Argv and streaming.* `ad-hal-send <code> -` streams stdin as the
+  >   file, so stdin cannot also carry the code. That is the one case that
+  >   needs `--code-on-argv`. `ad-hal-code` still takes a code on argv:
+  >   it prints the code in full anyway, and it performs no drop.
+  > - *Q-04 thresholds:* a warning at 3 failed confirmations and at 5
+  >   silent candidates, then again at each doubling. Before pairing
+  >   only, because after it "none has succeeded" is false, and each
+  >   counted failure already gets its own line. Receiver only, as
+  >   planned; `connectOnce` reports the same events if the sender should
+  >   warn too.
+  > - `scratch-trials.js` needed no `--yes`: it calls the engine directly,
+  >   not the CLIs.
+  >
+  > Typecheck clean; the full suite passed 308 of 308 with a 240 s
+  > per-test bound. Measured alone, over 8 alternating runs per tree,
+  > `handshake.test.js` ("receiver CLI reports a dropped candidate") hung
+  > 3 of 8 on `3ac9962` and 1 of 8 with these changes. That is the
+  > pre-existing W15d stall, not a regression. `attempts.test.js` passed
+  > 8 of 8.
+
   - *Accept prompt (Q-02, decision 5).* Both receiver CLIs pass
     `onOffer`. The prompt shows the displayed name, size (or "streamed,
     size unknown"), declared SHA-256, and a resume note if one applies.

@@ -5,8 +5,8 @@
   "description": "Command-line send/receive proof of concept for the ad-hal transfer engine.",
   "license": "MIT",
   "bin": {
-    "ad-hal-send": "src/send.js",
-    "ad-hal-receive": "src/receive.js",
+    "ad-hal-send": "src/swarm-send.js",
+    "ad-hal-receive": "src/swarm-receive.js",
     "ad-hal-code": "src/code.js"
   },
   "engines": {
