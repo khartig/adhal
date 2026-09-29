@@ -49,8 +49,8 @@ trusted-device product, because their feature *is* the persistent
 identity. Cheap now — it is already true by accident — and impossible to
 retrofit once linkage exists in records other people hold.
 
-**4. Streaming and scripting.** `tar c dir | quay send -`,
-`quay recv | tar x`, stable `--json` events. Blob-addressed designs must
+**4. Streaming and scripting.** `tar c dir | ad-hal-send -`,
+`ad-hal-receive | tar x`, stable `--json` events. Blob-addressed designs must
 hash before they can address, so they cannot stream an unknown length.
 Serves developers, CI, and headless boxes — and aligns exactly with
 macOS/Linux-first (§7).
@@ -77,13 +77,13 @@ during the September 2026 review. Nobody here has run either tool, read
 their source, or measured them. Treat every row as a claim to verify, not
 a fact.
 
-| | MeshDrop | DashBeam | Quay today |
+| | MeshDrop | DashBeam | Ad-ḫal today |
 |---|---|---|---|
 | Stack | Hyperswarm + Hyperbee, Noise | Iroh (QUIC/TLS 1.3, BLAKE3 blobs) | Hyperswarm, Noise |
 | Codes | `MD-` pair codes, single-use `DROP-` codes, HMAC challenge-response | tickets, links, QR, pairing + verification codes | 5-word code (public nameplate + secret) + QR, CPace PAKE, attempt cap |
 | Discovery | mDNS + DHT + TCP relay | mDNS, relays (self-hostable) | DHT only |
-| Resume | yes | yes (BLAKE3) | no (W11) |
-| Approval gate | yes | yes, plus trusted auto-accept | no |
+| Resume | yes | yes (BLAKE3) | yes (W11: re-hashed prefix, CHECKPOINT) |
+| Approval gate | yes | yes, plus trusted auto-accept | in the engine (W11); the CLI prompt is W15c |
 | Platforms | Win / macOS / Linux / Android | Win / macOS / Linux / Android / CLI / web | CLI |
 | Traction | v1.0.14, ~1 star, MIT | v0.7.1, ~9.6k stars, AGPL-3.0 | 0.1.0 |
 
@@ -91,7 +91,7 @@ a fact.
 only", "fragile", "a tiny same-stack competitor, not the market". Per its
 own README it ships on four platforms with a relay, resume, and an approval
 gate, and its drop-code design is close to our data path. "Not the market"
-is true of *traction* and false of *feature parity*: **on features, Quay
+is true of *traction* and false of *feature parity*: **on features, Ad-ḫal
 is currently behind it.** "Fragile" may still be true — that is what W14
 measures.
 
@@ -281,12 +281,14 @@ arithmetic and argon2id. W10 decides on that real footing.
   understates sender-side cancel latency by 4.5×, because
   `writableHighWaterMark` is not the write-ahead depth.
 
-- **W11 — Implement v2**, against the frozen spec. Handshake
-  ([`PROTOCOL.md`](PROTOCOL.md) §3.2 has the full parameter mapping and
-  the four ways to get it wrong), AEAD channel, message set, then resume
-  (`ACCEPT{resumeFrom}` + `CHECKPOINT`). `engine/src/cpace.js` exists and
-  is tested; nothing consumes it yet. Also lands `ERR_ATTEMPT_CAP`, which
-  §10 specifies and nothing yet throws.
+- **W11 — Implement v2. Done.** The CPace handshake is on the wire
+  ([`PROTOCOL.md`](PROTOCOL.md) §3.2), every frame after it is sealed
+  under the AEAD channel, and the full message set is implemented:
+  ACCEPT/DECLINE with codes, RESULT, streaming (`size: null` + END), and
+  resume (`ACCEPT{resumeFrom}`, PREFIX, CHECKPOINT). The attempt cap
+  throws `ERR_ATTEMPT_CAP`. The loopback CLIs run the same handshake over
+  a single TCP connection (`engine/src/stream-handshake.js`). The receiver
+  CLIs do not yet ask a person before accepting; that is W15c.
 
 ### Security review disposition, then the freeze
 
@@ -321,7 +323,7 @@ them change the wire and the freeze is defined by them.
 | 5 | Consent and argv defaults (Q-02, Q-17) | **The receiver prompts by default; `--yes` skips it.** A code on argv requires an explicit flag. |
 | 6 | How much robustness testing before the freeze (Q-06) | **State-machine spec, negative vectors, a basic fuzz harness.** Property-based and mutation testing go to W12. |
 | 7 | The source reviews | **Called AI-assisted reviews.** The raw transcripts are not tracked; only the findings and their status are published. |
-| 8 | The product name | **The product becomes ad-ḫal**, written with ḫ (U+1E2B, h with breve below) for the hard *ch* of *loch*. Code, flags, environment variables, comments and protocol labels all use ASCII forms of the name. The protocol identifier is `adhal` (W15a item 5). |
+| 8 | The product name | **The product becomes Ad-ḫal**, written with ḫ (U+1E2B, h with breve below) for the hard *ch* of *loch*. Code, flags, environment variables, comments and protocol labels all use ASCII forms of the name. The protocol identifier is `adhal` (W15a item 5). |
 
 ---
 
@@ -331,6 +333,25 @@ them change the wire and the freeze is defined by them.
   updates [`PROTOCOL.md`](PROTOCOL.md) and regenerates the vectors it
   touches, in the same commit.
 
+  > **Done**, one commit per change: `f22e517` (rename), `14c8bea`
+  > (length as associated data), `93d99de` (topic via `lv_cat`),
+  > `2937f9a` (large wordlist), `88148a7` (`ERR_DROP_TAKEN`). Where the
+  > result differed from the plan below:
+  > - QR at ECC H is now usually 33×33 and at worst 37×37, measured over
+  >   20,000 codes (the estimate held). Level Q would cap it at 33×33;
+  >   H is kept, and `cli/src/qr.js` records the trade.
+  > - The 50% nameplate collision figures were corrected to ~1,500 →
+  >   ~9,150; the earlier "~1,300" was √N, not the birthday bound.
+  > - The QR scheme logic was simplified rather than renamed. With one
+  >   known scheme there is no "older" direction to report, so any other
+  >   scheme gets one message whose fix works either way.
+  > - `ERR_DROP_TAKEN` works in both directions, as proposed. It reuses
+  >   the pairing code path rather than duplicating it. `connectOnce` now
+  >   pauses its socket, as `acceptOnce` always did, so the DECLINE cannot
+  >   be lost while the sender hashes.
+  > - Found along the way, and not caused by W15a: testnet pairing takes
+  >   either ~4 s or ~15 s, on both sides of the change. See W15d.
+
   1. *Length as associated data (decision 1).* The seal becomes
      `AEAD(k_dir, nonce, [type][body], aad = [len 4])`. Changes
      `channel.js` (`setAAD` on both sides), PROTOCOL §3.4 and §5, and the
@@ -339,7 +360,7 @@ them change the wire and the freeze is defined by them.
      expectation: a rewritten length now fails the tag rather than
      misframing.
   2. *Topic via `lvCat` (decision 2).* The topic becomes
-     `BLAKE2b-256(lvCat("quay-v2:topic", nameplate))`. This changes every
+     `BLAKE2b-256(lvCat("adhal-v2:topic", nameplate))`. This changes every
      topic, which is the point of doing it now. Changes `topic.js`,
      PROTOCOL §2, and the expected values in `code-vectors.test.js`.
   3. *EFF large wordlist (decision 3).* Replaces short list #1 in
@@ -427,17 +448,24 @@ them change the wire and the freeze is defined by them.
      person types stays ASCII. Renaming the GitHub repository and the
      local checkout is outside this plan.
 
-  **W15b — Engine and CLI hardening.** No wire change.
+  **W15b — Engine and CLI hardening.** No wire change. **Done** in
+  `2e8004a`. Each row is what shipped and the test that pins it.
 
-  | | Change |
+  | | Outcome |
   |---|---|
-  | Q-11 | Stop echoing peer bytes to the terminal. Sanitise at the throw sites: the `JSON.parse` branches in `message.js` and `transfer.js` stop echoing V8's snippet of peer input, and echoed field values go through `displayName()`. `report.js` also passes every `err.message` through `displayName()`, as defence in depth. |
-  | Q-12 | Generate the drop's announce keypair explicitly in Quay and pass it to `createSwarm`, instead of relying on Hyperswarm's default. Record the rule in THREAT-MODEL §4: any persistent identity is presented only inside the channel, never to the DHT. |
-  | Q-15 | Rename `--unsafe-opaque` to `--insecure-opaque-code`, and `QUAY_UNSAFE_OPAQUE` to `ADHAL_INSECURE_OPAQUE_CODE`. |
-  | Q-16 | The sender opens the file once, and hashes, computes prefixes and sends through one descriptor, with `fstat` supplying the size. |
-  | Q-17 | Validate `QUAY_BOOTSTRAP` inside `try/catch` as an array of `{host: string, port: 1-65535}`, with a clean error. Redact topic hex and peer addresses from default output, behind a `--verbose` flag. The argv half is W15c. |
-  | Q-19 | When `publish()` falls back to the check-then-rename path, print a warning saying so. `replace: false` stays the default. |
-  | Q-18 | Best effort: `fill(0)` the ISK, channel keys and secret Buffers once they are no longer needed. The limitation is documented in THREAT-MODEL, not solved. |
+  | Q-11 | **Four leaks, not the two the review named.** (1) Six `JSON.parse` failure paths echoed V8's snippet of peer input, ESC included; each now reports only the body's length (`notJson` in `message.js`, and the manifest parse in `transfer.js`). (2) An unknown manifest key went raw into both the message and `err.field`. (3) Quoted manifest values used `JSON.stringify`, which escapes ESC but leaves U+202E. (4) `sanitizeReason` stripped control characters from CANCEL, DECLINE and RESULT reasons but not bidi overrides. All four are fixed at the source. As a backstop, `report.js` now escapes the whole line it prints through the new `displayText()` (`names.js`): the same escapes as `displayName`, with a 4096-character bound instead of 120, so long diagnostics survive whole. Tests are in `hardening.test.js`; restoring the echo or removing the backstop each fails exactly one test. |
+  | Q-12 | `createSwarm` generates the announce keypair itself (`HyperDHT.keyPair()`) for every swarm, and throws if a caller passes one. THREAT-MODEL §4 records the rule. `announce-key.test.js` checks two swarms get distinct keys, a supplied key is refused, and, on a DHT testnet, that one process's two drops are seen by their peer under different keys. |
+  | Q-15 | The flag is now `--insecure-opaque-code` and the variable `ADHAL_INSECURE_OPAQUE_CODE`; only the exact value `1` opts in, and the old variable name is inert. The refusal a mistyped code gets now leads with the fix (check the code, or generate a new one) and names the flag only as a diagnostic, with what it costs. That matters more since W15a removed the v1-code detection, because this is now the message a six-word typo gets. Test in `code.test.js`. |
+  | Q-16 | `sendFile` opens the file once. The size comes from `FileHandle.stat()`, exactly that many bytes are hashed through the handle, and every byte is sent through the same handle, which is closed on every path. A non-regular file is refused before anything is offered. That closes the path-swap case: a file renamed over the path after hashing is not what gets sent. An in-place edit of the same file still can't be prevented short of a private copy, and it still fails closed at the receiver's digest check. Tests in `verify.test.js`: path swap, descriptor leak on success and on decline, and a directory. `offerAndSend` was split (`offerSource`) so the source can be closed around the transfer. |
+  | Q-17 | `ADHAL_BOOTSTRAP` is parsed and validated in one place, the new `cli/src/env.js`. It must be a JSON array of 1–64 `{host, port 1-65535}` entries; extra fields are dropped; an error message names the variable and never echoes the value. Both swarm CLIs print a clean error and exit 1 instead of a stack trace. The topic hex appears only with the new `--verbose` flag. The swarm CLIs print no peer IP addresses, so there was nothing to redact there. `--log-json` moves to W13 with the `--json` events. Tests in `env.test.js`, one of them spawning the real CLIs. |
+  | Q-19 | `publish()` reports how it landed the file (`link`, `check-then-rename` or `replace`), and `receiveFile` returns this as `published`. Both receivers print a note when the racy fallback was used. The test simulates a filesystem without hard links by making `link()` fail with `EPERM`. |
+  | Q-18 | Best effort, and documented as such in THREAT-MODEL §7. The handshake zeroes its private scalar, K, the ISK, the MAC key, the password bytes and the generator on every exit, including failed confirmations; it no longer returns the ISK, whose value the handshake vectors pin instead. `Channel#wipe()` zeroes both directional keys; both transfer roles call it however they end, and so does the drop-taken DECLINE path. **Channel keys are now single-use**: a Channel handed wiped keys refuses them with a message saying so. That exposed a test-helper defect: `channelKeys()` handed both sides the same Buffers, so the first side to finish wiped the other's keys mid-transfer (one `resume.test.js` run in eight). The helper now gives each side its own copies, as a real handshake does. |
+  | Q-08 (part) | The unused `compact-encoding` dependency was removed; `pnpm install` regenerated the lockfile via corepack. |
+
+  After W15b: typecheck clean, fast tier 257 pass. On the last full run,
+  one DHT test (`attempts.test.js`, "failed confirmations are counted")
+  hung under load; it passes 3/3 alone. Whether that predates W15b has
+  not been measured. See W15d.
 
   **W15c — Consent and what the user is told.**
   - *Accept prompt (Q-02, decision 5).* Both receiver CLIs pass
@@ -446,7 +474,7 @@ them change the wire and the freeze is defined by them.
     `--yes` skips it.
     - With no TTY and no `--yes`, the receiver declines with a clear
       message rather than hanging or silently accepting. This is a
-      deliberate behaviour change. Every caller in this repo that drives
+      deliberate behavior change. Every caller in this repo that drives
       a receiver unattended (the CLI tests, `scratch-trials.js`, the
       demos) gains `--yes` in the same commit. There are no outside users
       at 0.1.0, so no outside script is broken.
@@ -466,13 +494,26 @@ them change the wire and the freeze is defined by them.
       which is the rule §6 of PROTOCOL.md exists to keep.
   - *Metadata (Q-09).* A one-line notice in both swarm CLIs and in
     `--help`: both IP addresses are visible to the peer and to DHT nodes
-    near the topic. Quay is not anonymous.
+    near the topic. Ad-ḫal is not anonymous.
   - *Loopback (Q-13).* `send.js` and `receive.js` are labelled test-only
-    in help and docs. **The published `quay-send` / `quay-receive` bins
+    in help and docs. **The published `ad-hal-send` / `ad-hal-receive` bins
     currently point at the loopback tools, not the swarm ones.** Remap
     them, or drop the loopback tools from `bin`.
 
   **W15d — Tests that pin the argument, and the Q-06 pre-freeze scope.**
+  - *The testnet pairing stall (found in W15a).* On a HyperDHT testnet,
+    `acceptOnce`/`connectOnce` pair in either ~4 s or ~15 s. The same
+    split appeared on `2937f9a` and on `88148a7`, over 4 runs each. Slow
+    runs show "connection reset by peer" on the receiver and "connection
+    timed out" on the sender, and pair only after the 15 s
+    `HANDSHAKE_TIMEOUT_MS`: the first connection stalls until its
+    deadline. It is the likely cause of the intermittent hang in
+    `handshake.test.js` ("receiver CLI reports a dropped candidate",
+    1–3 in 8 runs on every tree measured) and of the one hang seen in
+    `attempts.test.js` after W15b. It also makes every DHT test 20–50 s.
+    Find the mechanism before bounding any waits. In this repo "flaky"
+    has twice turned out to be a real bug, and a real-network drop may
+    pay the same 15 s.
   - *Security-property tests:*
     - every advertised capability has a handler (Q-03);
     - channel nonces never repeat in either direction (Q-01);
@@ -491,7 +532,7 @@ them change the wire and the freeze is defined by them.
     state and expects the specified refusal, so a gap is a missing row
     rather than a missing thought.
   - *Negative vectors (decision 6).* Published alongside the existing
-    Quay vectors:
+    Ad-ḫal vectors:
     - reflected confirmation, replayed HELLO, reused `sid`;
     - downgraded caps, non-canonical caps;
     - CHUNK before MANIFEST, a `0x00` tag, an oversize frame;
@@ -531,7 +572,7 @@ them change the wire and the freeze is defined by them.
 
   | Doc | Change |
   |---|---|
-  | `README.md` | Rewrite Status and Quickstart to match the code: accept gate, streaming, resume, and the prompt. Say that the code is a bearer capability, that Quay is not anonymous, and that Windows is not supported for security purposes. Fix the Node floor (≥ 24, not ≥ 18). Drop the development narrative. |
+  | `README.md` | Rewrite Status and Quickstart to match the code: accept gate, streaming, resume, and the prompt. Say that the code is a bearer capability, that Ad-ḫal is not anonymous, and that Windows is not supported for security purposes. Fix the Node floor (≥ 24, not ≥ 18). Drop the development narrative. |
   | `PROTOCOL.md` | Spec only. Move the W10/W11 amendment history into a changelog section at the end. Fix the §7.3/§7.4 order. Mark §9 (v1) as historical. Replace the `quay send -` examples with real commands. Remove competitor remarks. |
   | `THREAT-MODEL.md` | Rewrite §9 to present reality. Add the consent prompt, resume `.part` handling (`O_NOFOLLOW`, link-count check, PREFIX's one-bit oracle), the large-list entropy numbers, the DoS posture, secret memory handling, and the relay merge gates. |
   | `ARCHITECTURE.md` | Split into a current design doc and an engineering log under `docs/history/`. Fix the error-code table and the stale "code proof" and cancel-latency passages. Document `stream-handshake.js`. |
@@ -540,7 +581,7 @@ them change the wire and the freeze is defined by them.
   | `SETUP.md`, `MEASURING-TRANSFER-RELIABILITY.md` | Fix the Node floor, the references to the deleted plan ("Phase A", "Section 8"; the same references are in `scratch-trials.js`), and the missing outcome rows. |
   | New `SECURITY.md` | Disclosure contact and response targets (Q-20). |
   | New `docs/SECURITY-REVIEW.md` | The 21 findings with their final status, framed as an AI-assisted review. The raw transcripts in `docs/audit/` stay untracked (decision 7). |
-  | The name, everywhere in prose | Quay becomes ad-ḫal in every doc, written in NFC (precomposed U+1E2B) so that a search for the name finds every occurrence. Commands and identifiers in the docs use the ASCII forms from W15a item 5. |
+  | The name, everywhere in prose | Quay becomes Ad-ḫal in every doc, written in NFC (precomposed U+1E2B) so that a search for the name finds every occurrence. Commands and identifiers in the docs use the ASCII forms from W15a item 5. |
   | Source comments and strings | Remove the remaining "item N" references, including the user-facing "pre-item-5 build" error string in `message.js`. Keep `scratch-*` out of any published package (Q-20). |
 
 - **W17 — Freeze gate.** PROTOCOL.md is tagged v2-final only when every

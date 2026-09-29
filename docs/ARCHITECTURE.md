@@ -29,13 +29,15 @@ ephemeral-by-construction privacy, which is one of the few properties a
 trusted-device competitor cannot copy without abandoning their own design.
 
 The invariant now: **the keypair a drop announces to the DHT is generated
-for that drop and discarded with it.** Today that is true by accident —
-`createSwarm` passes no `keyPair`, so Hyperswarm makes a fresh one per
-process. Promoting the accident to a stated invariant matters because the
-obvious way to build "Keep this device" is to persist that keypair, which
-would silently make every drop by one user linkable by the DHT nodes that
-observe them. A long-term identity, if it is ever added, is presented
-*inside* the authenticated channel — never as the swarm keypair.
+for that drop and discarded with it.** Until W15b that was true by
+accident: `createSwarm` passed no `keyPair`, so Hyperswarm made a fresh one
+per swarm. It is now enforced. `createSwarm` generates the keypair itself
+and refuses one from a caller, and `cli/test/announce-key.test.js` checks
+on a DHT testnet that two drops are seen under different keys. It matters
+because the obvious way to build "Keep this device" is to persist that
+keypair, which would silently make every drop by one user linkable by the
+DHT nodes that observe them. A long-term identity, if it is ever added, is
+presented *inside* the authenticated channel — never as the swarm keypair.
 
 See [`THREAT-MODEL.md`](THREAT-MODEL.md) §4.
 
@@ -89,7 +91,10 @@ makes every failure path say what it was, and adds the two things a human
 needs while a transfer is running -- see
 [Manifest, progress and cancel](#manifest-progress-and-cancel). Stage 0
 then hardened all of it against a peer that knows the code and is hostile
-anyway -- see [Stage 0 hardening](#stage-0-hardening).
+anyway -- see [Stage 0 hardening](#stage-0-hardening). The security review
+that followed v2 changed the wire in five places and hardened the engine
+and CLIs -- see
+[Security review hardening (W15)](#security-review-hardening-w15).
 
 Hyperswarm notes, found empirically while building it (see `engine/src/swarm.js`
 comments for detail):
@@ -372,12 +377,22 @@ instrument was coupled to prose.
 | `ABORT_ERR` (`name: 'AbortError'`) | we cancelled, locally |
 | `ERR_CANCELLED_PEER` | the peer cancelled, with its reason |
 | `ERR_HASH_MISMATCH` | the digest does not match the manifest's |
-| `ERR_SIZE_MISMATCH` | over-read, or a file that shrank mid-send |
-| `ERR_UNSAFE_NAME` | the manifest's name escapes the output directory |
+| `ERR_SIZE_MISMATCH` | over-read, a file that shrank mid-send, or a stream past the receiver's limit |
+| `ERR_UNSAFE_NAME` | the manifest's name is not one the receiver will write |
 | `ERR_MANIFEST_INVALID` | a manifest field failed validation |
-| `ERR_PROTOCOL` | unknown tag, oversize frame, out-of-order frame |
+| `ERR_PROTOCOL` | unknown tag, oversize frame, out-of-order frame, a frame that failed to authenticate |
 | `ERR_CONNECTION` | the socket closed before completion |
+| `ERR_STALLED` | the peer proved the code and then stopped sending |
+| `ERR_NO_SPACE` | the declared size does not fit on the disk |
+| `ERR_EXISTS` | the file could not be landed without destroying another |
+| `ERR_DECLINED` | the receiver refused the offer before any file byte moved |
+| `ERR_RECEIVER_FAILED` | the receiver got every byte and could not keep the file |
+| `ERR_DROP_TAKEN` | the peer had already paired with someone else who holds the code (W15a) |
+| `ERR_ATTEMPT_CAP` | the drop was burned after 100 failed confirmations |
 | `ERR_NO_PEER` / `ERR_NO_HANDSHAKE` | the two join timeouts, above |
+
+[`PROTOCOL.md`](PROTOCOL.md) §10 is the normative list; this one mirrors
+it.
 
 Local cancellation uses Node's own `AbortError`/`ABORT_ERR` so
 `signal.reason` and generic abort handling work unchanged.
@@ -894,6 +909,82 @@ nothing at all against unlimited ones. Take away the cap and the PAKE
 alone does not save it. Take away the code split and the cap does not
 either, because the grinding happens offline where nothing counts. The two
 are one design.
+
+## Security review hardening (W15)
+
+An AI-assisted security review of the v2 branch produced 21 findings
+([`IMPLEMENTATION-PLAN.md`](IMPLEMENTATION-PLAN.md), "Security review
+disposition"). This section records how the fixes changed the structure
+of the code. The reasoning for each is in the plan and in comments at the
+code.
+
+### What changed on the wire (W15a)
+
+- **The frame length is authenticated.** A sealed frame is
+  `[len][AEAD(k_dir, nonce, [type][body], aad = [len])]`. The length stays
+  outside the ciphertext, so `FrameDecoder` can still bound a frame before
+  buffering it, but it is bound into the tag. On open, the receiver
+  rebuilds the associated data from the length it just used to delimit
+  the frame, so it authenticates exactly what it acted on.
+- **The topic is length-prefixed.**
+  `topic = BLAKE2b-256(lv_cat("adhal-v2:topic", nameplate))`, using the same
+  `lvCat` CPace uses for its own inputs. `TOPIC_PREFIX` became
+  `TOPIC_LABEL`, because it is no longer a prefix.
+- **The wordlist is the EFF large list** (7,772 words). The code is still
+  2 + 3 words: ~25.8 bits of nameplate and ~38.8 of secret. See
+  [The drop code](#the-drop-code-d1).
+- **The protocol identifier is `adhal`**, in every label and in the QR
+  scheme (`ADHAL2:`), and it is ASCII: nothing hashed depends on how the ḫ
+  in the product name is normalised.
+- **A late peer is told the drop is taken.** This is the one structural
+  change to `engine/src/swarm.js`. `acceptOnce` and `connectOnce` used to
+  remove their connection listener the moment they paired. Now pairing
+  settles the promise and keeps the listener: every per-candidate check
+  keys on a `listening` flag rather than `settled`. A candidate that
+  confirms after pairing runs through the same handshake, deadline,
+  backoff, sid check and attempt counting as the one that paired, and is
+  sent `DECLINE{ERR_DROP_TAKEN}` as its only sealed frame (`declineLate`).
+  The resolved value gains `stopAnswering()`; destroying the swarm stops it
+  too. `connectOnce` now pauses the socket before resolving, as
+  `acceptOnce` always did, so that DECLINE cannot arrive while `sendFile`
+  is still hashing and be lost.
+
+### What changed inside (W15b)
+
+- **Keys have a lifecycle.** Channel keys are single-use. `Channel#wipe()`
+  zeroes both directional keys, and after it the channel refuses to seal
+  or open. `sendFile` and `receiveFile` wipe their channel however the
+  transfer ends, and `declineLate` wipes as soon as its one frame is
+  sealed. The handshake zeroes its own intermediates (scalar, K, ISK, MAC
+  key, password bytes, generator) on every exit and no longer returns the
+  ISK. A Channel handed zeroed keys refuses them with a message that says
+  why. This is best effort, not erasure: the code is a JS string, and the
+  crypto libraries keep copies out of reach (THREAT-MODEL §7).
+- **One descriptor per sent file.** `sendFile` opens the file once. The
+  size, the hash (exactly `size` bytes), the prefix digests for resume,
+  and every byte sent all come through that one `FileHandle`, which is
+  closed on every path. `offerAndSend` was split so the source can be
+  closed around the transfer (`offerSource` does the offer and everything
+  after it).
+- **The terminal is a trust boundary with one exit.** Peer-controlled text
+  is cleaned where it enters a message: `notJson` reports a malformed body
+  by length, manifest values and keys go through `displayName`, and
+  `sanitizeReason` drops bidi overrides as well as control characters.
+  `cli/src/report.js` also escapes every line it returns through
+  `displayText()`. That function uses `displayName`'s escapes with a
+  4096-character bound, so a branch added later cannot print peer bytes
+  raw.
+- **The DHT announce key is generated by `createSwarm`**, which refuses a
+  caller's. See [Key hierarchy](#key-hierarchy).
+- **`publish()` says how it landed the file**, as `link`,
+  `check-then-rename` or `replace`, and `receiveFile` returns it as
+  `published`. The receivers warn when the racy fallback was used.
+- **CLI environment parsing lives in `cli/src/env.js`.** `ADHAL_BOOTSTRAP`
+  is validated there instead of being passed to HyperDHT unchecked. The
+  topic hex is printed only with `--verbose`.
+- **The opaque-code opt-in is `--insecure-opaque-code`** /
+  `ADHAL_INSECURE_OPAQUE_CODE=1`. The refusal a mistyped code gets presents
+  the flag as a diagnostic, never as a fix.
 
 ## Relay threat boundary
 

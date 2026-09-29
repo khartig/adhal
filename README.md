@@ -20,12 +20,14 @@ rather than a custom NAT-traversal stack.
 
 ## Status
 
-**A drop works end to end, over the public DHT, across ISPs, and the
-security work that had been deferred is done (Stage 0).**
+**A drop works end to end, over the public DHT, across ISPs. The v2
+protocol is implemented, and the findings of a security review of it are
+being worked through before the wire format is frozen (Stage 1, W15).**
 
-- **Loopback:** two CLI processes on one machine exchange a 10 MB file over a
-  localhost TCP pipe and independently print matching SHA-256 hashes --
-  zero NAT, zero Hyperswarm, just the chunking/framing/hashing pipeline.
+- **Loopback (test-only):** two CLI processes on one machine exchange a file
+  over a localhost TCP connection, running the same PAKE handshake and
+  sealed channel as a real drop, and independently print matching SHA-256
+  hashes -- zero NAT, zero Hyperswarm.
 - **Hyperswarm:** the same manifest/chunk protocol, now carried over an
   end-to-end Noise-encrypted Hyperswarm connection instead of a bare TCP
   socket. `pnpm test` proves this against an isolated local DHT testnet
@@ -33,8 +35,8 @@ security work that had been deferred is done (Stage 0).**
   proves it against the real public DHT, which needs outbound UDP
   reachability to Hyperswarm's bootstrap nodes -- this can time out in
   sandboxed environments that only permit TCP/HTTPS egress.
-  `ADHAL_JOIN_TIMEOUT=<ms>` overrides the 30s peer-discovery timeout (0
-  disables it) if you need a longer budget while diagnosing a slow
+  `ADHAL_JOIN_TIMEOUT=<ms>` overrides the peer-discovery timeout (30s for
+  the receiver, 120s for the sender; 0 disables it) if you need a longer budget while diagnosing a slow
   network. Note that a longer budget does not help the announce-propagation
   race described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) -- that
   one is fixed, not waited out. Cross-ISP transfer (Starlink CGNAT to
@@ -102,6 +104,21 @@ security work that had been deferred is done (Stage 0).**
   had never worked. See
   [Stage 0 hardening](docs/ARCHITECTURE.md#stage-0-hardening) and
   [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
+- **Security review hardening (W15a, W15b):** every frame after the
+  handshake is sealed with ChaCha20-Poly1305 under keys derived from the
+  PAKE, with the frame length authenticated too, so security no longer
+  depends on the transport that carried the bytes. The code is a bearer
+  capability -- whoever holds it can connect -- so when a second person
+  with the same code turns up after the drop has paired, they are told the
+  drop is taken, and the side that paired says someone else has the code.
+  Each drop announces under a fresh DHT key, enforced in code, so two drops
+  cannot be linked by that key. Peer-supplied text can no longer reach your
+  terminal through an error message. The sender hashes and sends a file
+  through one descriptor, so a file swapped at its path mid-drop is not
+  what gets sent. Channel keys and handshake secrets are zeroed once used
+  (best effort; see
+  [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) §7). See
+  [Security review hardening](docs/ARCHITECTURE.md#security-review-hardening-w15).
 
 The readiness handshake between the two peers became two-way as of the
 first cross-ISP attempt at a real drop, which exposed a receiver
@@ -122,9 +139,12 @@ defensible claim is "healthy and comfortably usable", not "proven >=75%". See [`
 -- single runs cannot distinguish a flaky path from a broken one, and
 assuming they can cost this project a day.
 
-Not yet implemented: the rest of the v2 message set (the accept gate,
-streaming, resume), LAN discovery, and relay. v2's PAKE-based codes and
-its AEAD channel are in. See
+The whole v2 message set is implemented: the accept gate, streaming
+(`size: null`), and resume of an interrupted transfer. Not yet
+implemented: an interactive accept prompt in the receiver CLI (the engine
+supports it; the CLI currently accepts any valid offer -- W15c), LAN
+discovery, and relay. Ad-ḫal is not anonymous: both peers' IP addresses
+are visible to each other and to DHT nodes near the drop's topic. See
 [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md).
 
 ## Project layout
@@ -153,12 +173,12 @@ The word list is vendored into
 
 ## Quickstart
 
-Prerequisites: Node.js >= 18 (developed against v22.11.0), [pnpm](https://pnpm.io) (developed against 12.4.1).
+Prerequisites: Node.js >= 24, [pnpm](https://pnpm.io) 12.4.1 (`corepack enable` provides it from `packageManager`).
 
 ```bash
 pnpm install
-pnpm test               # everything: 89 tests, ~2 min (spins up DHT testnets)
-pnpm test:fast          # the same minus network/subprocess tests: ~4s
+pnpm test               # everything: 287 tests, several minutes (spins up DHT testnets)
+pnpm test:fast          # the same minus network/subprocess tests: ~5s
 pnpm typecheck          # tsc --noEmit; the repo is JSDoc-typechecked
 pnpm run demo:loopback  # loopback TCP, printing both sides' output live
 pnpm run demo:swarm     # Hyperswarm, against the real public DHT
@@ -194,6 +214,14 @@ node cli/src/swarm-send.js - ./some-file.bin
 
 An existing file is never overwritten: a drop that collides with one lands
 as `name (1)` unless you pass `--replace`.
+
+If someone else with the same code reaches the other side first, you are
+told the drop was already taken, and nothing is transferred; the side that
+paired reports that another peer holds the code. Use a new code, and ask
+how it got out. `--verbose` prints the DHT topic the drop joins, which is
+otherwise kept out of logs. `--insecure-opaque-code` accepts an arbitrary
+string instead of a generated code, for diagnostics only: anyone watching
+the DHT can guess such a string offline.
 
 The sender accepts the code in any casing or separator style, and accepts a
 scanned QR payload (`ADHAL2:ACID-...`) verbatim; all of them normalize to
