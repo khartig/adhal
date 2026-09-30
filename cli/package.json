@@ -14,7 +14,8 @@
   },
   "scripts": {
     "test": "node --test",
-    "test:fast": "ADHAL_FAST=1 node --test"
+    "test:fast": "ADHAL_FAST=1 node --test",
+    "fuzz": "ADHAL_FUZZ_ITERATIONS=100000 node --test --test-timeout=1800000 test/fuzz.test.js"
   },
   "dependencies": {
     "@ad-hal/engine": "workspace:*",
