@@ -44,6 +44,7 @@ const {
 } = require('@ad-hal/engine')
 const { describeError } = require('../src/report')
 const { slow } = require('../test-helpers/tiers')
+const { joinAsPeer, within } = require('../test-helpers/test-peer')
 
 test('the cap is section 6\'s number and burns only on the last attempt', () => {
   assert.equal(MAX_ATTEMPTS, 100, 'section 6 says 100')
@@ -202,16 +203,16 @@ test('a dropped candidate is never counted, however many of them there are', slo
   // Three peers that connect, take the HELLO, and vanish -- exactly what a
   // half-failed punch and a scratch-lookup.js --connect probe look like.
   for (let i = 0; i < 3; i++) {
-    const dead = createSwarm({ bootstrap: testnet.bootstrap })
-    const sawHello = new Promise((resolve) => {
-      dead.on('connection', (socket) => {
-        socket.on('error', () => {})
-        socket.once('data', () => { resolve(undefined); socket.destroy() })
-      })
+    /** @type {(v?: any) => void} */
+    let saw = () => {}
+    const sawHello = new Promise((resolve) => { saw = resolve })
+    const dead = joinAsPeer(testnet.bootstrap, topic, (socket) => {
+      socket.once('data', () => { saw(); socket.destroy() })
     })
-    await dead.join(topic).flushed()
-    await sawHello
-    await dead.destroy()
+    t.after(() => dead.swarm.destroy())
+    await dead.flushed
+    await within(sawHello, 45000, `dead peer ${i + 1}'s HELLO`)
+    await dead.swarm.destroy()
   }
 
   assert.equal(cap.attempts, 0, `dead candidates must not be counted, got ${cap.attempts}`)
@@ -271,27 +272,36 @@ test('failed confirmations are counted, and the drop is burned with ERR_ATTEMPT_
   // wrong secret. That is the only attack v2 leaves, and it buys exactly
   // one guess per run -- which is what makes counting the runs sufficient.
   for (let i = 0; i < 2; i++) {
-    const guesser = createSwarm({ bootstrap: testnet.bootstrap })
-    const answered = new Promise((resolve) => {
-      guesser.on('connection', (socket) => {
-        socket.on('error', () => {})
-        const reader = new MessageReader()
-        const wrong = new Responder({ nameplate, secret: splitCode(generateCode()).secret })
-        socket.on('data', (chunk) => {
-          reader.push(chunk)
-          const answer = wrong.readHello(reader)
-          if (!answer) return
-          socket.write(answer.reply)
-          resolve(undefined)
-        })
+    /** @type {(v?: any) => void} */
+    let replied = () => {}
+    const answered = new Promise((resolve) => { replied = resolve })
+    // ONE guess per guesser, whatever its swarm does. joinAsPeer redials
+    // after the receiver drops a connection, and a second REPLY from the
+    // same guesser would be a second counted failure -- burning a cap of
+    // 2 before guesser 2 had run, which is how this failed as first
+    // written.
+    let guessed = false
+    const guesser = joinAsPeer(testnet.bootstrap, topic, (socket) => {
+      if (guessed) { socket.destroy(); return }
+      const reader = new MessageReader()
+      const wrong = new Responder({ nameplate, secret: splitCode(generateCode()).secret })
+      socket.on('data', (chunk) => {
+        if (guessed) return
+        reader.push(chunk)
+        const answer = wrong.readHello(reader)
+        if (!answer) return
+        guessed = true
+        socket.write(answer.reply)
+        replied()
       })
     })
-    await guesser.join(topic).flushed()
-    await answered
+    t.after(() => guesser.swarm.destroy())
+    await guesser.flushed
+    await within(answered, 45000, `guesser ${i + 1}'s REPLY`)
     // Give the receiver a moment to judge the REPLY before tearing down,
     // so the count is observed rather than raced.
     await new Promise((resolve) => setTimeout(resolve, 250))
-    await guesser.destroy()
+    await guesser.swarm.destroy()
   }
 
   const outcome = await accepted
@@ -340,16 +350,15 @@ test('the backoff actually delays the receiver\'s HELLO, measured', slow, async 
     }).catch(() => {})
     await announced
 
-    const peer = createSwarm({ bootstrap: testnet.bootstrap })
-    t.after(() => peer.destroy())
-    return new Promise((resolve) => {
-      peer.on('connection', (socket) => {
+    // Measured per connection, so a dead one (see test-helpers/test-peer.js)
+    // simply never resolves and the next, live, one does.
+    return within(new Promise((resolve) => {
+      const peer = joinAsPeer(testnet.bootstrap, topic, (socket) => {
         const connectedAt = Date.now()
-        socket.on('error', () => {})
         socket.once('data', () => resolve(Date.now() - connectedAt))
       })
-      peer.join(topic).flushed()
-    })
+      t.after(() => peer.swarm.destroy())
+    }), 45000, 'the HELLO being timed')
   }
 
   const clean = await timeToHello(0)
@@ -411,15 +420,13 @@ test('a sender treats a reused sid as a failed attempt', slow, async (t) => {
   const probe = new Initiator({ nameplate, secret })
   const hello = probe.hello()
 
-  const replayer = createSwarm({ bootstrap: testnet.bootstrap })
-  t.after(() => replayer.destroy())
   let helloed = 0
-  replayer.on('connection', (socket) => {
-    socket.on('error', () => {})
+  const replayer = joinAsPeer(testnet.bootstrap, topic, (socket) => {
     helloed++
     socket.write(hello)
   })
-  await replayer.join(topic).flushed()
+  t.after(() => replayer.swarm.destroy())
+  await replayer.flushed
 
   const outcome = await connected
   assert.ok(helloed >= 1, 'the replayer must have sent at least one HELLO')

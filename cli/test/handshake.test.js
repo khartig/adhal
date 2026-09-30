@@ -42,8 +42,14 @@ const {
   generateCode,
   sendFile,
   receiveFile,
+  AttemptCap,
+  Responder,
+  MessageReader,
+  UNANSWERED_CONNECTION_MS
 } = require('@ad-hal/engine')
 const { slow } = require('../test-helpers/tiers')
+const { FakeSwarm } = require('../test-helpers/fake-swarm')
+const { joinAsPeer, within } = require('../test-helpers/test-peer')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
@@ -56,23 +62,24 @@ const SWARM_RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
 // the receiver is guaranteed to have reached the candidate stage, so the
 // test exercises "candidate discarded" rather than racing the connection
 // against the receiver's own bookkeeping.
+//
+// Through joinAsPeer (test-helpers/test-peer.js), which is what stopped
+// this wait from hanging: a raw peer that also announced could livelock
+// against the receiver over the testnet's pairing race, in 4 of 12 runs.
+// The wait is bounded now too, so if it ever recurs it fails and says
+// where to look.
 async function joinAsBadPeer (bootstrap, topic) {
-  const swarm = createSwarm({ bootstrap })
   /** @type {(value?: any) => void} */
   let sawHello = () => {}
   const helloSeen = new Promise((resolve) => { sawHello = resolve })
-
-  swarm.on('connection', (socket) => {
-    socket.on('error', () => {})
+  const { swarm, flushed } = joinAsPeer(bootstrap, topic, (socket) => {
     socket.once('data', () => {
       sawHello()
       socket.destroy()
     })
   })
-
-  const discovery = swarm.join(topic)
-  await discovery.flushed()
-  return { swarm, helloSeen }
+  await flushed
+  return { swarm, helloSeen: within(helloSeen, 45000, "the receiver's HELLO reaching the bad peer") }
 }
 
 function captureOutput (child) {
@@ -128,6 +135,7 @@ test('a peer that connects and vanishes without proving itself does not consume 
 
   // Burn a candidate: connect, take the HELLO, then disappear.
   const bad = await joinAsBadPeer(testnet.bootstrap, topic)
+  t.after(() => bad.swarm.destroy())
   await bad.helloSeen
   await bad.swarm.destroy()
 
@@ -220,4 +228,50 @@ test('the receiver CLI reports a dropped candidate and keeps waiting', slow, asy
   await waitForPattern(output, /candidate \w+\.\.\., sent HELLO, awaiting REPLY/)
   await waitForPattern(output, /dropped before proving \(.*\); still waiting/)
   assert.equal(receiveProc.exitCode, null, 'the receiver must still be running')
+})
+
+test('a connection that never receives a packet is dropped early, and not counted', async () => {
+  // The dead connection hyperdht reports open (UNANSWERED_CONNECTION_MS in
+  // engine/src/swarm.js): 'connection' fires, and nothing ever arrives on
+  // its UDX stream. A stand-in raw stream carries the one counter the rule
+  // reads. Broken on purpose: arming the rule without checking
+  // packetsReceived drops the live one below too.
+  assert.ok(UNANSWERED_CONNECTION_MS < 15000, 'it has to be well under the handshake deadline to be worth having')
+  const { secret, nameplate } = splitCode(generateCode())
+  const swarm = new FakeSwarm()
+  const cap = new AttemptCap()
+  /** @type {Array<{ reason: string, at: number }>} */
+  const dropped = []
+  const started = Date.now()
+  const paired = acceptOnce(/** @type {any} */ (swarm), Buffer.alloc(32), {
+    secret, nameplate, attemptCap: cap, refreshInterval: 0, timeout: 10000,
+    handshakeTimeout: 5000, unansweredTimeout: 100,
+    onCandidateDropped: (_info, reason) => dropped.push({ reason, at: Date.now() - started })
+  })
+
+  // Dead: its stream never receives anything.
+  swarm.candidate((_far, near) => { near.rawStream = { packetsReceived: 0 } })
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  assert.equal(dropped.length, 1, 'the dead connection was dropped')
+  assert.match(dropped[0].reason, /no packet arrived from the peer within 100ms/)
+  assert.ok(dropped[0].at < 1000, `dropped at ${dropped[0].at}ms, not at the 5000ms handshake deadline`)
+  assert.equal(cap.attempts, 0, 'a dead connection is not a guess')
+
+  // Live but slow to answer: packets have arrived, so only the handshake
+  // deadline may drop it, and here it answers in time.
+  swarm.candidate((far, near) => {
+    near.rawStream = { packetsReceived: 3 }
+    const responder = new Responder({ secret, nameplate })
+    const reader = new MessageReader()
+    let replied = false
+    far.on('data', (/** @type {Buffer} */ chunk) => {
+      reader.push(chunk)
+      if (replied) return // CONFIRM; nothing more to say
+      replied = true
+      setTimeout(() => far.write(/** @type {any} */ (responder.readHello(reader)).reply), 250)
+    })
+  })
+  const rx = await paired
+  rx.stopAnswering()
+  assert.equal(dropped.length, 1, 'the live connection was not dropped, though it took longer than the rule to answer')
 })

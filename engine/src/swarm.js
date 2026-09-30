@@ -111,6 +111,54 @@ const MAX_PARALLEL = 16
 // leaves room for several more.
 const HANDSHAKE_TIMEOUT_MS = 15000
 
+// How long a candidate's connection may go without receiving a single UDX
+// packet before it is treated as dead. Much shorter than the handshake
+// budget, because it is not a budget for the peer: it is a test of whether
+// the far end of the connection exists at all.
+//
+// IT OFTEN DOES NOT, AND hyperdht REPORTS IT OPEN ANYWAY (found in W15d).
+// When both peers sit behind one address -- one machine, or one LAN --
+// hyperdht's client races a LAN shortcut against a holepunch. The server
+// side, meanwhile, aborts the holepunch when its NAT analysis comes back
+// unstable, and its abort destroys the raw stream the LAN shortcut was
+// about to use (hyperdht@6.34.0, lib/server.js, `_onpeerholepunch` ->
+// `_abort`). If the client's LAN ping has already succeeded, the client
+// opens onto a stream that no longer exists: 'connection' fires, our HELLO
+// is written, and every packet it sends is dropped until UDX gives up with
+// "connection timed out", 13 s later. The server never emits 'connection'
+// at all. On a single-process testnet this was 6 of 16 pairings, each
+// ~18.6 s instead of ~4 s; a counterfactual that stops the server's abort
+// destroying the stream made it 0 of 16.
+//
+// And Hyperswarm then PREFERS the dead connection. Its duplicate tie-break
+// (hyperswarm/index.js, _handleServerConnection) keeps an existing
+// connection unless it has both read and written, and a dead one has read
+// nothing -- so while it exists, every live dial from the peer is
+// destroyed as a duplicate. When the side holding it is the expected
+// initiator this can become a livelock rather than a delay: its own
+// redials die the same way, and the peer's are refused, until the peer
+// gives up. Traced as the intermittent hang in handshake.test.js (4 of
+// 12 runs, every one this sequence), and as two engine processes on one
+// testnet taking 14-78 s to pair (median ~24 s over 10).
+//
+// A live connection is never silent for long. Its far end surfaced it
+// because a packet arrived, and answers our first packet with its
+// secret-stream header and an ack, so a client-side stream receives
+// something within about one round trip -- ~100 ms measured on the
+// testnet -- and a server-side one has already received something. A
+// stream that has received NOTHING is the one case this catches, and it
+// is not a slow peer, so it is safe to drop early. Dropping it removes it
+// from Hyperswarm's connection set, which is what lets the next live dial
+// through. With it, the two-process case paired in 4-34 s (median ~7 s
+// over 10) and the handshake.test.js hang went to 1 of 12. It shortens the
+// dead window; it does not close it, since a redial can die the same way.
+//
+// 5 s is about fifty round trips on a slow path and still well under
+// UDX's own 13 s. It has not been measured cross-ISP, because the event
+// has not been seen there -- it needs a shared address -- and a false
+// positive costs a redial, not the drop.
+const UNANSWERED_CONNECTION_MS = 5000
+
 // engine owns all Holepunch join logic (see engine/package.json); cli/
 // only ever imports from @ad-hal/engine, never hyperswarm/hyperdht directly.
 // `bootstrap` lets tests point at an isolated hyperdht testnet (see
@@ -343,6 +391,31 @@ function declineLate (socket, { sendKey, receiveKey }, first) {
   socket.once('close', () => clearTimeout(timer))
 }
 
+// Arms UNANSWERED_CONNECTION_MS for one candidate: `onDead` runs if its UDX
+// stream has received no packet by then. Only a Hyperswarm connection has
+// a raw stream to ask, so anything else (a test's duplex pair) is left to
+// the handshake deadline alone.
+/**
+ * @param {any} socket
+ * @param {number} ms
+ * @param {(err: Error) => void} onDead
+ * @returns {NodeJS.Timeout | null}
+ */
+function watchForAnswer (socket, ms, onDead) {
+  if (!ms || !socket.rawStream || typeof socket.rawStream.packetsReceived !== 'number') return null
+  const timer = setTimeout(() => {
+    const raw = socket.rawStream
+    if (raw && raw.packetsReceived === 0) {
+      onDead(new Error(
+        `opened, but no packet arrived from the peer within ${ms}ms: its end of the ` +
+        'connection is gone (see UNANSWERED_CONNECTION_MS in engine/src/swarm.js)'
+      ))
+    }
+  }, ms)
+  if (typeof timer.unref === 'function') timer.unref()
+  return timer
+}
+
 // Joins `topic` and resolves with the first peer to complete the readiness
 // handshake *and* prove it knows the code. One drop, one peer -- the Hyperswarm work
 // doesn't need to handle multiple simultaneous peers, but it does need to
@@ -370,6 +443,7 @@ function declineLate (socket, { sendKey, receiveKey }, first) {
  *   timeout?: number,
  *   refreshInterval?: number,
  *   handshakeTimeout?: number,
+ *   unansweredTimeout?: number,
  *   signal?: AbortSignal,
  *   onAnnounced?: () => void,
  *   onCandidate?: (peerInfo: any) => void,
@@ -379,6 +453,8 @@ function declineLate (socket, { sendKey, receiveKey }, first) {
  * }} options not optional, because `secret` and `nameplate` are not
  *   `attemptCap` counts failed confirmations for THIS drop (section 6);
  *   one is created per join, so burning it burns only this drop.
+ *   `unansweredTimeout` is UNANSWERED_CONNECTION_MS unless a test needs
+ *   otherwise; 0 turns the check off, leaving the handshake deadline.
  *   `secret` and `nameplate` are the two halves of the drop code -- see
  *   splitCode in ./code.js and resolveCode in ./resolve-code.js. The
  *   secret is the PAKE password and must be the canonical form.
@@ -396,7 +472,7 @@ function declineLate (socket, { sendKey, receiveKey }, first) {
  *   receiveFile, which seals every frame under them. `stopAnswering`
  *   stops telling late candidates the drop is taken.
  */
-function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onAnnounced, onCandidate, onCandidateDropped, onDropTaken }) {
+function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, unansweredTimeout = UNANSWERED_CONNECTION_MS, attemptCap = new AttemptCap(), signal, onAnnounced, onCandidate, onCandidateDropped, onDropTaken }) {
   // Validated up front rather than per connection, and required rather
   // than defaulted. A missing secret can only mean a caller that was not
   // updated for v2, and the failure mode of quietly carrying on without
@@ -494,9 +570,13 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
         ? setTimeout(() => onFailed(new Error(`did not complete the handshake within ${candidateBudget}ms`)), candidateBudget)
         : null
       if (deadline && typeof deadline.unref === 'function') deadline.unref()
+      // A connection whose far end hyperdht already discarded; see
+      // UNANSWERED_CONNECTION_MS. Not counted: it is not a peer at all.
+      const unanswered = watchForAnswer(socket, unansweredTimeout, (err) => onFailed(err))
 
       const detach = () => {
         if (deadline) clearTimeout(deadline)
+        if (unanswered) clearTimeout(unanswered)
         if (helloTimer) clearTimeout(helloTimer)
         socket.removeListener('error', onFailed)
         socket.removeListener('close', onFailed)
@@ -696,12 +776,14 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   timeout?: number,
  *   refreshInterval?: number,
  *   handshakeTimeout?: number,
+ *   unansweredTimeout?: number,
  *   attemptCap?: InstanceType<typeof AttemptCap>,
  *   signal?: AbortSignal,
  *   onCandidate?: (peerInfo: any) => void,
  *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void,
  *   onDropTaken?: (peerInfo: any) => void
  * }} options not optional, because `secret` and `nameplate` are not
+ *   `unansweredTimeout` is as for acceptOnce.
  *   `attemptCap` is where the SENDER's extra duty lives: as well as
  *   counting failed confirmations it remembers the sid values it has seen
  *   for this nameplate, and treats a repeat as a failed attempt. That is
@@ -717,7 +799,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   `stopAnswering` are as for acceptOnce: a sender that has paired tells
  *   a second receiver the drop is taken.
  */
-function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, attemptCap = new AttemptCap(), signal, onCandidate, onCandidateDropped, onDropTaken }) {
+function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, unansweredTimeout = UNANSWERED_CONNECTION_MS, attemptCap = new AttemptCap(), signal, onCandidate, onCandidateDropped, onDropTaken }) {
   // See acceptOnce: required rather than defaulted, and validated up
   // front, because carrying on without a secret would silently hand a file
   // to whoever answered.
@@ -801,9 +883,12 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
         ? setTimeout(() => onFailed(new Error(`did not complete the handshake within ${candidateBudget}ms`)), candidateBudget)
         : null
       if (deadline && typeof deadline.unref === 'function') deadline.unref()
+      // See acceptOnce's copy, and UNANSWERED_CONNECTION_MS.
+      const unanswered = watchForAnswer(socket, unansweredTimeout, (err) => onFailed(err))
 
       const detach = () => {
         if (deadline) clearTimeout(deadline)
+        if (unanswered) clearTimeout(unanswered)
         if (replyTimer) clearTimeout(replyTimer)
         socket.removeListener('error', onFailed)
         socket.removeListener('close', onFailed)
@@ -997,4 +1082,4 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 // timeoutMessage is exported for tests: asserting both of its branches
 // end to end would mean racing a real peer against a real timeout, which
 // is exactly the kind of timing-dependent test that fails only under load.
-module.exports = { createSwarm, acceptOnce, connectOnce, timeoutMessage, timeoutError, HANDSHAKE_TIMEOUT_MS }
+module.exports = { createSwarm, acceptOnce, connectOnce, timeoutMessage, timeoutError, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }
