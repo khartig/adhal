@@ -91,10 +91,16 @@ const CAPS_TOKEN = /^[a-z0-9]([a-z0-9-]{0,14}[a-z0-9])?$/
 // `resume` is ACCEPT{resumeFrom} plus CHECKPOINT (section 7); `stream` is
 // size: null plus END{sha256} (section 4.3). Both were declared here in
 // W11 ahead of the code, which is the right order: the capability is what
-// lets the passes ship separately without a third wire break. `stream` is
-// acted on as of W11's second pass -- sendStream will not offer, and
-// receiveFile will not accept, a stream unless it is in the negotiated
-// set. `resume` is still advertised and not yet acted on.
+// lets the passes ship separately without a third wire break. Both are
+// acted on as of W11's second pass: sendStream will not offer, and
+// receiveFile will not accept, a stream unless `stream` is in the
+// negotiated set, and without `resume` a partial is never reopened and an
+// ACCEPT{resumeFrom > 0} is refused.
+//
+// A TOKEN HERE IS A PROMISE (Q-03). Advertising one says this build acts on
+// it, so a token is added here in the same change as its handler, never
+// ahead of it. security-properties.test.js fails if a token has no row
+// showing it changes behaviour when negotiated and is refused when not.
 const KNOWN_CAPS = ['resume', 'stream']
 
 // The domain-separation labels. Every one is distinct and every one is
