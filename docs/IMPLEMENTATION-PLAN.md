@@ -306,7 +306,7 @@ Those commits closed three of them in the engine:
 |---|---|---|
 | Q-01 | AEAD channel not on the transfer path | **Closed.** Every post-handshake frame goes through `openChannel`, which refuses to run without keys; there is no unsealed mode. Tamper test in `sealed-transfer.test.js`. The length prefix is still outside the tag (W15a). |
 | Q-02 | Code possession is the only authorisation | **Engine half closed:** ACCEPT/DECLINE, RESULT, DECLINE codes. **CLI half open:** neither receiver passes `onOffer`, so both accept any valid offer without asking (W15c). |
-| Q-03 | Capabilities advertised without handlers | **Closed.** `resume` and `stream` both have handlers. Pinned by a test in W15d. |
+| Q-03 | Capabilities advertised without handlers | **Closed.** `resume` and `stream` both have handlers. Pinned in W15d by `security-properties.test.js`, which fails if a token is advertised without one. |
 
 Every other finding is disposed of below, either in W15 or deferred with
 a reason.
@@ -545,6 +545,97 @@ them change the wire and the freeze is defined by them.
     them, or drop the loopback tools from `bin`.
 
   **W15d — Tests that pin the argument, and the Q-06 pre-freeze scope.**
+
+  > **Implemented, not yet committed.** Where the result differed from
+  > the plan below:
+  > - *The stall is a race inside hyperdht, not a slow network.* When both
+  >   peers share an address (a testnet, one machine, one LAN), hyperdht's
+  >   client races a LAN shortcut against a holepunch. The server aborts
+  >   the holepunch when its NAT analysis comes back unstable, and that
+  >   abort destroys the raw stream the LAN shortcut was about to use
+  >   (`lib/server.js`, `_onpeerholepunch` → `_abort`). The client opens
+  >   anyway, its packets go nowhere until UDX gives up 13 s later, and the
+  >   server never emits `connection`. A counterfactual that stops the
+  >   abort destroying the stream took slow pairings from 6 of 16 to 0 of
+  >   16. The fast case's "~4 s" is the first `REFRESH_INTERVAL`
+  >   re-lookup, not network time.
+  > - *And Hyperswarm prefers the dead connection.* Its duplicate
+  >   tie-break keeps an existing connection unless it has both read and
+  >   written, so while a dead one exists every live dial from the peer is
+  >   refused. That is the hang in `handshake.test.js`. Traced in 4 of 12
+  >   runs, each the same sequence: the receiver, as expected initiator,
+  >   kept re-creating dead connections to the test's raw peer and
+  >   refusing the peer's live ones until the peer stopped dialing. It is
+  >   not confined to tests: two engine processes on one testnet took
+  >   14–78 s to pair (median ~24 s over 10).
+  > - *In the engine:* `UNANSWERED_CONNECTION_MS` (5 s, `swarm.js`) drops
+  >   a candidate whose UDX stream has received no packet at all. That is
+  >   the one signature a dead connection has and a live one never does:
+  >   a live client stream hears from its peer within about a round trip,
+  >   ~100 ms here. It is not counted toward the cap. Two processes then
+  >   paired in 4–34 s (median ~7 s over 10), and the test hang went from
+  >   4 of 12 to 1 of 12. It shortens the dead window and does not close
+  >   it, because a redial can die the same way. It has not been measured
+  >   cross-ISP, where the LAN branch is not taken.
+  > - *In the tests:* the peers tests play by hand (dead candidates,
+  >   guessers, the sid replayer) now join through
+  >   `test-helpers/test-peer.js`. They join client-only, so the side
+  >   under test never dials them and never holds a dead connection to
+  >   them. They drop their own dead connections, and their waits are
+  >   bounded with a message that names the mechanism. After it,
+  >   `handshake.test.js` passed 12 of 12 runs in 31–43 s each, and
+  >   `attempts.test.js` 8 of 8. The helper's redial had a cost that was
+  >   caught on the way: a guesser redialled after its connection was
+  >   dropped, guessed a second time, and burned a cap of 2 early (2 of 3
+  >   runs). Guessers now answer once.
+  > - *Not done, deliberately.* The real fix is upstream: hyperdht should
+  >   not destroy the raw stream while the LAN shortcut can still claim
+  >   it. Filing that is an outside action, left to the owner. A local
+  >   workaround would let a live incoming connection displace a dead
+  >   existing one in Hyperswarm's tie-break. It is possible, since the
+  >   connection set's `delete` is identity-checked, but it reaches into
+  >   Hyperswarm's internals, and a wrong age threshold makes both sides
+  >   destroy the live connection. So it is proposed, not built.
+  > - *Security-property tests* (`security-properties.test.js`). Q-03 is a
+  >   table with one row per capability, each row a transfer with and
+  >   without it, and it fails if `KNOWN_CAPS` names a token with no row.
+  >   Q-01 records every (key, nonce) pair the process seals and opens
+  >   across a resumed transfer. Q-14 runs over an in-memory swarm
+  >   (`test-helpers/fake-swarm.js`), so every counting rule is in the
+  >   fast tier. Q-11, Q-12 and Q-15 were already pinned by W15b's tests,
+  >   and are cited rather than repeated. Each new test was broken on
+  >   purpose and went red. One was too weak as first written: the burn
+  >   test passed with every failure counted, because noise alone also
+  >   reached a cap of 2. It now asserts which candidate burns the drop.
+  > - *State machine:* PROTOCOL §4.4, and `state-machine.test.js`, 145
+  >   cells. An `ok` cell has to show evidence: an answer, progress, a
+  >   checkpoint heard, or a clean finish. Without that, a state that
+  >   silently ignored a message would pass.
+  > - *Negative vectors:* `negative-vectors.test.js`, listed in PROTOCOL
+  >   §11. Frame vectors are fixed bytes under fixed keys. Handshake
+  >   vectors are transformations, since nothing accepts an injected
+  >   scalar. One vector was added that the plan did not list: a frame
+  >   sealed without the length as associated data. Only the AAD catches
+  >   that one. The rewritten-length vectors fail either way, because the
+  >   tag moves with the length.
+  > - *Fuzz harness:* `fuzz.test.js`. Not every refusal is a
+  >   `TransferError`: `FrameLengthError` and the handshake's errors carry
+  >   a code without being one. So the property is checked on `.code`.
+  >   Byte mutation alone missed two bugs planted in manifest validation:
+  >   JSON rarely survives it, and "never crashes" cannot see a missing
+  >   check. The harness now has structure-aware JSON mutation and an
+  >   oracle that restates §4.0, and both planted bugs fail it. 2,000
+  >   iterations per target run in the fast tier (~2 s); 100,000 per
+  >   target (`pnpm fuzz`) ran clean.
+  > - *Security claims:* PROTOCOL §12, the adversary, what is claimed with
+  >   the test that pins each claim, what is not claimed, and the pinned
+  >   dependencies (including noble's experimental Elligator2 export).
+  > - `handshake.js` still said `resume` was advertised and not acted on.
+  >   Corrected.
+  >
+  > Typecheck clean. The fast tier runs 503 tests, 472 pass, 31 skipped
+  > as slow-tier. The full suite passed 504 of 505 with a 240 s per-test
+  > bound, in 117 s, with 1 skipped on this platform.
   - *The testnet pairing stall (found in W15a).* On a HyperDHT testnet,
     `acceptOnce`/`connectOnce` pair in either ~4 s or ~15 s. The same
     split appeared on `2937f9a` and on `88148a7`, over 4 runs each. Slow

@@ -7,6 +7,8 @@ code, LAN first, DHT second, relay if a direct connection can't be
 established. No intermediary server sees your file unless a relay carries
 ciphertext on your behalf.
 
+Ad-ḫal (Sumerian ad-ḫal, written 𒀜𒄬 is an ancient word meaning “secret.” It names something kept hidden—knowledge sealed between those who share it and no one else.
+
 - [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) -- what is
   being built, in what order, and which parts a competitor cannot copy
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) -- how it works, and what

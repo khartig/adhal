@@ -619,6 +619,95 @@ a second implementation has to match:
   property, because the consumer sees bytes before the digest arrives.
   That output contract is W13's, and not specified here.
 
+### 4.4 The state machine (W15d)
+
+Both roles, every state, and what each state accepts. Anything a state
+does not accept is refused as shown, and the refusal ends the drop.
+`cli/test/state-machine.test.js` sends every message type in every
+transfer state below against the real implementation, and fails if a
+state or a message has no cell, so a gap in this section is a missing row
+rather than a missing thought.
+
+**The handshake, per candidate.** A failure here discards the candidate,
+not the drop (§3.1): the side stays joined and waits for the next one.
+Only the two counted refusals move the attempt cap (§6).
+
+| Role | State | Entered when | Accepts | Refused, and whether it counts |
+| --- | --- | --- | --- | --- |
+| receiver | candidate | a connection is surfaced | nothing; writes HELLO, after the §6 backoff | — |
+| receiver | awaiting REPLY | HELLO written | REPLY, body 64–192 bytes, canonical `caps_s` | a malformed or non-canonical REPLY: `ERR_PROTOCOL`, not counted. A REPLY whose `confirmS` fails: `ERR_PAKE_CONFIRMATION`, **counted** |
+| sender | awaiting HELLO | a connection is surfaced | HELLO, body 49–177 bytes, version `0x02`, canonical `caps_r`, a `sid` not seen on this nameplate | a malformed HELLO or another version: `ERR_PROTOCOL`, not counted. A `sid` already seen: `ERR_SID_REUSED`, **counted** |
+| sender | awaiting CONFIRM | REPLY written, after the backoff | CONFIRM, exactly 32 bytes | a CONFIRM that fails: `ERR_PAKE_CONFIRMATION`, **counted** |
+
+In every one of these states, a close, a reset, the per-candidate
+deadline (`HANDSHAKE_TIMEOUT_MS`, 15 s plus any backoff) or a connection
+that never receives a packet (`UNANSWERED_CONNECTION_MS`, 5 s; see
+`engine/src/swarm.js`) discards the candidate and is **not** counted.
+
+The receiver is paired once it has written CONFIRM; the sender once it
+has verified it. A side that is paired keeps running these states for
+late candidates, and one that reaches the paired point is sent
+`DECLINE{ERR_DROP_TAKEN}` as its only sealed frame and closed (§4.0).
+That is the drop-taken state: it has no inbound messages.
+
+**The transfer.** After pairing, every frame is sealed (§3.4). A frame
+that fails to authenticate is `ERR_PROTOCOL` in every state, and the
+channel refuses everything after it. What a state accepts is decided by
+the type of the frame that opened:
+
+| Receiver state | Entered when | MANIFEST | CHUNK | CANCEL | ACCEPT | DECLINE | DECLINE `ERR_DROP_TAKEN` | CHECKPOINT | RESULT | END | PREFIX | `0x00` | `0x0a`+ |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| awaiting offer | CONFIRM written | **ok** | P | C | P | P | T | P | P | P | P | P | P |
+| considering | MANIFEST received, not yet answered | P | P | C | P | P | P | P | P | P | P | P | P |
+| prefix check | ACCEPT{n > 0} sent (§7.5) | P | P | C | P | P | P | P | P | P | **ok** | P | P |
+| receiving | ACCEPT sent, size declared | P | **ok** | C | P | P | P | P | P | P | P | P | P |
+| receiving a stream | ACCEPT sent, `size: null` | P | **ok** | C | P | P | P | P | P | **ok** | P | P | P |
+| done | RESULT sent | — | — | — | — | — | — | — | — | — | — | — | — |
+
+| Sender state | Entered when | MANIFEST | CHUNK | CANCEL | ACCEPT | DECLINE | DECLINE `ERR_DROP_TAKEN` | CHECKPOINT | RESULT | END | PREFIX | `0x00` | `0x0a`+ |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| offered | MANIFEST sent | P | P | C | **ok** | D | T | P | P | P | P | P | P |
+| prefix sent | PREFIX sent (§7.5) | P | P | C | **ok** | D | P | P | P | P | P | P | P |
+| sending | ACCEPT received | P | P | C | P | P | P | **ok**¹ | P | P | P | P | P |
+| awaiting result | the last byte, or END, written | P | P | C | P | P | P | **ok**¹ | **ok** | P | P | P | P |
+| done | RESULT received | — | — | — | — | — | — | — | — | — | — | — | — |
+
+P is `ERR_PROTOCOL`, C is `ERR_CANCELLED_PEER`, D is `ERR_DECLINED`
+(with the receiver's code as `.declineCode`) and T is `ERR_DROP_TAKEN`.
+— means the side has settled and no longer reads: nothing that arrives
+is acted on or answered. ¹ Only when `resume` was negotiated and the
+transfer is not a stream; otherwise P.
+
+An **ok** cell still checks its body, and a body that fails is refused in
+that state:
+
+- ACCEPT in *offered*: `resumeFrom` 0 moves to *sending*. A non-zero one
+  moves to *prefix sent* only with `resume` negotiated, on a
+  `PREFIX_BOUNDARY` multiple or the whole file, and not past the size;
+  otherwise P, and always P for a stream. ACCEPT in *prefix sent*: the
+  proposed offset or 0, and nothing else.
+- MANIFEST in *awaiting offer*: every §4.0 check, then the local policy,
+  free space and the partial. A refusal is sent as DECLINE with its code
+  and ends the drop with that code locally.
+- CHUNK: no larger than `blockSize` (P), and never past the declared size
+  (`ERR_SIZE_MISMATCH`) or, for a stream, the receiver's limit
+  (`ERR_SIZE_MISMATCH` with `.limit`, and the sender is sent CANCEL).
+- CHECKPOINT: never backwards and never past what has been sent (P).
+- RESULT: `{error}` is `ERR_RECEIVER_FAILED`; `{ok}` with a digest other
+  than the one sent is `ERR_HASH_MISMATCH`.
+- END and the last CHUNK: a digest that does not match what arrived is
+  `ERR_HASH_MISMATCH`, and the sender is told in `RESULT{error}`.
+
+Timers, by state: the receiver waits `MANIFEST_TIMEOUT_MS` (30 s) in
+*awaiting offer* and `PROGRESS_TIMEOUT_MS` (60 s) for any progress in
+*prefix check* and while receiving, both `ERR_STALLED`. It sets none
+while *considering*, since that wait is its own. The sender bounds the
+answer to its offer and to its PREFIX with `ACCEPT_TIMEOUT_MS` (5 min)
+and RESULT with `RESULT_TIMEOUT_MS` (2 min), both `ERR_STALLED`. A
+close in any state before *done* is `ERR_CONNECTION`. On the sender it
+carries `.phase`: `offer`, `prefix`, `send` or `result`, for the four
+sender states in order.
+
 ---
 
 ## 5. Framing
@@ -1273,12 +1362,171 @@ considered published:
 - **A conformance harness** that drives any implementation through the
   handshake, a normal transfer, a cancel, a resume and a streaming
   transfer, and checks the wire bytes.
-- **Negative vectors**: reflected confirmation, replayed transcript,
-  downgraded `caps`, oversize frame, chunk before manifest, `0x00` tag.
-  For §7.5: a proposal off the boundary, an answer to `PREFIX` naming a
-  third offset, a CHUNK instead of `PREFIX`, a `PREFIX` nobody asked for,
-  a malformed `PREFIX`, and a wrong `PREFIX` that must end in
-  `ACCEPT{0}` and a truncated partial, never in `ERR_HASH_MISMATCH`.
-  `cli/test/resume.test.js` covers each of these against this
-  implementation.
-  A specification that only says what valid looks like has not said much.
+- **Negative vectors** — published in W15d, in
+  `cli/test/negative-vectors.test.js`, beside the positive ones. A
+  specification that only says what valid looks like has not said much.
+  Two kinds, and the difference matters to whoever replays them:
+  - *Frame vectors are exact bytes.* The channel keys are fixed
+    (`k_s2r = 00 01 … 1f`, `k_r2s = 20 21 … 3f`), so every sealed frame is
+    reproducible, and a receiver keyed the same way must refuse each one
+    as stated. CHUNK before MANIFEST, a sealed `0x00` tag, a sealed
+    unassigned tag, a header declaring 1 MiB + 1 (refused on its four
+    bytes), a declared length too short to be sealed, a truncated length
+    prefix (`ERR_CONNECTION`: the close decides, never a frame), a length
+    rewritten up or down, a frame sealed without the length as associated
+    data (the pre-W15a construction, which only the AAD catches), a frame
+    sealed for the other direction, a replayed frame, and a PREFIX when
+    no resume was proposed. All but the truncated prefix are
+    `ERR_PROTOCOL`.
+  - *Handshake vectors are transformations of a live handshake*, because
+    no implementation should accept an injected scalar or `sid` (§3.2,
+    trap #1) and a fixed HELLO would need one: a reflected confirmation
+    (the sender's own `confirmS` returned as CONFIRM), capabilities
+    stripped from HELLO and from REPLY in transit (both
+    `ERR_PAKE_CONFIRMATION` at the receiver), seven non-canonical `caps`
+    encodings in each direction (`ERR_PROTOCOL`), a v1 opening, a sealed
+    frame where HELLO belongs, a replayed HELLO and a fresh `Ya` under a
+    `sid` already seen (both `ERR_SID_REUSED`, counted). The reflection
+    vector is also stated over `handshake-vectors.test.js`'s fixed
+    transcript, where neither confirmation verifies as the other.
+  - For §7.5: a proposal off the boundary, an answer to `PREFIX` naming a
+    third offset, a CHUNK instead of `PREFIX`, a malformed `PREFIX`, and
+    a wrong `PREFIX` that must end in `ACCEPT{0}` and a truncated
+    partial, never in `ERR_HASH_MISMATCH`. `cli/test/resume.test.js`
+    covers each of these.
+- **The state machine** of §4.4, cell by cell, in
+  `cli/test/state-machine.test.js`.
+- **A fuzz harness** (W15d), `cli/test/fuzz.test.js`: seeded mutation of
+  valid messages, including structure-aware mutation of the JSON bodies,
+  over the framer, the channel, every message decoder, manifest
+  validation with the name it would write, and the three handshake
+  readers. The property is that an input is accepted, or refused with a
+  code from §10 or one of the two per-candidate codes, and never throws
+  anything else, hangs, or buffers past its cap. Manifests that pass are
+  also checked against §4.0 restated independently, because "never
+  crashes" alone cannot see a check that is missing. 2,000 iterations
+  per target run in the fast tier; `pnpm fuzz` runs 100,000.
+
+---
+
+## 12. What v2 claims, and what it does not (W15d)
+
+Stated so that the independent review (Q-05, after W17) tests the
+protocol against a target rather than inferring one, and so that a claim
+made anywhere else in this repository can be checked against this list.
+Each claim names the mechanism and the test that pins it. **A property
+not listed here is not claimed.**
+
+### 12.1 The adversary
+
+The network is the adversary's: it can read, drop, delay, reorder,
+replay and inject bytes on any path, run any number of peers on any
+topic, and act as a relay. It does not hold the drop code, and it does
+not control either endpoint's machine. A peer that holds the code is a
+different adversary, and §12.3 says what it can do.
+
+### 12.2 Claimed
+
+1. **No offline guessing, and online guessing is capped.** The topic
+   commits to the nameplate only (§2). The secret enters nothing but the
+   CPace generator, so a transcript, recorded or live, lets an attacker
+   test one candidate secret per handshake it completes against a live
+   peer, and no more. At 100 failed confirmations the drop is burned
+   (§6). With the secret's ~38.8 bits (three words of the EFF large
+   list), one drop's chance of falling to a guesser is at most
+   100 / 7776³ ≈ 2 × 10⁻¹⁰. Pinned: `attempts.test.js`,
+   `security-properties.test.js` (Q-14).
+2. **Mutual proof of the code, per connection.** Each side proves the
+   secret to the other, `confirmS` then `confirmR`, over the whole
+   transcript and with distinct role labels, so neither confirmation can
+   be reflected as the other (§3.2). Pinned: `pake-handshake.test.js`,
+   the reflection vectors in `negative-vectors.test.js`.
+3. **Downgrade detection.** The version and both capability sets are in
+   the transcript, so a change in transit fails both confirmations. This
+   is detection, not prevention: the handshake aborts rather than
+   falling back. Pinned: the stripped-capability vectors.
+4. **Every byte after the handshake is confidential and authenticated,
+   whatever transport carried it.** ChaCha20-Poly1305 under a key per
+   direction, derived from the ISK; nonces are a per-direction counter
+   that never repeats (Q-01); the length prefix is associated data; and
+   one failed frame ends the channel (§3.4, §5). Altering, replaying,
+   reordering, reflecting or re-delimiting a frame fails it. Truncation
+   at a frame boundary is a close, and the protocol never reads a close
+   as completion: a transfer that ends without its last byte, its END or
+   its RESULT is `ERR_CONNECTION`. Pinned: `channel.test.js`,
+   `sealed-transfer.test.js`, `security-properties.test.js`, the frame
+   vectors.
+5. **Only negotiated capabilities change behaviour, and every one that
+   is advertised has a handler** (Q-03). Pinned:
+   `security-properties.test.js`.
+6. **The sender's "done" means the receiver published a file with the
+   declared digest.** RESULT{ok, sha256} is sent after the digest is
+   verified and the file is linked under its name, and the sender checks
+   the digest it carries (§4.2).
+7. **A drop's traffic stays secret if its code leaks later.** The
+   session key needs one of the two ephemeral scalars as well as the
+   secret, and both are discarded when the handshake ends. Nothing
+   long-term exists to compromise: there are no identity keys, and
+   channel keys are single-use and wiped when a transfer ends (Q-18, and
+   the wiping is best effort, §12.3).
+8. **DHT nodes cannot link two drops.** Each swarm announces under a
+   fresh keypair (Q-12), and each topic hashes a fresh random nameplate.
+   Pinned: `announce-key.test.js`.
+9. **A peer is bounded in what it can make the receiver do.** Frames are
+   capped before they are buffered, handshake messages likewise, and
+   every parser refuses rather than crashes (the fuzz harness). A peer
+   cannot write outside the output directory, replace an existing file,
+   or have a partial followed through a planted link (§4.0, §7.2,
+   `THREAT-MODEL.md` §6). Stalls are timed out (§4.4).
+
+### 12.3 Not claimed
+
+1. **Not UC-secure as composed.** The CPace proof assumes session ids
+   that are unique; this `sid` is chosen by the receiver alone (§3.2).
+   The sender's memory of `sid` values makes reuse countable, not
+   impossible. Guesses per run are unchanged, which is what claim 1 rests
+   on, but a reviewer should treat the composition as needing its own
+   argument, with claims 1–4 as the target.
+2. **Not anonymous.** Both IP addresses are visible to the peer and to
+   DHT nodes near the topic, and sizes and timing are visible on the path:
+   nothing is padded (Q-09). See `THREAT-MODEL.md` §3.
+3. **Nothing against a peer that holds the code.** The code is a bearer
+   capability, and whoever confirms first is the peer. A second holder
+   learns `ERR_DROP_TAKEN`; the receiver's accept prompt (W15c) is the
+   human check. The digest proves the file is the one offered, not who
+   made it (§7.3).
+4. **Nothing against a compromised endpoint, and memory hygiene is best
+   effort.** Keys and handshake intermediates are zeroed (Q-18), but Node
+   cannot reach copies inside OpenSSL or `@noble`, nor buffers the garbage
+   collector has moved.
+5. **No resistance to a quantum adversary.** X25519.
+6. **No resistance to denial of service.** Anyone with the nameplate can
+   burn a drop with 100 wrong guesses (§6, deliberately), and anyone on
+   the topic can occupy connection slots.
+7. **The DHT, hole punching and Noise are not part of the argument.**
+   They carry the bytes and decide whether a drop connects at all, and
+   nothing above depends on them (§3.3). Availability does, and is not
+   claimed.
+8. **Windows is not supported for security purposes** (Q-07). It has no
+   `O_NOFOLLOW`, and two defences fall back to checks that race.
+
+### 12.4 What the claims rest on
+
+- **`@noble/curves` 2.4.0**, for X25519 and the Elligator2 map. The map
+  is imported as `_map_to_curve_elligator2_curve25519` from
+  `@noble/curves/ed25519.js` (`engine/src/cpace.js`), an export noble
+  marks experimental: underscored, and free to be renamed. So the
+  dependency is pinned to that exact version, and it is guarded by the
+  CFRG vectors in `cpace-vectors.test.js` (9 handshake vectors and 12
+  low-order and twist inputs), which fail on any change in its behaviour.
+  A rename fails at the first handshake rather than silently. An upgrade
+  is a change to the security argument, and is reviewed as one.
+- **`@noble/hashes` 2.4.0** for SHA-512, pinned likewise.
+- **Node's OpenSSL** for ChaCha20-Poly1305, HKDF, HMAC-SHA256, SHA-256
+  and the CSPRNG that samples scalars, `sid` values and codes.
+- **`hypercore-crypto`**'s BLAKE2b-256 for the topic, which claim 8 rests
+  on and nothing else does.
+
+The review that produced W15 was AI-assisted, not independent
+(`IMPLEMENTATION-PLAN.md`, W15). Nothing in this section has yet been
+checked by anyone outside the project.
