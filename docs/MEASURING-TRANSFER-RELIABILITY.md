@@ -22,12 +22,17 @@ This tool is that missing instrument. It runs N real drops back to back and
 reports a **rate**, a **timing distribution**, and a **classified reason for
 every failure**.
 
-It is also the direct input to two things the plan already asks for:
+**The reliability bar** it measures against, stated here because this is
+where it is used. An earlier plan set these figures, and that plan's
+section on them no longer exists:
 
-- Section 8's primary gate — *Transfer success (direct or relay) ≥ 75%*,
-  kill/pause below 50% — and *10 MB median time, good path < 30–45s*.
-- Section 9 spike 1 — measuring *your* punch rate on a genuinely hostile
-  network pair.
+- *Transfer success (direct or relay) ≥ 75%* on a path. Below 50%, relay
+  quality is the product rather than an optional extra, and work on the
+  path pauses until that is decided.
+- *A 10 MB drop on a good path: median under 30–45 s.*
+
+It is also what W14 (`IMPLEMENTATION-PLAN.md`) reuses to measure the punch
+rate head to head, on genuinely hostile network pairs.
 
 ## What it does per trial
 
@@ -41,7 +46,7 @@ It is also the direct input to two things the plan already asks for:
 
 Each trial gets a fresh swarm and a fresh topic, so no stale announce from
 trial *n* can affect trial *n+1* — a documented failure mode in
-[`ARCHITECTURE.md`](ARCHITECTURE.md) and one that would otherwise make later
+[`history/ENGINEERING-LOG.md`](history/ENGINEERING-LOG.md) and one that would otherwise make later
 trials look worse than earlier ones.
 
 ## Running it
@@ -157,7 +162,7 @@ connect time: median 7.4s  p90 19.1s  min 5.2s  max 22.0s
 failures:
   no-peer                 2
 
->> 80% meets plan section 8's >=75% bar for this path.
+>> 80% meets the >=75% reliability bar for this path.
    2 trial(s) never saw a peer -- intermittent discovery or punch
    failure, which is what makes a single failing run look like a bug.
 ```
@@ -178,9 +183,16 @@ they disagree by much, something is wrong with the run itself.
 | `hash-mismatch` | The engine rejected the file: its bytes do not match the manifest digest | **Correctness bug. Stop feature work.** |
 | `hash-crosscheck-disagreed` | The engine *accepted* a file this harness says is wrong | **Worse. The verification itself is broken** — `finalize()` in `engine/src/transfer.js`. |
 | `size-mismatch` | The peer sent more, or fewer, bytes than its manifest declared | `engine/src/transfer.js` |
+| `stalled` | The peer proved the code and then stopped sending, or never answered the offer or the last byte | A path that died without the transport noticing. The record's `error` and `phase` say which. |
+| `receiver-failed` | Sender only: every byte arrived and the receiver could not keep the file | The receiver's record for the same trial: its digest disagreed, or landing the file failed. |
+| `declined` | Sender only: the receiver refused the offer before any byte moved | This harness's receiver asks no person, so the reason is the engine's: a name, a size, the disk. The receiver's record says which. |
+| `no-space` / `exists` | Receiver only: the declared size does not fit, or no partial could be opened without destroying a file | The receiving machine's disk or output directory, not the path |
+| `drop-taken` | Another peer holding this trial's code paired first | Should never happen on a derived private code. Another machine is running the same `--seed`. |
 | `connection-lost` | The socket closed before the transfer finished | A punch that died mid-transfer. Before the failure-reporting work this hung forever instead of being counted. |
 | `unsafe-name` / `manifest-invalid` / `protocol-error` | The peer's manifest or framing was refused | On a private topic, almost always a build-version skew between the two hosts |
 | `cancelled-by-peer` / `cancelled-locally` | Someone stopped the drop deliberately | Not a failure of the path. Should be zero in an unattended run. |
+| `timeout-other` | Timed out without a recognised reason | Read the `error` field in the JSON. A coded engine error should never land here or in `transfer-error`; if one does, give it a row. |
+| `skipped` | The slot was already over when the trial began | Clock skew, or `--slot` too short |
 
 **`bad-proof` is gone, and its removal is worth recording** because it was
 the last piece of prose-matching in this harness. It counted peers rejected
@@ -198,10 +210,6 @@ topic that total should be zero; a non-zero one means peers reached the
 nameplate without the secret, i.e. a build skew between the two hosts or
 somebody else on the topic. Check that before reading anything else in the
 run.
-
-| `cancelled-by-peer` / `cancelled-locally` | Someone stopped the drop deliberately | Not a failure of the path. Should be zero in an unattended run. |
-| `timeout-other` | Timed out without a recognised reason | Read the `error` field in the JSON |
-| `skipped` | The slot was already over when the trial began | Clock skew, or `--slot` too short |
 
 `no-peer` versus `no-handshake` is the distinction that matters most, and it
 is the one the codebase previously could not make: both used to report
@@ -222,7 +230,7 @@ instrument this project has to prose: rewording a sentence in
 `engine/src/swarm.js` would silently re-bucket results and nothing would
 have said so. The codes live in `engine/src/errors.js`. The regexes remain
 only as a documented fallback for errors that predate the vocabulary — a
-raw socket error, or something thrown by a dependency. **If an Ad-ḫal error
+raw socket error, or something thrown by a dependency. **If an Adhal error
 starts landing in `transfer-error`, the fix is to give it a code, not to
 add a pattern.**
 
@@ -244,11 +252,11 @@ else.
 
 ### What the rate means
 
-The summary interprets itself against the plan's own thresholds:
+The summary interprets itself against the reliability bar above:
 
 | Rate | Reading |
 | --- | --- |
-| ≥ 75% | Meets section 8's bar for this path. Relay is not yet on the critical path here. |
+| ≥ 75% | Meets the reliability bar for this path. Relay is not yet on the critical path here. |
 | 50–75% | The path is **flaky, not broken**. Expect single runs to fail; do not read a code bug into them. |
 | < 50% | Below the kill threshold. Relay quality is the product, not an optional extra. |
 | < 5 trials | Not a rate. Use `--trials 10` or more. |

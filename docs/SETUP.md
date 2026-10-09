@@ -2,7 +2,9 @@
 
 ## Prerequisites
 
-- Node.js >= 18 (developed against v22.11.0 via nvm). Check with `node -v`.
+- Node.js >= 24, which is what CI runs. Check with `node -v`. 22.x is not
+  enough: six stall-timer and size-cap tests are reported cancelled there
+  rather than run (PROTOCOL.md §8.1).
 - [pnpm](https://pnpm.io) (developed against 12.4.1). Install with
   `npm install -g pnpm`, or via Corepack if your Corepack install can reach
   npm's registry (`corepack enable && corepack prepare pnpm@12.4.1 --activate`).
@@ -78,16 +80,16 @@ pnpm run typecheck
 ```
 
 `hyperswarm`, `hyperdht`, and `hypercore-crypto` ship no type
-declarations at all (`b4a`, `@noble/curves` and
-`@noble/hashes` do). Once the swarm code starts
-importing them, expect a `noImplicitAny`/`TS7016` error per package the
-first time it's required -- add a small ambient `.d.ts` shim (only for the
-functions actually called, not the full API) under a new `types/` directory
-rather than turning off `checkJs`.
+declarations at all (`b4a`, `@noble/curves` and `@noble/hashes` do).
+`engine/src/swarm.js` imports them anyway, and they type-check as `any`,
+because `tsconfig.json` leaves `noImplicitAny` off. So nothing that goes
+through those packages is checked. If it ever needs to be, add a small
+ambient `.d.ts` shim under a new `types/` directory (only for the
+functions actually called) rather than turning off `checkJs`.
 
 ## Adding a Holepunch package
 
-Pin exact versions (per the plan's Phase A instruction) and install into
+Pin exact versions, as every dependency here already is, and install into
 the workspace that needs it, e.g.:
 
 ```bash
