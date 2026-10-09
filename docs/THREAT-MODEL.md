@@ -60,7 +60,7 @@ is a record on the DHT nodes closest to the topic, and it carries:
 **Both peers announce, so the sender is exposed too.** Both sides join with
 `server: true, client: true` — that is not an accident, it is load-bearing
 (splitting the roles broke connection establishment outright; see
-[`ARCHITECTURE.md`](ARCHITECTURE.md)). The practical consequence is that
+[`history/ENGINEERING-LOG.md`](history/ENGINEERING-LOG.md)). The practical consequence is that
 "the receiver is visible and the sender is anonymous" is false, and any
 description of the tool that implies it is wrong.
 
@@ -87,9 +87,10 @@ to needs a relay (§8) or a different tool.
 
 ### 3.3 To a passive observer on the path
 
-Packet sizes and timing. The transport is Noise-encrypted end to end
-(and after W11, independently encrypted again under the PAKE session key),
-so filenames, contents and hashes are not visible. **Length is not
+Packet sizes and timing. The transport is Noise-encrypted end to end,
+and since W11 every frame is independently sealed again under keys from
+the PAKE ([`PROTOCOL.md`](PROTOCOL.md) §3.4), so filenames, contents and
+hashes are not visible. **Length is not
 hidden**: a 4.2 MB transfer looks like 4.2 MB on the wire. No padding, no
 cover traffic. See §7.
 
@@ -180,6 +181,25 @@ the secret costs one live protocol run** against a peer that is counting.
 The code is *shorter* — five words instead of six — while being stronger,
 because entropy no longer has to defend a public hash.
 
+**What each half is worth (W15a, Q-14).** The words come from the EFF
+large wordlist, vendored with its source's SHA-256 in
+`engine/src/wordlist.js`: 7,772 words, the list's 7,776 less its four
+hyphenated entries, so each word carries about 12.92 bits.
+
+- **The secret, three words: ~38.8 bits.** Against the 100-attempt cap of
+  §5.3, a guesser's chance of taking one drop is at most
+  100 / 7772³ ≈ 2.1 × 10⁻¹⁰.
+- **The nameplate, two words: ~25.8 bits.** It is not secret, and its size
+  sets only how often two live drops share a topic: a 50% chance of a
+  collision somewhere at about 9,150 concurrent drops. A collision leaks
+  nothing. Each side's peers fail the other's confirmation, and those
+  failures count toward each drop's cap.
+
+An opaque code, one that is not in the five-word format, has no nameplate
+to separate from its secret, so its topic is grindable offline. It is off
+unless `--insecure-opaque-code` or `ADHAL_INSECURE_OPAQUE_CODE=1` names it
+(W15b, Q-15).
+
 Shipped in W11: `engine/src/topic.js` derives the topic from the nameplate
 alone, `engine/src/handshake.js` feeds the secret to CPace, and
 `engine/src/proof.js` — v1's HMAC proof — is deleted. §5.1 is kept because
@@ -213,6 +233,21 @@ guesses. That is accepted because the alternative is unlimited guessing
 against ~38.8 bits of secret, and a denial of service is a far better outcome
 than a silent compromise. It is a chosen trade, not an oversight.
 
+### 5.4 Denial of service: what is bounded, and what is accepted
+
+A drop is not built to survive someone determined to stop it. What it is
+built for is that stopping it costs that someone something, and that the
+human is told.
+
+| Who | What they can do | What bounds it |
+| --- | --- | --- |
+| Anyone with the nameplate | Burn the drop with 100 wrong guesses | Exponential backoff makes it take wall-clock time, and the human is told someone was guessing (§5.3). Accepted. |
+| Anyone with the nameplate | Hold connection slots without handshaking | A 15 s per-candidate deadline, and 5 s for a connection that never receives a packet (W15d), with 16 parallel dials rather than Hyperswarm's 3. Silent candidates are not counted. The receiver warns when they recur (W15c). |
+| A peer with the code | Prove the code, then stall | `ERR_STALLED`: 30 s for the offer, 60 s without progress, and 5 min for a receiver's answer (PROTOCOL §4.4) |
+| A peer with the code | Exhaust memory or disk | Frames capped at 1 MiB before buffering, 8 GiB per file by default, a free-space check before anything is opened, and backpressure in both directions (§6) |
+| A Sybil DHT operator | Rotate identities to dodge per-source limits | Nothing yet: per-source and per-key budgets are deferred until W14's data shows the attack happens (Q-04). The warnings make it visible. |
+| The network | Block the DHT | Nothing (§7) |
+
 ---
 
 ## 6. A peer that knows the code is not a peer you can trust
@@ -236,7 +271,36 @@ and is covered by tests in `cli/test/hardening.test.js`.
 | Outrun the disk and grow memory without bound | `writeStream.write()`'s return value discarded | Honoured; the socket pauses |
 | Prove, then send nothing, forever | No timer once the socket was handed over | `ERR_STALLED` on a manifest deadline and a no-progress deadline |
 | Hold a connection slot without handshaking | Candidate sockets lived until the swarm died | 15 s per-candidate handshake deadline |
+| Deliver a file the receiver never agreed to | Both CLIs accepted any valid offer | Both receiver CLIs show the name, size, digest and any resume, and ask (W15c, Q-02). `--yes` skips the question; with no terminal and no `--yes` the offer is declined. A name that would run when opened — an executable, a script, an installer, an archive, a double extension such as `.pdf.exe` — is warned about even with `--yes` |
+| Lift the code from shell history or `ps` | Codes were taken on the command line | A code on argv is refused unless `--code-on-argv` says so; the prompt and stdin are the normal paths (W15c, Q-17) |
 | Race the intended peer with a forwarded or overheard code | First handshake won silently; the loser timed out with no reason and the winner's human never knew | Still first-handshake-wins, but a late peer that proves the code is told `ERR_DROP_TAKEN`, and the side that paired reports that someone else holds the code (PROTOCOL.md §4.0, W15a). Guesses during the transfer still count toward the attempt cap |
+
+**Resume, and the `.part` it reopens (W11).** An interrupted transfer
+leaves `<name>.part`, and a later offer of the same name may continue from
+it ([`PROTOCOL.md`](PROTOCOL.md) §7). The partial is a predictable name in
+a directory other things can write to, so it is not trusted:
+
+- It is reopened with `O_NOFOLLOW`, so a planted symlink fails to open
+  rather than redirecting the write (`O_EXCL` gives a fresh partial the
+  same protection).
+- It must have exactly one link, because a planted hard link to a file
+  elsewhere on the volume is a regular file and only its link count gives
+  it away.
+- It must be no longer than the offer, and it is re-hashed before
+  anything is proposed.
+- The sender proves the prefix before any byte is sent. It sends PREFIX,
+  the SHA-256 of its own first *n* bytes, and the receiver compares that
+  against what it holds. A mismatch truncates the partial to nothing, and
+  the transfer starts over. Nothing derived from the receiver's partial is
+  ever sent.
+
+Two things remain, and both are stated in PROTOCOL §7.5. First, whether
+the receiver resumed or restarted tells the sender **one bit** per
+session: whether the partial matched the sender's bytes. That costs a full
+PAKE per guess and a partial under the same name, and it was already
+observable at a higher price. Second, a peer with the code can make the
+receiver discard a same-named partial. A partial is only ever discarded,
+never published.
 
 **Still true, and not fixable here:** a peer who knows the code can send you
 *any file*. The displayed SHA-256 proves the bytes arrived intact; it
@@ -298,16 +362,36 @@ destroy the one structural advantage this design has over its competitors.
   relay" is always available.
 - Sees: two connection times, approximate byte counts, two IPs.
 - Does **not** see: filenames, plaintext, hashes, or any long-term
-  identity. Traffic through it is already encrypted under the PAKE
-  session key, which is why W9 moves channel binding off the transport's
-  Noise keys — a relayed connection has to be exactly as safe as a direct
-  one, and that cannot be true if security depends on which transport
-  carried the bytes.
+  identity. Traffic through it is already sealed under keys from the
+  PAKE, which is why v2 binds the channel to the PAKE transcript rather
+  than to the transport's Noise keys (W11, [`PROTOCOL.md`](PROTOCOL.md)
+  §3.3). A relayed connection has to be exactly as safe as a direct one,
+  and that cannot be true if security depends on which transport carried
+  the bytes.
 - **Cannot join a drop without the code.**
 - Relay tokens derive from the **nameplate only** — never from anything
   grindable back to the secret. Otherwise the relay operator becomes the
   best-positioned code guesser in the system.
 - Per-token bandwidth and duration caps.
+
+**Merge gates (Q-10).** The constraints above are only worth something if
+they are enforced, so relay code merges only when each of these holds and
+a test shows it:
+
+1. A drop carried through the relay, with no Noise session underneath,
+   completes, and a byte the relay alters fails authentication at that
+   frame. That is `sealed-transfer.test.js`'s plain-TCP case, with the relay
+   in the middle.
+2. A relay holding the nameplate and a valid token, but not the secret,
+   cannot complete a handshake. Its attempt counts toward the cap like any
+   other failed confirmation.
+3. The relay token is derived from the nameplate alone. A test shows the
+   derivation's inputs, so that nothing from the secret can enter them.
+4. The relay persists nothing about a drop beyond its per-token counters.
+   Resume through a relay re-pairs and re-hashes, exactly as it does
+   directly; that half is already met (§6, PROTOCOL §7).
+5. The per-token bandwidth and duration caps are enforced.
+6. A drop that can connect directly does so, and the relay is not used.
 
 Holepunch's own blind-relay is worth investigating first, on the grounds
 that the best relay to operate is none.
@@ -319,24 +403,41 @@ argument: a relay is a pipe, not storage.
 
 ## 9. Known gaps
 
-Recorded rather than quietly carried.
+As of W16. Each one names the work item that would close it, or says why
+it stays open.
 
-- **The v2 protocol is designed, not built.** Until W11 lands, §5.1 is the
-  live situation: the topic commits to the whole code and is grindable
-  offline.
-- **No rate limiting on proof failures today.** The v1 rule is that a
-  failed candidate is discarded and the drop continues, which is correct
-  for v1 (where the code cannot be usefully guessed online) and is
-  replaced by the §5.3 cap in v2.
-- **The ephemeral-key invariant is documented but not tested.** It holds
-  because Hyperswarm's default does the right thing. A test should assert
-  that two drops from one process announce different public keys.
-- **`hashFile` reads the file a second time.** `stat`, hash and read are
-  three separate reads of a file nothing stops changing underneath them.
-  The send path caps and asserts the length, so a changed file fails
-  loudly rather than silently — but the hash describes the file as of the
-  hashing pass, not as of the send.
-- **Windows is unverified.** CI runs it advisory-only. Several Stage 0
-  mechanisms (`link`-based publish, `O_EXCL`, SIGTERM handling) have
-  platform-specific behaviour that has not been exercised on a real
-  Windows machine.
+- **Windows is not supported for security purposes** (Q-07, until Stage
+  3). It has no `O_NOFOLLOW`, so reopening a partial falls back to an
+  `lstat`, which races. Its `link`-based publish and its signal handling
+  have not been exercised on a real Windows machine, and CI runs it
+  advisory-only.
+- **No independent review** of the cryptographic composition (Q-05). It
+  comes after the wire format is frozen (W17), against the claims in
+  [`PROTOCOL.md`](PROTOCOL.md) §12. The review that produced W15 was
+  AI-assisted ([`SECURITY-REVIEW.md`](SECURITY-REVIEW.md)).
+- **No traffic-analysis resistance** (Q-09). There is no padding (§3.3,
+  §7). That is post-freeze, and only if file-size confidentiality ever
+  becomes a stated goal.
+- **No per-source or per-key throttling** (Q-04). A Sybil attacker rotating
+  identities meets only the drop-wide cap (§5.4). Deferred until W14 shows
+  whether the attack happens.
+- **Supply-chain assurance is not gating** (Q-08). Every dependency is
+  pinned exactly, but advisories do not fail CI, and there is no SBOM and
+  no signed release. Deferred to the first release.
+- **Publishing without hard links races** (Q-19). On a filesystem with no
+  `link()`, publishing falls back to check-then-rename, and a local process
+  that creates the destination in that gap has it replaced. The receiver
+  says when it used the fallback.
+- **Memory is cleared on a best-effort basis only** (Q-18; §7).
+- **A file edited in place while it is sent** is caught only by the
+  receiver's digest check (Q-16). It fails closed, and nothing short of a
+  private copy would prevent it.
+- **A code has to come from somewhere.** With `--code-on-argv` it is in
+  shell history. A code piped on stdin needs `--yes` as well, because the
+  prompt needs a terminal and stdin is not one (W15c).
+- **Two peers behind one address pair slowly at times.** hyperdht can
+  report a connection open whose far end it has discarded. The engine
+  drops such a connection after 5 s, but a pairing can still take tens of
+  seconds (W15d; `UNANSWERED_CONNECTION_MS` in `engine/src/swarm.js`).
+  This is availability, not security, and the fix belongs upstream.
+- **An idle receiver re-announces every 4 s** (§3.4).
