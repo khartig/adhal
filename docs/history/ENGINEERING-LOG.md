@@ -1,0 +1,1018 @@
+# Engineering log
+
+What was learned building Adhal, in the order it was learned: the
+measurements, the bugs, the hypotheses that were wrong and how they were
+disproved. Until W16 this was `docs/ARCHITECTURE.md`. The current design
+is now described there, and this file is kept because the reasoning in it
+is what the design rests on, and because it records mistakes worth not
+repeating.
+
+**Read it as history.** Some passages describe code that no longer
+exists, and they are left as they were written rather than rewritten.
+The ones most likely to mislead:
+
+- *The "code proof", READY/ACK, and the one-byte readiness handshake*
+  are v1's. v2 replaced them with the CPace handshake
+  ([`../PROTOCOL.md`](../PROTOCOL.md) §3).
+- *"Latency is bounded by roughly one chunk plus the high-water mark"*,
+  under Cancel, is an estimate that measurement showed to be wrong by
+  2–6.5× on the sender's side ([`../PROTOCOL.md`](../PROTOCOL.md) §8.2).
+- *The error-code table* mirrors [`../PROTOCOL.md`](../PROTOCOL.md) §10
+  as it was in W15. §10 is the normative list.
+- *"Shipped today"*, *"not yet built"* and the like are as of the section
+  they appear in. D7 and LAN discovery are still not built; resume is.
+- References to `ARCHITECTURE.md` sections mean this file.
+
+**Numbering.** `D1`-`D7` are the data-path steps below. `W1`-`Wn` are work
+items in the plan. The older docs used "item N" for both, and the
+collision produced at least one documented error, so it is gone.
+
+## Key hierarchy
+
+```
+Per-drop ephemeral transport keypair   <- ROOT. Never persisted, never reused.
+`-- Drop secret  (nameplate | PAKE secret)
+    `-- PAKE session key (ISK)
+        `-- AEAD channel keys (directional send/recv)
+
+Long-term identity (optional, "Keep this device")
+        ^ presented ONLY inside the authenticated channel.
+          Never the drop swarm keypair. Never visible to the DHT.
+```
+
+**This is inverted from what used to be written here.** The old hierarchy
+rooted everything in a *persisted device Noise keypair* with per-peer
+trust records hanging off it. That is structurally incompatible with
+ephemeral-by-construction privacy, which is one of the few properties a
+trusted-device competitor cannot copy without abandoning their own design.
+
+The invariant now: **the keypair a drop announces to the DHT is generated
+for that drop and discarded with it.** Until W15b that was true by
+accident: `createSwarm` passed no `keyPair`, so Hyperswarm made a fresh one
+per swarm. It is now enforced. `createSwarm` generates the keypair itself
+and refuses one from a caller, and `cli/test/announce-key.test.js` checks
+on a DHT testnet that two drops are seen under different keys. It matters
+because the obvious way to build "Keep this device" is to persist that
+keypair, which would silently make every drop by one user linkable by the
+DHT nodes that observe them. A long-term identity, if it is ever added, is
+presented *inside* the authenticated channel — never as the swarm keypair.
+
+See [`THREAT-MODEL.md`](../THREAT-MODEL.md) §4.
+
+## Data path
+
+1. **D1** Generate code. v1: `topic = hash(code || app-salt)`. v2: the
+   code splits into nameplate + secret and the topic commits only to the
+   nameplate — see [`PROTOCOL.md`](../PROTOCOL.md) §2.
+2. **D2** Both peers `swarm.join(topic)`.
+3. **D3** Prove knowledge of the drop secret before treating the peer as
+   real. v2 is a CPace PAKE in the same three-message slot v1's HMAC
+   challenge-response occupied — see
+   [The PAKE handshake](#the-pake-handshake-d3) below, and
+   [`PROTOCOL.md`](../PROTOCOL.md) §9 for the v1 exchange it replaced.
+4. **D4** Send a manifest (name, size, chunk size, content hash).
+5. **D5** Stream chunks. **Resume is a durable offset, not a per-chunk
+   ack** — this step used to read "ack by index", which is the wrong
+   primitive: UDX under Noise is already reliable and ordered, so
+   per-chunk acknowledgement re-implements a guarantee the transport
+   gives for free and costs a round trip to do it. v2 uses a periodic
+   post-fsync `CHECKPOINT{offset}`, every 5 s on a transfer that negotiated
+   resume; see [`PROTOCOL.md`](../PROTOCOL.md) §7.4.
+6. **D6** Receiver verifies the full-file hash and only then publishes the
+   file under its real name. Implemented. Since Stage 0 it also refuses
+   to replace a file it did not create — see
+   [What the receiver now refuses](#what-the-receiver-now-refuses).
+7. **D7** Leave the topic. If "Keep" was off, forget the peer.
+
+Hyperdrive/Autobase/CRDTs are explicitly out of scope for v1 content -- a
+framed stream plus a small on-disk manifest is enough, and is easier to
+resume and test.
+
+## What's implemented today
+
+`engine/src/frame.js` and `engine/src/transfer.js` implement D4-D6 of the
+data path above. The first milestone proved this over a plain localhost
+TCP socket (zero NAT, zero DHT); the Hyperswarm milestone
+(`engine/src/swarm.js`, `engine/src/topic.js`) carries the *same*
+manifest/chunk protocol over an end-to-end
+Noise-encrypted Hyperswarm connection instead, proving topic-join +
+encrypted transport without changing the framing logic at all.
+`cli/src/send.js`/`receive.js` (loopback) and `cli/src/swarm-send.js`/
+`swarm-receive.js` (Hyperswarm) are the corresponding CLI pairs. The drop
+code then replaces the hand-typed code both of those took with a
+generated one --
+see [The drop code](#the-drop-code-d1) below. The PAKE handshake makes
+knowing that code a requirement rather than a convention, and makes the
+secret half of it un-grindable -- see
+[The PAKE handshake](#the-pake-handshake-d3). The manifest/progress/cancel work
+makes every failure path say what it was, and adds the two things a human
+needs while a transfer is running -- see
+[Manifest, progress and cancel](#manifest-progress-and-cancel). Stage 0
+then hardened all of it against a peer that knows the code and is hostile
+anyway -- see [Stage 0 hardening](#stage-0-hardening). The security review
+that followed v2 changed the wire in five places and hardened the engine
+and CLIs -- see
+[Security review hardening (W15)](#security-review-hardening-w15).
+
+Hyperswarm notes, found empirically while building it (see `engine/src/swarm.js`
+comments for detail):
+
+- Both peers must `join()` a topic with the (default) `server: true, client: true`.
+  Splitting roles asymmetrically (receiver server-only, sender client-only)
+  broke the connection -- the server side's `'connection'` event never fired
+  even though the client believed it had connected.
+- The server side's `'connection'` event fires only once the connection is
+  genuinely stable; the client side's fires earlier/optimistically. Writing
+  application data immediately after the client-side event can prevent the
+  server from ever confirming the connection. Fixed with a one-byte
+  readiness handshake: the server writes a marker byte once connected: the
+  client waits to receive it before sending anything.
+- `socket.write()`'s backpressure return value must be respected (pause the
+  read stream, resume on `'drain'`) -- a raw TCP socket (the loopback path) tolerates
+  ignoring this because of deep OS send buffers; the encrypted Hyperswarm
+  duplex does not.
+- **A topic announce is not instantly visible, and Hyperswarm only retries
+  a failed lookup every 10 minutes.** `REFRESH_INTERVAL` in
+  `hyperswarm/lib/peer-discovery.js` is 10 min plus up to 2 min of jitter.
+  An announce propagates only to the DHT nodes closest to the topic, so a
+  lookup finds it only if it happens to query a node that already has the
+  record. When both peers joined simultaneously, the loser of that race
+  found nothing and then sat idle for ten-plus minutes. Measured on a home
+  NAT: transfers either completed in ~5s or never completed at all, 5 of 11
+  runs succeeding, and raising the timeout from 30s to 120s rescued **zero**
+  stuck runs. Two fixes: the receiver now waits for `discovery.flushed()`
+  before reporting itself ready (the point at which a real UI may show the
+  drop code), and both sides re-run their own lookup every 4s via
+  `discovery.refresh()` rather than trusting Hyperswarm's 10-minute
+  schedule. 12 of 12 consecutive public-DHT runs then succeeded.
+- **Stale announces starve live peers at Hyperswarm's default
+  `maxParallel: 3`.** A DHT announce outlives the process that made it, so
+  every abandoned or timed-out drop leaves a dead peer advertised under the
+  topic until the record expires. Dialing a dead peer took 10-17s to abort
+  when measured, and Hyperswarm only deprioritizes one after `attempts > 3`
+  (`hyperswarm/lib/peer-info.js`) -- so three stale records can occupy all
+  three connection slots indefinitely. Observed as `swarm-send.js` timing
+  out for 120s against a topic carrying three dead announces, on the exact
+  network path where a freshly generated topic connected in 9s.
+  `createSwarm` now sets `maxParallel: 16`.
+- **An unexplained transient, recorded because it cost a day and was not a
+  bug.** After the readiness-handshake fix landed, a Starlink → Comcast drop failed
+  repeatedly with *no candidate logged on either side* – no connection
+  formed at all. During that window `scratch-lookup.js --connect` and
+  `scratch-swarm-dial.js` both connected from the same machine to the same
+  peer within seconds, so discovery and hole punching were demonstrably
+  working while the real pair could not connect. It then began working
+  again with no functional change to the swarm path: a 10 MB drop
+  succeeded at `refresh=4000` (the exact configuration that had been
+  failing) and again at `refresh=30000`.
+  Two hypotheses were investigated and **disproven**: that our 4s
+  `discovery.refresh()` was destroying in-flight DHT lookups (it coalesces
+  when the client/server flags are unchanged, so it does not), and that the
+  4s re-announce was churning holepunch relay state (disproven by the
+  `refresh=4000` success). No code change is attributable to the recovery.
+  The likely explanation is a transient condition on the Starlink path,
+  which a LEO satellite link makes plausible, but that is inference and not
+  measurement. If it returns, the diagnostics above now separate the
+  layers; what is still missing is a repeated-trial success rate, without
+  which a flaky path is indistinguishable from a broken one. That gap is
+  what `engine/scratch-trials.js` now closes -- see
+  [`MEASURING-TRANSFER-RELIABILITY.md`](../MEASURING-TRANSFER-RELIABILITY.md).
+  **Retroactively settled by measurement: 10 of 10 trials succeeded on that
+  same path at `refresh=4000`** (below). There was no code defect; the
+  refresh-interval hypothesis is dead on a sample of ten rather than on a
+  single run, and the default stays at 4000.
+- **Cross-ISP transfer verified (the Hyperswarm milestone's real exit
+  criterion).** A Mac on
+  Starlink (CGNAT, DHT-observed <host A>, firewalled) sent to a Linux
+  box on Comcast (<host B> firewalled) in ~9s. Re-verified for the
+  drop code with the two-way handshake: a generated word code, QR shown on
+  announce, 10 MB matching SHA-256 on both sides, at both
+  `ADHAL_REFRESH_INTERVAL=4000` and `30000`.
+- **Measured reliability on that path, 2026-09-17** (`scratch-trials.js`,
+  10 trials x 10 MB, `refresh=4000`, public DHT, both hosts firewalled):
+
+  | | |
+  | --- | --- |
+  | Success | **10/10 (100%)**, hash verified against the manifest each trial |
+  | Connect time | median 3.0s, p90 4.3s, range 2.0-4.5s |
+  | End-to-end 10 MB | median ~12.9s, range 10.6-15.8s |
+  | Throughput | ~0.8-1.2 MB/s (6-10 Mbps) |
+
+  This clears the >=75% success gate and sits well
+  inside the "10 MB median < 30-45s" target. Throughput is consistent with
+  Starlink's upstream rather than with any bottleneck in the chunking or
+  backpressure code -- worth revisiting before raising the 50 MB cap
+  (a later spike), not before.
+
+  Stated honestly: 10/10 gives a 95% one-sided lower confidence bound of
+  **74.1%**, fractionally short of the 75% gate, so the defensible claim is
+  "healthy and comfortably usable", not "proven >=75%". 12 of 12 would put
+  that bound at 77.9%. Both roles agreed trial-by-trial to within 0.3s,
+  which is the cross-check that the harness itself was measuring correctly.
+  A rate is specific to one network pair at one time of day; re-measure
+  rather than assuming this holds. Worth recording
+  for the relay question: the Holepunch punch succeeded on a
+  genuinely hostile path, so the relay is not on the
+  critical path for this network pair. Note that two hosts behind the *same*
+  NAT were not proven to work -- that case needs router hairpinning and is
+  the stronger argument for LAN discovery (mDNS/UDP multicast, Stage 3).
+- Diagnostics for re-running these measurements live in `engine/scratch-*.js`.
+  `scratch-lookup.js <topic-hex> [--connect]` separates "announce not
+  visible" from "visible but unpunchable"; `scratch-serve.js <code>` is a
+  receiver that accepts connections indefinitely so the far side can probe
+  repeatedly. `scratch-swarm-dial.js <topic-hex> [--connect-once]` covers
+  the layer between them -- Hyperswarm's own discovery and dialing, whose
+  failures are otherwise invisible. Verified working across Starlink ->
+  Comcast: Hyperswarm dialed with 3 relay addresses and opened in 1.6s,
+  READY arrived, and with `--connect-once` the far side confirmed `got
+  ACK`. None of these tools are destructive to a live receiver any more.
+- A peer can connect and then die before confirming, surfacing as
+  `connection reset by peer`. The window between the `'connection'` event
+  and the server's READY byte had no `'error'` listener, so the
+  `NoiseSecretStream` emitted an uncaught error and killed the process.
+  A candidate that fails this way is now discarded rather than being
+  treated as a fatal drop failure: **both** sides stay joined and wait for
+  the next candidate. The join timeout also stays armed until the handshake
+  actually completes, so a connection that never confirms can no longer
+  hang the drop indefinitely.
+- **Hardening only the sender against that case caused a worse bug, and the
+  handshake is now two-way (READY + ACK).** `acceptOnce` used to resolve on
+  its *first* `'connection'` event: clear its timeout, remove its listener,
+  write READY, hand the socket to `receiveFile`. So the half-failed punch
+  the sender had just been hardened against would consume the receiver
+  permanently -- the sender correctly discarded the dead candidate and kept
+  dialing, while the receiver sat committed to a dead socket, unable to
+  answer any of it. Every later dial connected at the DHT/UDX layer and
+  then hung. Measured on Starlink -> Comcast: `hyperdht` discovery and a raw
+  dial both succeeded (`scratch-lookup.js --connect` reported `CONNECTED`)
+  while `swarm-send.js` timed out after 120s having transferred nothing.
+  The sender now answers READY with an ACK, so "this candidate confirmed"
+  is a state both sides agree on and both can discard a candidate that
+  fails. `acceptOnce` pauses the socket and returns any bytes that arrived
+  alongside the ACK as `pending`, which `receiveFile` feeds through its
+  decoder first -- otherwise a sender that coalesced its manifest into that
+  chunk would lose the first frame. That ACK byte is now the code proof of
+  the code proof, below.
+- **A join timeout now says which of the two failures it was.** Previously
+  both reported `timed out looking for a peer`, which was actively
+  misleading in the case above: the sender had found several. Zero
+  candidates means discovery found nobody (wrong code, or the other side
+  has not announced); one or more means the DHT and the punch worked and
+  the handshake did not. `onCandidate`/`onCandidateDropped` log each
+  candidate and each discard, so "peers keep connecting and vanishing" is
+  visible rather than inferred. The alpha gate requires being
+  able to classify every failure; this is the minimum for that.
+- **Hyperswarm discards client dial errors, so a failing sender is
+  silent.** In `hyperswarm/index.js` `_connect`, the only `'error'`
+  handler on an outbound connection sets `peerInfo.forceRelaying` and
+  returns -- the error is never logged, re-emitted, or counted. No amount of
+  logging in our own code reveals why a dial failed.
+  `engine/scratch-swarm-dial.js` wraps `swarm.dht.connect` to print them,
+  and reports the counters Hyperswarm does keep
+  (`swarm.stats.connects.client.{attempted,opened}`, `swarm.peers`, and
+  per-peer `attempts`/`banned`/`proven`). It also runs a raw `hyperdht`
+  dial from a second DHT node in the same process, so "raw dial works,
+  Hyperswarm dial does not" is one observation on one network path rather
+  than two runs minutes apart. `--connect-once` swaps its own bare
+  listener for the real `connectOnce`, which distinguishes "Hyperswarm can
+  reach the peer" from "our engine completes the handshake".
+- **Both peers dial each other, and Hyperswarm's duplicate resolution can
+  destroy a connection mid-handshake.** Because both sides join with
+  `server: true, client: true`, each pair produces two connections.
+  `_handleServerConnection` keeps one and destroys the other with
+  `ERR_DUPLICATE`, tie-breaking on
+  `existingIsOutdated = rawBytesRead > 0 && rawBytesWritten > 0`. A
+  connection in the middle of the handshake has written but not yet read,
+  so it does *not* count as established and is eligible to be destroyed.
+  This is survivable only because both sides now discard a failed candidate
+  and wait for the next one; with the old one-shot `acceptOnce` it was
+  another way to wedge the receiver permanently.
+- **The code proof's three-message handshake does not widen that window**, which is
+  worth stating because the warning that used to sit here was "worth
+  remembering before any change that makes the handshake longer than one
+  round trip", and the code proof is exactly such a change. The tie-break turns on
+  each side's *first* read and *first* write, and the code proof moves
+  neither: the receiver still writes first (`READY`, now carrying a nonce)
+  and reads on the sender's answer, and the sender still reads first and
+  writes on answering. Both sides therefore reach `rawBytesRead > 0 &&
+  rawBytesWritten > 0` at the same points in the exchange as they did with
+  the constant ACK. The third message is sent only after both are already
+  established. Only the message *sizes* changed -- which is its own hazard,
+  handled by reading a fixed byte count rather than assuming one chunk is
+  one message (`MessageReader`, now in `engine/src/reader.js`).
+- **`scratch-lookup.js --connect` and `scratch-hs-dial.js` are no longer
+  destructive.** They never answer the receiver's challenge, so a live
+  receiver logs them as a dropped candidate and keeps waiting. A
+  `CONNECTED` result from them therefore no longer implies a drop would
+  succeed – it isolates discovery and hole punching from the application
+  handshake, which is exactly the distinction that was missing above.
+  Since the code proof they could not complete a drop even if they tried: both are
+  given a topic and no code.
+- Tearing the swarm down immediately after the sender's own `end()`
+  callback fires is not safe – that only confirms a *local* flush, not
+  that the receiver got the last bytes. The receiver now ends its side
+  after it finishes reading, and the sender waits for the socket's
+  `'close'` event (both sides ended) before destroying its swarm.
+
+## Manifest, progress, and cancel
+
+The earlier milestones got a drop working. This work is about what happens
+when it does not: before it, every failure path was silent, and four of
+them were live bugs.
+
+### The wire format, and the second break
+
+> **Superseded by v2's sealed channel.** The layout below is v1's. The
+> type tag and the CHUNK and CANCEL bodies are unchanged in v2; MANIFEST
+> is manifest v2, `{v: 2, name, size, sha256, blockSize}`, answered by
+> ACCEPT or DECLINE before any chunk ([`PROTOCOL.md`](../PROTOCOL.md) §4.0).
+> All of them now travel
+> *inside* a ChaCha20-Poly1305 seal keyed from the PAKE transcript
+> (`engine/src/channel.js`, [`PROTOCOL.md`](../PROTOCOL.md) §3.4 and §5).
+> Only the length prefix is still in the clear, so it can be bounded
+> before buffering, and it is authenticated as the seal's associated
+> data. `transfer.js` has no unsealed mode.
+
+```
+frame   = [4-byte BE length][payload]      <- engine/src/frame.js
+payload = [1-byte type][body]              <- engine/src/message.js
+
+0x00  reserved, always invalid  (what a desynced/truncated stream looks like)
+0x01  MANIFEST  body = JSON {v, type, name, size, chunkSize, sha256}
+0x02  CHUNK     body = raw file bytes
+0x03  CANCEL    body = JSON {reason}
+0x04+ reserved -- v2 assigns them; see PROTOCOL.md
+```
+
+**This was the second wire-format change after the code proof, and both
+machines must be redeployed together.** It was taken then because it was
+the last cheap moment: before the tag, a frame was "the manifest if it is the first
+one, file bytes otherwise", so there was no way to say anything at all
+during a transfer -- and resume needs more messages still. A type space that
+does not exist by then costs two breaks instead of one.
+
+`0x00` is reserved and always invalid so that a stream read out of phase
+fails loudly on the first frame rather than parsing as garbage and
+surfacing later as a hash mismatch. A pre-item-5 sender's untagged
+manifest begins `0x7b` (`{`), which is detected by name: the error says to
+redeploy both sides rather than sending someone hunting a corruption bug.
+
+The tag deliberately did *not* go into `frame.js`, which stays a pure
+length-prefixer with no opinion about its contents -- `transfer.js` simply
+never calls `encodeFrame` directly. `frame.js` did gain a `maxFrameSize`
+bound (default 1 MiB), because a declared length is four untrusted bytes
+and a peer announcing `0xFFFFFFFF` previously made the decoder buffer
+toward 4 GB.
+
+`engine/scratch-serve.js` needs no change and still works against a
+redeployed peer: it only speaks the handshake and never reads a frame.
+That makes it the right tool to reach for during a skewed rollout.
+
+> **Corrected in W11.** That was true for the type-tag break and is
+> **false for v2.** The claim conflates two things: `scratch-serve.js`
+> indeed never reads a frame, but it *hand-implements the handshake*, and
+> v2 replaced all three of its messages. It had to be rewritten.
+>
+> It is now built on the same `Initiator` class `swarm.js` uses, rather
+> than on its own copy of the parameter mapping — which is the only way
+> "a real `swarm-send.js` can connect to this" stays true across the next
+> break as well. A second copy of a handshake is how a diagnostic starts
+> quietly lying about what the product does.
+>
+> The generalisation worth keeping: a tool is insulated from a wire break
+> by not implementing the wire, not by not reading frames.
+
+### Error codes
+
+`engine/src/errors.js` defines one `TransferError` with a machine-readable
+`.code`. This is not tidiness. `engine/scratch-trials.js` -- the harness
+behind every reliability number in this repo -- classified failures by
+regex-matching error *messages*, so the project's own measurement
+instrument was coupled to prose.
+
+| `.code` | Meaning |
+| --- | --- |
+| `ABORT_ERR` (`name: 'AbortError'`) | we cancelled, locally |
+| `ERR_CANCELLED_PEER` | the peer cancelled, with its reason |
+| `ERR_HASH_MISMATCH` | the digest does not match the manifest's |
+| `ERR_SIZE_MISMATCH` | over-read, a file that shrank mid-send, or a stream past the receiver's limit |
+| `ERR_UNSAFE_NAME` | the manifest's name is not one the receiver will write |
+| `ERR_MANIFEST_INVALID` | a manifest field failed validation |
+| `ERR_PROTOCOL` | unknown tag, oversize frame, out-of-order frame, a frame that failed to authenticate |
+| `ERR_CONNECTION` | the socket closed before completion |
+| `ERR_STALLED` | the peer proved the code and then stopped sending |
+| `ERR_NO_SPACE` | the declared size does not fit on the disk |
+| `ERR_EXISTS` | the file could not be landed without destroying another |
+| `ERR_DECLINED` | the receiver refused the offer before any file byte moved |
+| `ERR_RECEIVER_FAILED` | the receiver got every byte and could not keep the file |
+| `ERR_DROP_TAKEN` | the peer had already paired with someone else who holds the code (W15a) |
+| `ERR_ATTEMPT_CAP` | the drop was burned after 100 failed confirmations |
+| `ERR_NO_PEER` / `ERR_NO_HANDSHAKE` | the two join timeouts, above |
+
+[`PROTOCOL.md`](../PROTOCOL.md) §10 is the normative list; this one mirrors
+it.
+
+Local cancellation uses Node's own `AbortError`/`ABORT_ERR` so
+`signal.reason` and generic abort handling work unchanged.
+
+### What the receiver now refuses
+
+- **A corrupted file.** `receiveFile` computed a SHA-256 and compared it
+  to nothing; only `scratch-trials.js` ever did the comparison, so the
+  measurement harness verified integrity and neither CLI did. It is now
+  compared against the manifest unconditionally, and the file streams into
+  `<name>.part` and is renamed into place only after it passes. The `.part`
+  name is predictable because resume (W11) must find it again.
+- **A filename that is not a filename.** `path.join(outputDir,
+  manifest.name)` was unvalidated, so a manifest naming `../../.bashrc`
+  wrote there. The code proof stopped a *stranger* reaching the receiver; it never
+  stopped a peer who knows the code from aiming at any path. Names are now
+  refused by shape (empty, >255 bytes, NUL, `/` or `\`, `.`, `..` --
+  checked against both separators, since `path.basename` means different
+  things on different platforms) and then backstopped by asserting the
+  resolved path stays under the output directory. Windows device names
+  (`CON`, `AUX`, `NUL`, `COM1-9`, `LPT1-9`, including trailing-dot
+  evasions) are prefixed `_` rather than refused, **on Windows only**. The
+  justification used to be "Windows ships first", which was never true of
+  where the work happens and is now explicitly not the plan: macOS and
+  Linux are the primary targets and Windows is third. `_aux.txt` on Linux
+  is pure mangling of a name nothing on Linux objects to. The rename
+  survives on a different argument -- a file received on Linux is often
+  opened on Windows later, and a name unopenable there is worth one prefix
+  character -- but it is gated on the platform, and the platform is
+  injectable so all three legs of CI assert both policies. A leading dot
+  is *not* stripped: `.bashrc` is a legitimate filename. `result.name`
+  reports what was written and `result.declaredName` what was asked for.
+- **More bytes than declared.** Refused rather than truncated: a correct
+  sender cannot over-read its own manifest, so trimming would hide a bug
+  and accept unbounded bytes from a peer that proved the code but is not
+  thereby well-behaved.
+- **A sender that vanishes.** `receiveFile` listened for `'data'` and
+  `'error'` but not `'end'`/`'close'`, so a truncated transfer never
+  settled -- no error, no timeout, no exit, forever. This was the routine
+  outcome of a half-failed punch.
+
+**Filename collisions used to be deliberately not handled, and that was a
+security bug wearing a design decision's clothes.** What stood here was:
+"`fs.rename` overwrites an existing destination, exactly as
+`createWriteStream` did. Overwrite / suffix / prompt is an accept-screen
+decision, and deciding it here would mean deciding it twice."
+
+The reasoning is wrong in a way worth keeping on the page, because it is a
+tempting shape of argument. It treats the choice as *cosmetic* — which of
+several acceptable outcomes should the UI present — when the status quo
+while waiting for that UI was **destroying an existing file**. And the
+output directory defaults to `process.cwd()`, so "inside the output
+directory" was never a synonym for safe: any peer holding the drop code
+could name its file `.zshrc`, `package.json` or `id_rsa` and replace
+whatever sat in the directory the receiver happened to be launched from.
+A future accept screen could not have fixed that for headless or scripted
+callers, who have no screen.
+
+Stage 0 moved the default into the engine: the file is published with
+`link()` + `unlink()` rather than `rename()`, because `link` fails with
+`EEXIST` instead of clobbering, atomically. A taken name lands as
+`report (1).pdf`. `replace: true` opts back in, and an accept screen can
+still offer it.
+
+See [Stage 0 hardening](#stage-0-hardening).
+
+The sender was hardened for the same reason: `stat`, `hashFile` and
+`createReadStream` are three separate reads of a file that can change
+underneath them. The read is capped at `{ end: size - 1 }` and bytes sent
+are asserted to equal the declared size -- before this, a file that shrank
+mid-send resolved *successfully* having sent short.
+
+### Progress
+
+`onProgress({ bytes, total })`, one event per chunk, unthrottled, with a
+guaranteed first call at `bytes: 0` and a final call at `bytes === total`.
+No rate, ETA, or percentage: those are derivable, and the engine cannot know
+whether its consumer is a 10 Hz bar, a test or a log. Presentation lives in
+`cli/src/progress.js` -- an in-place bar on a TTY, whole lines at fixed 25%
+milestones otherwise (milestones rather than a timer, so the line count is
+not load-sensitive and tests asserting on it are not flaky).
+`ADHAL_NO_PROGRESS=1` silences it.
+
+**The sender's number is what it handed to the transport, not what the
+receiver stored.** A sender's bar can legitimately read 100% while the
+receiver is at 90%. The bar is not the confirmation: `sendFile` resolves
+only on the receiver's `RESULT` carrying the same digest (PROTOCOL.md
+§4.2), and that is what the sender's `verified:` line reports.
+
+### Cancel
+
+An `AbortSignal`, so one controller covers both the join and the transfer.
+The sequence is symmetric: write CANCEL, wait briefly for it to flush, then
+reject locally with an `AbortError`. The peer's decoder sees the tag and
+rejects `ERR_CANCELLED_PEER` carrying the reason.
+
+The flush window is the point. Destroying immediately loses the message --
+the same lesson `swarm-send.js` already records about `end()` versus
+waiting for `'close'` -- and a lost CANCEL means the peer sees `connection
+reset by peer`, which is byte-for-byte what a dead punch looks like.
+Shipping a deliberate user action that is indistinguishable from this
+project's hardest-to-diagnose failure would have been a regression.
+Latency is bounded by roughly one chunk plus the high-water mark, not
+instantaneous.
+
+First settle wins on each side, so on a simultaneous cancel each end
+reports its own and the two logs cannot disagree about who cancelled. The
+peer's `reason` is untrusted -- it goes straight into a terminal -- so it
+is capped at 256 bytes with control characters stripped.
+
+Consequence worth noting: **`sendFile` now reads**, for inbound CANCEL. So
+`connectOnce` returns `pending` exactly as `acceptOnce` does, and the old
+comment claiming leftover bytes there could only mean a peer talking out of
+turn is no longer true.
+
+`cli/src/signals.js` turns SIGINT/SIGTERM/SIGBREAK into that signal: the
+first aborts and lets the normal catch/finally run (CANCEL written, socket
+ended, swarm destroyed) before exiting 130/143/149; the second exits
+immediately, because `swarm.destroy()` can take seconds and a Ctrl-C that
+appears to do nothing is one people follow with `kill -9`.
+
+On Windows the table reads differently than it looks. **Ctrl-C works**:
+Node delivers the console Ctrl+C event as SIGINT there, so the clean path
+above is what a human already gets. **Ctrl+Break now works too** -- SIGBREAK
+was unhandled, so Ctrl+Break tore the process down and the peer saw the
+socket reset this whole design exists to avoid. **SIGTERM can never fire
+there** (Node: "`SIGTERM` is not supported on Windows, it can be listened
+on"); it stays in the table as harmless dead weight rather than a platform
+branch. What does *not* work on Windows is `child.kill('SIGINT')`: libuv implements
+it as `TerminateProcess`, so the child dies before a handler runs. That is a
+testing problem, not a product one. `cli/test-helpers/interrupt.js` raises a
+real `CTRL_C_EVENT` in the child's console instead, which arrives as SIGINT
+just as a keypress would -- and because a control event reaches every process
+sharing that console, it first checks the child is alone in one and skips
+rather than signal the test runner along with it. `acceptOnce`/`connectOnce`
+take the same signal, so Ctrl-C works *while waiting for a peer* -- the
+likeliest moment a human cancels, and previously the one state with no way
+out but killing the process. Aborting removes only our own listener and
+timer; the swarm belongs to the caller.
+
+**That sentence was half false until Stage 0, and this page was one of the
+places asserting it.** `connectOnce` accepted a `signal`, documented it,
+and defined an `onAbort` that `finish()` removed -- but never registered
+the listener, so on the *sender* the signal was inert. Measured with a
+500ms abort against a 5000ms budget: `acceptOnce` rejected at 502ms,
+`connectOnce` ran the full 5001ms and then reported `ERR_NO_PEER`. On a
+real sender that is up to two minutes of Ctrl-C doing nothing.
+
+It survived four milestones because the receiver's half worked, so the
+feature looked shipped from every angle anyone checked -- and because
+there was **no sender-side cancel test at all**. The asymmetry in the
+tests was the same shape as the asymmetry in the bug. Both halves are now
+registered and both are tested (`cli/test/cancel.test.js`).
+
+## Stage 0 hardening
+
+The code proof answers exactly one question: *is this the peer the human
+meant?* Everything here is about a peer for which the answer is **yes**
+and which is hostile anyway — a code can be shoulder-surfed,
+screenshotted, forwarded to the wrong chat, or given to someone for a
+different file than the one they send. "They know the code" is the
+beginning of the threat model, not the end.
+
+Each row was reachable by a proven peer before Stage 0, and each is
+covered by `cli/test/hardening.test.js`.
+
+| Attack | Now |
+| --- | --- |
+| Replace `~/.zshrc`, `package.json`, `id_rsa` in the launch directory | Publish via `link()`+`unlink()`, which fails `EEXIST` rather than clobbering; lands `name (1)`. `replace: true` opts back in |
+| Redirect the write with a planted `<name>.part` symlink | Partial opened `O_CREAT\|O_EXCL`, which refuses to follow a symlink |
+| Forge a log line, clear the terminal, spoof a name with RLO | Control and bidi characters refused; everything printed through `displayName()` |
+| NTFS alternate data stream (`foo:stream`) | `<>:"\|?*` transformed on every platform |
+| Invisible trailing dot or space (`a.exe. `) | Stripped |
+| Declare 9 PB | 8 GiB default cap (`null` to opt out) plus a free-space check before anything opens |
+| Outrun the disk and grow memory without bound | `writeStream.write()`'s return value honoured; the socket pauses |
+| Prove, then send nothing, forever | `ERR_STALLED` on a manifest deadline and a no-progress deadline |
+| Hold a connection slot without handshaking | 15s per-candidate handshake deadline |
+
+Two pieces of the split are worth naming, because they are the design
+rather than the list:
+
+- **`engine/src/names.js` owns both sinks.** A peer-supplied name reaches
+  a terminal and a filesystem, and those had separate, unequal defenses
+  until the moment a name was *refused* — at which point the refusal
+  message printed the hostile name raw. Display sanitizes and never
+  throws; writing refuses or transforms and says which. A display path
+  that can throw turns one error into two, and the moment we most need to
+  print a name is when we are rejecting it.
+- **Escaping, not stripping.** `displayName` renders control and bidi
+  characters as `\uXXXX` rather than removing them. Stripping produces a
+  clean-looking string and destroys the evidence: `evil\nverified: ok`
+  would print as `evilverified: ok`, which looks fine and tells the reader
+  nothing.
+
+Still true and not fixable here: **a peer who knows the code can send you
+any file.** The displayed SHA-256 proves the bytes arrived intact; it
+proves nothing about the sender's honesty. Integrity is not authenticity
+of intent.
+
+### A defect class worth remembering: unreadable source
+
+Three files in this repo contained **literal NUL and ESC bytes** in string
+literals and character classes. `file(1)` reported them as `data`, and
+`grep` treats a binary file as unmatchable:
+
+```
+$ grep -n 'safeOutputName' engine/src/transfer.js
+$ echo $?
+1                      # ... for a string that occurs three times
+```
+
+So a repo-wide `grep` for `ERR_HASH_MISMATCH` silently omitted the file
+that throws it, and the two largest security-critical modules returned
+false negatives to any auditor's search. That is a correctness hazard, not
+a style preference. All three now use `\x00` / `\x1b` escapes, and the
+check is one command:
+
+```
+find . -name '*.js' -not -path './node_modules/*' -exec file {} + | grep -v text
+```
+
+The third file was found only by running that over the whole repo — it was
+not in the list of known cases.
+
+## The drop code (D1)
+
+Step D1 of the data path. `engine/src/code.js` owns the code as a value,
+`engine/src/wordlist.js` holds the words, and `cli/src/qr.js` draws the
+symbol; `engine/src/resolve-code.js` is the only place that turns
+user input into a topic.
+
+**Five words, split into a public nameplate and a secret** (W11,
+[`PROTOCOL.md`](../PROTOCOL.md) §2):
+
+```
+acid-acorn-acre-acts-afar
+^^^^^^^^^^ nameplate, ~25.8 bits   public; hashed into the topic
+           ^^^^^^^^^^^^^^ secret, ~38.8 bits   the PAKE password
+```
+
+The code is **shorter than v1's six words and stronger**, because its
+entropy no longer has to defend a public hash. v1's topic was
+`hash(code || salt)`, so announcing published a commitment to the whole
+code and an attacker could grind candidates offline at whatever rate its
+hardware allowed. Under v2 the announced topic commits only to the
+nameplate — a rendezvous label, not a secret — and the secret appears in
+no value an observer can obtain. Guessing it costs a live protocol run
+against a peer that is counting (§6, `engine/src/attempts.js`).
+
+Two figures rather than one, and `CODE_ENTROPY_BITS` is gone because of
+it: a combined ~64.6 would let the nameplate's public bits stand in for
+the strength of a ~38.8-bit secret, and only the secret's are load-bearing.
+A nameplate collision is a rendezvous accident that the PAKE then
+separates.
+
+**Word list: the EFF large wordlist**, vendored (7772 of its 7776 words,
+all 3-9 letters). Until W15a this was EFF short list #1 (1295 words of 3-5
+letters), chosen for typing cost. The large list trades some of that for
+entropy: about 12.92 bits per word instead of 10.34, so the three-word
+secret carries about 38.8 bits instead of 31 at the same word count, and
+the attempt cap is no longer the only margin. The words are longer to
+type, but they are common, concrete words EFF selected for memorability.
+
+Still not BIP39, for the reason that did not change: a lowercase phrase
+drawn from BIP39 reads as a wallet seed phrase, which cuts against the
+deliberate avoidance of crypto framing and would train users toward
+typing seed-like phrases into whatever asks for one. The list's four
+hyphenated entries (`drop-down`, `felt-tip`, `t-shirt`, `yo-yo`) are
+dropped, because a hyphen separates words in a code and `yo-yo-acid`
+would otherwise be ambiguous; the count only needs to be a power of six
+if you are rolling physical dice, and these come from `crypto.randomInt`
+(rejection sampling -- 7772 is not a power of two, so a plain modulo
+would skew draws toward the front of the list).
+
+**QR payload: the typed code and nothing else**, as a versioned URI.
+
+```
+ADHAL2:ACID-ACORN-ACRE-ACTS-AFAR     <- in the QR, at most 56 chars
+acid-acorn-acre-acts-afar            <- shown to a human
+```
+
+Scanning and typing are therefore provably the same code path rather than
+two paths to test. Embedding the sender's public key would let a scanner
+`joinPeer()` directly and skip the topic lookup entirely -- attractive
+given the announce-propagation race below -- but that is LAN-discovery work (Stage 3), and
+the `ADHAL2` version prefix is what buys the room to add it without a format
+break. Any other scheme is reported as an unrecognized format with the
+fix that works either way -- the same version on both sides and a new
+code. With one known scheme there is no direction to report, and guessing
+"newer" for an older payload sends someone looking for an upgrade that
+does not exist.
+
+Two details are load-bearing rather than cosmetic:
+
+- **Uppercase in the QR, lowercase for humans.** QR's alphanumeric encoding
+  mode covers only `0-9 A-Z` and `space $%*+-./:` -- both `:` and `-`
+  qualify, lowercase does not. Staying in alphanumeric mode is worth a
+  version of headroom, and that headroom is spent on error correction
+  rather than on a smaller symbol: a bigger symbol would work against the
+  cheap Android cameras spike 5 was worried about, so the trade buys
+  robustness against glare, moire, and poor focus instead of size.
+  `parseCode` is case-insensitive, so a scan still round-trips.
+
+  **Re-measured for the large wordlist (W15a).** The worst case is 56
+  characters: the 7-character `ADHAL2:` scheme, five 9-letter words and
+  four separators.
+
+  | ECC | worst case alnum (56) | worst case byte (56) |
+  | --- | --- | --- |
+  | L | 29x29 | 33x33 |
+  | M | 29x29 | 33x33 |
+  | Q | 33x33 | 37x37 |
+  | H | **37x37** | 41x41 |
+
+  Over 20,000 generated codes at H, 90.6% are 33x33, 9.2% are 37x37 and
+  0.2% are 29x29. ECC level H (~30% recovery) is kept. Under the short
+  list every code fit 29x29 at H, and the longer words gave that back;
+  level Q would hold the worst case at 33x33 for ~25% recovery, which is
+  the lever if size ever matters more than margin. Confirmed through the
+  real `jsqr` decoder, not just the encoder's size report. The uppercase
+  argument survives: byte mode costs one more version at every level.
+- **The code is shown only after `discovery.flushed()`.** Same reasoning as
+  the announce-propagation race below: the moment the code is readable is
+  the moment the other side may start looking, so showing it before the
+  announce has flushed manufactures exactly that race. `swarm-receive.js`
+  prints the QR from inside `onAnnounced`.
+
+Input is normalized hard, because a code is read off another device's
+screen: case, and any run of `-`, `_`, `.` or whitespace as a separator, all
+collapse to one canonical lowercase hyphenated form, which is the only
+thing that reaches `splitCode` and `topicFromNameplate`. Getting that
+wrong is a real footgun with two different failure modes: an unnormalized
+*nameplate* yields a valid but wrong topic and presents as a discovery
+timeout, while an unnormalized *secret* makes the two peers find each
+other and then fail to confirm — which reads like an attack rather than a
+typo. `splitCode` therefore runs `parseCode` itself rather than trusting
+its caller, and `resolveCode` closes the other half: an input *shaped*
+like a five-word code is held to the strict parse and reports which word
+is wrong, rather than being waved through as an opaque secret.
+
+**Opaque codes void all of this, deliberately and behind a flag.** An
+opaque code (`--insecure-opaque-code`, diagnostics only) becomes its own
+nameplate *and* its own secret, which puts the secret into the announced
+topic and reintroduces exactly the offline grinding target v2 exists to
+remove. `engine/src/resolve-code.js` says so in those words at the call
+site, because the code looks identical to the word-code path and every
+module downstream behaves the same way.
+
+`cli/src/code.js` (`ad-hal-code`) prints a code, its two halves, its payload,
+its topic and the symbol -- the drop code's screenshottable artifact, and the quickest way to
+get a topic argument for `engine/scratch-lookup.js`.
+
+Verified by `cli/test/code.test.js`, which decodes the printed matrix with
+a real QR decoder (`jsqr`, test-only) and confirms the scan lands on the
+same topic the receiver joined, and by `cli/test/code-vectors.test.js`,
+which freezes code → nameplate/secret → topic as fixed pairs — the first
+of the Ad-ḫal-specific vectors §11 requires.
+
+Step D7 of the data path above and resume (D5's offset persistence)
+belong to later stages and are not yet built. Protomux-based channel
+multiplexing was on that list and has since been ruled out rather than
+deferred -- see [`PROTOCOL.md`](../PROTOCOL.md) §8.2.
+
+## The PAKE handshake (D3)
+
+Data path step D3. `engine/src/handshake.js` holds the parameter mapping,
+`engine/src/cpace.js` the primitive, and `engine/src/swarm.js` the
+exchange. **v1's HMAC code proof is gone** — `engine/src/proof.js` is
+deleted — and [`PROTOCOL.md`](../PROTOCOL.md) §9 keeps it documented so a v2
+build can recognize a v1 peer and say so rather than reporting corruption.
+
+**The hole v1 could not close.** A v1 topic was `hash(code || app-salt)`,
+and a receiver must *announce* its topic to be findable at all — so the
+topic is public from the moment a drop starts, readable by anyone walking
+the DHT (`engine/scratch-lookup.js` is that walk, written as a
+diagnostic). v1's proof stopped a stranger *completing* the exchange, and
+that was worth having. What it could not do was stop the stranger grinding
+candidate codes offline against the announced hash, at whatever rate its
+hardware allowed, never touching a peer and never being counted. No
+challenge-response can: the commitment is already public.
+
+**v2 removes the target rather than shrinking the window on it.** The
+topic commits only to the nameplate, and the secret is a PAKE password
+that is hashed into nothing an observer can obtain. A guess now costs a
+live protocol run against a peer that is counting.
+
+It is still mutual, and for the reason it always was: a sender must not
+transmit a file to someone who merely found the topic, and a receiver must
+not accept one — into `~/Downloads` — from them either. CPace is a
+*balanced* PAKE, so mutuality is structural rather than two proofs stapled
+together.
+
+**The exchange**, in the same three-message slot v1 used:
+
+```
+HELLO   = [2-byte BE len][version 1][sid 16][Ya 32][caps_r ...]   R -> S
+REPLY   = [2-byte BE len][Yb 32][confirmS 32][caps_s ...]         S -> R
+CONFIRM = [confirmR 32]                                           R -> S
+```
+
+Same round trips, and — this is the load-bearing part — the same
+first-read and first-write points. Hyperswarm produces two connections
+per pair and destroys one; the tie-break at `hyperswarm/index.js:359` is
+`existingIsOutdated = rawBytesRead > 0 && rawBytesWritten > 0`, so a
+connection that has written but not yet read is eligible to be destroyed
+mid-handshake. Moving either point would be a new duplicate-resolution
+risk. Note what that tie-break reads: *whether* bytes moved, never how
+many — checked in the source rather than taken from a paraphrase, which
+is why lengthening `REPLY` is safe.
+
+The mapping (`PROTOCOL.md` §3.2) is the only genuinely novel piece:
+
+```
+PRS = the 3-word secret, canonical, UTF-8     not the nameplate, not the
+                                              QR payload's uppercase
+CI  = lv_cat("adhal-v2", nameplate)            binds the rendezvous
+sid = 16 CSPRNG bytes, per connection
+ADa = lv_cat(version, caps_r)                 receiver = initiator
+ADb = lv_cat(version, caps_s)                 sender   = responder
+```
+
+`version` and `caps` sit inside `transcript_ir`, which is hashed into the
+ISK, which keys both confirmations and both channel keys. An attacker who
+strips a capability or forces an older version makes the two sides derive
+different keys and both confirmations fail. **Detection, not prevention** —
+the handshake aborts rather than silently falling back, which is the only
+outcome available to a one-round-trip PAKE and the correct one.
+
+Four things the implementation has to get right, and where each lives:
+
+| Requirement | Where |
+| --- | --- |
+| `ya`, `yb`, `sid` per *connection*, never per drop | Constructed inside `swarm.js`'s per-connection handler; no way to inject a scalar or a sid, because a caller that could supply one could reuse one |
+| `caps` byte-exact canonical encoding | `encodeCaps` — deduplicated, sorted bytewise, comma-joined, 128-byte cap. Non-canonical input from a peer is *refused*, not normalised |
+| Bind what you sent and what you received, verbatim | Each side hashes the peer's caps bytes as received, never a re-serialisation of its parsed view |
+| `PRS` is the secret's canonical form | `splitCode` produces it; `handshake.js` refuses uppercase or whitespace |
+
+That third row is what lets v2.1 add a capability without breaking a v2
+peer: an unknown token stays bound in the transcript and is merely not
+acted on. There is a test that fails if a future refactor filters unknown
+tokens before hashing.
+
+**Channel binding moved to the transcript.** v1 bound its proof to the
+Noise session's public keys, which closed a real relay attack and was
+correct for v1. It is wrong for v2 for one reason: it makes the engine's
+security depend on which transport carried the bytes, so a relayed or
+browser connection would have to reinvent it. Binding to the PAKE
+transcript instead is relay-safe (the relay is a pipe and cannot be a
+party), browser-possible later without redesigning authentication, and one
+property to reason about rather than one per transport. Noise remains
+underneath and is still valuable; it just stops being load-bearing for
+authentication. See [`PROTOCOL.md`](../PROTOCOL.md) §3.3.
+
+**The weak point, named.** `sid` is chosen by the receiver, where the
+draft recommends one contributed by both parties. The receiver must
+compute the generator before it can send `Ya`, so a joint `sid` costs a
+round trip — and then the receiver could not write first, which the
+tie-break above makes load-bearing. The message shape wins. What it costs
+is the UC proof's uniqueness premise and a constant factor on generator
+derivation; what it does *not* cost is guesses per run, which is the
+quantity the attempt cap bounds. Two mitigations, both required: the
+receiver samples `sid` per connection, and the **sender** remembers the
+`sid` values it has seen for a nameplate and counts a repeat as a failed
+attempt (`engine/src/attempts.js`).
+
+Confirmations are compared with `crypto.timingSafeEqual` behind an
+explicit length check — that function throws rather than returning false
+on a length mismatch, so without one a peer could stop the process by
+answering with the wrong number of bytes.
+
+**A peer that fails its confirmation is discarded like any other bad
+candidate** and both sides keep waiting, reusing the resilience the
+Hyperswarm milestone already had. What changed from v1 is that it is now
+also *counted*: 100 failures burn the drop with `ERR_ATTEMPT_CAP`. v1 held
+that an attacker must not be able to end a drop by connecting and failing;
+v2 reverses that deliberately, because the alternative is unlimited
+guessing against ~38.8 bits and a denial of service is a better failure than
+a silent compromise. Nothing else is counted — never a dropped candidate,
+because stale DHT announces routinely produce dead ones and three were
+once enough to starve every connection slot here. See
+[`PROTOCOL.md`](../PROTOCOL.md) §6 and [`THREAT-MODEL.md`](../THREAT-MODEL.md)
+§5.3.
+
+Two consequences to know:
+
+- **It can now mean a mistyped code, which is new.** Under v1 the topic
+  and the key both derived from the whole code, so a peer that reached you
+  at all had derived the same key and a proof failure meant a stranger or
+  a version skew. Under v2 the topic commits only to the nameplate, so a
+  half-mistyped code — nameplate right, secret wrong — produces two peers
+  that find each other and then fail to confirm. That is byte-for-byte
+  what a guessing attempt looks like, and the two are indistinguishable in
+  principle: distinguishing them is precisely what a PAKE refuses to do.
+  The reported reason names both possibilities rather than guessing.
+- **It is a wire-format change, so both machines must be redeployed
+  together.** A v1 receiver opens with `READY` (`0x01`) and a v2 responder
+  reports that as a wire-version skew by name, not as corruption. The two
+  cannot even meet by accident: v1 and v2 topics use different domain
+  prefixes, so a v1-against-v2 pairing surfaces as `ERR_NO_PEER`.
+
+Covered by `cli/test/pake-handshake.test.js` (both roles over a duplex
+pair, plus two tests against a real `hyperdht` testnet, because a duplex
+pair cannot reproduce several-candidates-per-drop — which is what the
+per-connection-scalar requirement is about), by
+`cli/test/handshake-vectors.test.js` (the mapping frozen end to end, with
+every derivation recomputed a second way through `node:crypto`), and by
+`cli/test/attempts.test.js` (the cap fires on guessing and never on
+network noise).
+
+**What it still does not do: it does not make a weak code strong.** It
+makes a ~38.8-bit secret *sufficient*, which is a different claim and the
+one v2 is built on: ~38.8 bits is ample against 100 counted guesses and
+nothing at all against unlimited ones. Take away the cap and the PAKE
+alone does not save it. Take away the code split and the cap does not
+either, because the grinding happens offline where nothing counts. The two
+are one design.
+
+## Security review hardening (W15)
+
+An AI-assisted security review of the v2 branch produced 21 findings
+([`IMPLEMENTATION-PLAN.md`](../IMPLEMENTATION-PLAN.md), "Security review
+disposition"). This section records how the fixes changed the structure
+of the code. The reasoning for each is in the plan and in comments at the
+code.
+
+### What changed on the wire (W15a)
+
+- **The frame length is authenticated.** A sealed frame is
+  `[len][AEAD(k_dir, nonce, [type][body], aad = [len])]`. The length stays
+  outside the ciphertext, so `FrameDecoder` can still bound a frame before
+  buffering it, but it is bound into the tag. On open, the receiver
+  rebuilds the associated data from the length it just used to delimit
+  the frame, so it authenticates exactly what it acted on.
+- **The topic is length-prefixed.**
+  `topic = BLAKE2b-256(lv_cat("adhal-v2:topic", nameplate))`, using the same
+  `lvCat` CPace uses for its own inputs. `TOPIC_PREFIX` became
+  `TOPIC_LABEL`, because it is no longer a prefix.
+- **The wordlist is the EFF large list** (7,772 words). The code is still
+  2 + 3 words: ~25.8 bits of nameplate and ~38.8 of secret. See
+  [The drop code](#the-drop-code-d1).
+- **The protocol identifier is `adhal`**, in every label and in the QR
+  scheme (`ADHAL2:`), and it is ASCII: nothing hashed depends on how the ḫ
+  in the product name is normalised.
+- **A late peer is told the drop is taken.** This is the one structural
+  change to `engine/src/swarm.js`. `acceptOnce` and `connectOnce` used to
+  remove their connection listener the moment they paired. Now pairing
+  settles the promise and keeps the listener: every per-candidate check
+  keys on a `listening` flag rather than `settled`. A candidate that
+  confirms after pairing runs through the same handshake, deadline,
+  backoff, sid check and attempt counting as the one that paired, and is
+  sent `DECLINE{ERR_DROP_TAKEN}` as its only sealed frame (`declineLate`).
+  The resolved value gains `stopAnswering()`; destroying the swarm stops it
+  too. `connectOnce` now pauses the socket before resolving, as
+  `acceptOnce` always did, so that DECLINE cannot arrive while `sendFile`
+  is still hashing and be lost.
+
+### What changed inside (W15b)
+
+- **Keys have a lifecycle.** Channel keys are single-use. `Channel#wipe()`
+  zeroes both directional keys, and after it the channel refuses to seal
+  or open. `sendFile` and `receiveFile` wipe their channel however the
+  transfer ends, and `declineLate` wipes as soon as its one frame is
+  sealed. The handshake zeroes its own intermediates (scalar, K, ISK, MAC
+  key, password bytes, generator) on every exit and no longer returns the
+  ISK. A Channel handed zeroed keys refuses them with a message that says
+  why. This is best effort, not erasure: the code is a JS string, and the
+  crypto libraries keep copies out of reach (THREAT-MODEL §7).
+- **One descriptor per sent file.** `sendFile` opens the file once. The
+  size, the hash (exactly `size` bytes), the prefix digests for resume,
+  and every byte sent all come through that one `FileHandle`, which is
+  closed on every path. `offerAndSend` was split so the source can be
+  closed around the transfer (`offerSource` does the offer and everything
+  after it).
+- **The terminal is a trust boundary with one exit.** Peer-controlled text
+  is cleaned where it enters a message: `notJson` reports a malformed body
+  by length, manifest values and keys go through `displayName`, and
+  `sanitizeReason` drops bidi overrides as well as control characters.
+  `cli/src/report.js` also escapes every line it returns through
+  `displayText()`. That function uses `displayName`'s escapes with a
+  4096-character bound, so a branch added later cannot print peer bytes
+  raw.
+- **The DHT announce key is generated by `createSwarm`**, which refuses a
+  caller's. See [Key hierarchy](#key-hierarchy).
+- **`publish()` says how it landed the file**, as `link`,
+  `check-then-rename` or `replace`, and `receiveFile` returns it as
+  `published`. The receivers warn when the racy fallback was used.
+- **CLI environment parsing lives in `cli/src/env.js`.** `ADHAL_BOOTSTRAP`
+  is validated there instead of being passed to HyperDHT unchecked. The
+  topic hex is printed only with `--verbose`.
+- **The opaque-code opt-in is `--insecure-opaque-code`** /
+  `ADHAL_INSECURE_OPAQUE_CODE=1`. The refusal a mistyped code gets presents
+  the flag as a diagnostic, never as a fix.
+
+## Relay threat boundary
+
+Moved to [`THREAT-MODEL.md`](../THREAT-MODEL.md) §8, which is the document
+that has to stay correct about it.
+
+One constraint changed in the move and is worth naming here, because it
+contradicts what this section used to say. It read **"Default: a hosted
+relay; user can paste another URL."** That erodes the one structural
+difference this project has from an Iroh-based competitor — serverless by
+default — and turns it into the same product with a smaller relay fleet.
+The relay is now **optional, self-hostable, and never in the default path
+when a direct connection works**.
