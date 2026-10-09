@@ -3,7 +3,7 @@
 // Diagnostic: how often, and how slowly, acceptOnce/connectOnce pair on a
 // local HyperDHT testnet, and whether hyperdht's LAN-shortcut race is the
 // reason. See UNANSWERED_CONNECTION_MS in src/swarm.js for the mechanism,
-// and IMPLEMENTATION-PLAN.md W15d for the measurements this produced.
+// and docs/history/WORK-RECORD.md (W15d) for the measurements this produced.
 //
 // Usage: node scratch-pairing-race.js [trials] [--unanswered=<ms>] [--counterfactual] [-v]
 //

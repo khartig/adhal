@@ -1,6 +1,6 @@
 'use strict'
 
-// The security properties W15d pins (IMPLEMENTATION-PLAN.md), one test per
+// The security properties W15d pins (docs/history/WORK-RECORD.md), one test per
 // property, each run against the code that ships rather than a model of it.
 //
 // Three of the six were already pinned when W15b landed, by the tests

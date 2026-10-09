@@ -4,6 +4,9 @@
   "private": true,
   "description": "Command-line send/receive proof of concept for the ad-hal transfer engine.",
   "license": "MIT",
+  "files": [
+    "src"
+  ],
   "bin": {
     "ad-hal-send": "src/swarm-send.js",
     "ad-hal-receive": "src/swarm-receive.js",

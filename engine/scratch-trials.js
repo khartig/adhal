@@ -6,9 +6,10 @@
 // debugging came from reasoning about single runs. One failure looks like a
 // bug; one success looks like a fix. On a path that is intermittently
 // unable to hole punch, neither is true, and there was no instrument that
-// could tell the difference. This is that instrument. It is also the direct
-// input to plan section 8 ("Transfer success (direct or relay) >= 75%") and
-// to section 9 spike 1 (our punch rate on a genuinely hostile path).
+// could tell the difference. This is that instrument. Its results are read
+// against the reliability bar docs/MEASURING-TRANSFER-RELIABILITY.md states
+// (>= 75% success on a path, and 50% as the line below which relay quality
+// is the product), and it is what W14's head-to-head runs reuse.
 //
 // Usage, on the two real machines:
 //
@@ -176,6 +177,16 @@ const OUTCOME_BY_CODE = {
   // Sender only: the receiver had every byte and said, in RESULT, that it
   // could not keep the file. Its own record for the trial says why.
   ERR_RECEIVER_FAILED: 'receiver-failed',
+  // The accept gate. This harness's receiver asks no person, so a decline
+  // here is the engine's own: a name, a size, the disk. ERR_DECLINED is
+  // what the sender sees of any of them, with the receiver's reason.
+  ERR_DECLINED: 'declined',
+  ERR_NO_SPACE: 'no-space',
+  ERR_EXISTS: 'exists',
+  // Someone else holding this trial's code paired first. On a derived,
+  // private code that should not happen; if it does, a second machine is
+  // running the same --seed.
+  ERR_DROP_TAKEN: 'drop-taken',
   ERR_UNSAFE_NAME: 'unsafe-name',
   ERR_MANIFEST_INVALID: 'manifest-invalid',
   ERR_PROTOCOL: 'protocol-error',
@@ -497,17 +508,17 @@ function summarise (results) {
   } else if (results.length < 5) {
     log('>> Too few trials to call a rate. Use --trials 10 or more.')
   } else if (rate >= 75) {
-    log(`>> ${rate.toFixed(0)}% meets plan section 8's >=75% bar for this path.`)
+    log(`>> ${rate.toFixed(0)}% meets the >=75% reliability bar for this path.`)
     if (counts.get('no-peer')) {
       log(`   ${counts.get('no-peer')} trial(s) never saw a peer -- intermittent discovery or punch`)
       log('   failure, which is what makes a single failing run look like a bug.')
     }
   } else if (rate >= 50) {
-    log(`>> ${rate.toFixed(0)}% is below the section 8 bar of 75% but above the`)
+    log(`>> ${rate.toFixed(0)}% is below the 75% reliability bar but above the`)
     log('   kill threshold of 50%. This path is flaky, not broken -- expect')
     log('   single runs to fail and do not read a code bug into them.')
   } else {
-    log(`>> ${rate.toFixed(0)}% is below section 8's 50% kill threshold. Per the plan,`)
+    log(`>> ${rate.toFixed(0)}% is below the 50% kill threshold. On this path,`)
     log('   relay quality is the product, not an optional extra.')
   }
 }

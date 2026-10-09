@@ -4,6 +4,9 @@
   "private": true,
   "description": "Transport-agnostic transfer engine: framing, manifest, chunking, hashing. Holepunch (Hyperswarm/Hyperdht) join logic lands here starting with item 2.",
   "license": "MIT",
+  "files": [
+    "src"
+  ],
   "main": "src/index.js",
   "engines": {
     "node": ">=24"

@@ -1,7 +1,7 @@
 'use strict'
 
 // A seeded random-mutation fuzz harness over every parser that reads peer
-// bytes (IMPLEMENTATION-PLAN.md W15d, decision 6): the framer, the channel,
+// bytes (W15d and its decision 6, docs/history/WORK-RECORD.md): the framer, the channel,
 // every message decoder, manifest validation, filename handling and the
 // three handshake readers.
 //
