@@ -168,14 +168,14 @@ test('the reserved 0x00 tag reports a desynced stream, not an unsupported featur
   })
 })
 
-test('an untagged pre-item-5 manifest is named as version skew', () => {
+test('an untagged manifest, from before type tags, is named as version skew', () => {
   // A build from before the tag existed wrote bare JSON as the payload, so
   // the first byte is '{'. Saying "unknown type 0x7b" would send whoever
   // reads it hunting a corruption bug; the fix is to redeploy.
   const legacy = Buffer.from(JSON.stringify({ type: 'manifest', name: 'a.bin' }), 'utf8')
   assert.throws(() => decodeMessage(legacy), (/** @type {any} */ err) => {
     assert.equal(err.code, 'ERR_PROTOCOL')
-    assert.match(err.message, /pre-item-5 build/)
+    assert.match(err.message, /build from before message type tags/)
     assert.match(err.message, /[Rr]edeploy both sides/)
     return true
   })

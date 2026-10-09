@@ -2,7 +2,7 @@
 
 // Terminal QR rendering for the drop code. This lives in cli/ rather than engine/
 // on purpose: engine/ owns the code as a value (engine/src/code.js), and
-// every surface draws the symbol its own way -- the Phase B desktop UI will
+// every surface draws the symbol its own way -- a desktop UI (Stage 3) would
 // hand the same payload to a canvas or an <svg>, not to half-block
 // characters. Only the payload string is shared.
 

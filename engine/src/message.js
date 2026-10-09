@@ -28,7 +28,7 @@ const { TransferError } = require('./errors')
 // It lives here rather than in ./frame.js on purpose. The framer stays a
 // pure length-prefixer that knows nothing about what it carries -- it is
 // reused unchanged by anything that needs delimiting, and it stayed
-// correct through items 1-4 precisely because it has no protocol opinions.
+// correct through the failure-reporting work precisely because it has no protocol opinions.
 // ./transfer.js never calls encodeFrame directly, which is what makes
 // "every frame is typed" true without the framer having to enforce it.
 //
@@ -89,7 +89,7 @@ const TYPE_NAMES = new Map([
   [TYPE_PREFIX, 'PREFIX']
 ])
 
-// An untagged manifest from a pre-item-5 build starts with '{' (0x7b),
+// An untagged manifest from a build before type tags starts with '{' (0x7b),
 // because that build wrote bare JSON as the whole payload. That is a
 // version skew, not a corrupt stream, and the two have completely
 // different fixes -- so it is named rather than left to be inferred from a
@@ -126,7 +126,7 @@ function decodeMessage (payload) {
   if (type === LEGACY_MANIFEST_FIRST_BYTE) {
     throw new TransferError(
       'ERR_PROTOCOL',
-      'the peer is running a pre-item-5 build: it sent an untagged manifest. ' +
+      'the peer is running a build from before message type tags: it sent an untagged manifest. ' +
       'Redeploy both sides to the same version -- this is a version skew, not ' +
       'a corrupt transfer'
     )

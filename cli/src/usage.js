@@ -17,7 +17,7 @@ const NOT_ANONYMOUS = 'not anonymous: your IP address is visible to the peer, an
 const TEST_ONLY = 'TEST-ONLY: the loopback harness, over 127.0.0.1. For a real drop use ad-hal-send / ad-hal-receive.'
 
 const USAGE = {
-  'swarm-receive': `ad-ḫal receive: wait for a file from someone who has the drop code.
+  'swarm-receive': `Adhal receive: wait for a file from someone who has the drop code.
 
 Usage: ad-hal-receive [--new] [outputDir]      generate a code and show it (the default)
        ad-hal-receive - [outputDir]            read a code from stdin, or type it at the prompt
@@ -43,7 +43,7 @@ offer is declined.
 
 Note: ${NOT_ANONYMOUS}.`,
 
-  'swarm-send': `ad-ḫal send: send a file to the receiver showing a drop code.
+  'swarm-send': `Adhal send: send a file to the receiver showing a drop code.
 
 Usage: ad-hal-send - <file>                    read the code from stdin, or type it at the prompt
        ad-hal-send <code> <file> --code-on-argv

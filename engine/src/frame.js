@@ -20,7 +20,7 @@
 // one-byte type tag, so CANCEL is distinguishable from file bytes. That
 // tag lives in ./message.js, not here, because this module's value is that
 // it has no opinion about its contents: it is the piece that stayed
-// correct and untouched through items 1-4, and folding the protocol into
+// correct and untouched through the failure-reporting work, and folding the protocol into
 // it would spend that. See ./message.js for the full argument.
 //
 // What did land here is a size bound, which is a framing concern and

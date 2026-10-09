@@ -1,253 +1,161 @@
-# Ad-ḫal
+# Adhal
 
 <img src="assets/app-icon.jpg" width="120" alt="Project logo" />
 
-Ad-ḫal is a one-shot, no-account file drop between two devices: QR or 5-word
-code, LAN first, DHT second, relay if a direct connection can't be
-established. No intermediary server sees your file unless a relay carries
-ciphertext on your behalf.
+Adhal is a one-shot, no-account file drop between two devices. The
+receiver shows a QR code or a five-word code, the sender types or scans
+it, and the file goes directly between the two machines over the
+Holepunch DHT, encrypted end to end. No server stores it, and no account
+is involved.
 
-Ad-ḫal (Sumerian ad-ḫal, written 𒀜𒄬 is an ancient word meaning “secret.” It names something kept hidden—knowledge sealed between those who share it and no one else.
+The name comes from the Sumerian *ad-ḫal* (Ad-ḫal, written 𒀜𒄬), an ancient
+word meaning “secret”: something kept hidden, knowledge sealed between
+those who share it and no one else.
 
-- [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md) -- what is
-  being built, in what order, and which parts a competitor cannot copy
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) -- how it works, and what
-  was learned building it
-- [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) -- what leaks, what does
+- [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md): the
+  roadmap, what is done, and what Adhal is built around
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how it is built
+- [`docs/PROTOCOL.md`](docs/PROTOCOL.md): the versioned wire
+  specification, including what v2 claims and does not (§12)
+- [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md): what leaks, what does
   not, and the explicit non-goals
-- [`docs/PROTOCOL.md`](docs/PROTOCOL.md) -- the versioned wire spec
+- [`SECURITY.md`](SECURITY.md): how to report a vulnerability, and
+  [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md), the status of
+  every finding so far
+- [`docs/history/`](docs/history/): how it got here
 
-Built on [Holepunch](https://holepunch.to) (Hyperswarm / Hyperdht / Noise)
+Built on [Holepunch](https://holepunch.to) (Hyperswarm, HyperDHT, Noise)
 rather than a custom NAT-traversal stack.
 
 ## Status
 
-**A drop works end to end, over the public DHT, across ISPs. The v2
-protocol is implemented, and the findings of a security review of it are
-being worked through before the wire format is frozen (Stage 1, W15).**
+**A drop works end to end, over the public DHT and across ISPs. Protocol
+v2 is implemented, and a security review of it has been worked through
+(W15). The wire format is not yet frozen (W17), and there are no releases
+yet.**
 
-- **Loopback (test-only):** two CLI processes on one machine exchange a file
-  over a localhost TCP connection, running the same PAKE handshake and
-  sealed channel as a real drop, and independently print matching SHA-256
-  hashes -- zero NAT, zero Hyperswarm.
-- **Hyperswarm:** the same manifest/chunk protocol, now carried over an
-  end-to-end Noise-encrypted Hyperswarm connection instead of a bare TCP
-  socket. `pnpm test` proves this against an isolated local DHT testnet
-  (no internet required, so it's fast and CI-safe); `pnpm run demo:swarm`
-  proves it against the real public DHT, which needs outbound UDP
-  reachability to Hyperswarm's bootstrap nodes -- this can time out in
-  sandboxed environments that only permit TCP/HTTPS egress.
-  `ADHAL_JOIN_TIMEOUT=<ms>` overrides the peer-discovery timeout (30s for
-  the receiver, 120s for the sender; 0 disables it) if you need a longer budget while diagnosing a slow
-  network. Note that a longer budget does not help the announce-propagation
-  race described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) -- that
-  one is fixed, not waited out. Cross-ISP transfer (Starlink CGNAT to
-  Comcast, both behind NAT) is verified with matching hashes on both sides.
-- **Drop codes** are generated rather than typed, and split in two. Five
-  words from the vendored EFF large wordlist, of which the first two are a
-  public *nameplate* and the last three are the only secret:
+What a drop does today:
 
-  ```
-  acid-acorn-acre-acts-afar
-  ^^^^^^^^^^ nameplate, ~25.8 bits   public; this is what the DHT sees
-             ^^^^^^^^^^^^^^ secret, ~38.8 bits   never hashed into anything
-  ```
+- **The code is split.** Five words from the EFF large wordlist: a
+  two-word *nameplate* that names the DHT topic and is public, and a
+  three-word *secret* (~38.8 bits) that is never hashed into anything an
+  observer can see. The secret is the password to a CPace PAKE, so a
+  guess costs a live run against a peer that is counting, and 100 failed
+  guesses burn the drop (W11; [`PROTOCOL.md`](docs/PROTOCOL.md) §2, §6).
+- **Every byte after the handshake is sealed**, with ChaCha20-Poly1305
+  under keys from the PAKE and the frame length authenticated, so security
+  does not depend on the transport that carried the bytes (W11, W15a).
+- **The receiver is asked.** Each offer is shown with its name, size and
+  SHA-256 before anything is written, and a name that would run when
+  opened is warned about (W15c).
+- **The file is verified, and nothing is overwritten.** The receiver
+  publishes it under its name only once its digest matches, never in
+  place of an existing file, and only then tells the sender it arrived
+  (Stage 0, W11).
+- **Streaming and resume.** `tar c dir | ad-hal-send <code> -` sends a
+  stream of unknown length. An interrupted transfer resumes from what the
+  receiver already holds, once the sender has proved that prefix is
+  really its own (W11).
 
-  The QR carries the same payload uppercased (`ADHAL2:ACID-ACORN-...`) at
-  ECC level H (~30% damage tolerance): usually a 33x33 symbol, 37x37 for
-  the longest codes. `pnpm run code` prints one;
-  `ad-hal-receive`/`swarm-receive.js` generates its own when given no code,
-  and shows the QR at the moment it becomes discoverable. See
-  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#the-drop-code-d1).
-- **The code is un-grindable, which is the point of the split.** A
-  receiver has to announce its topic to be findable, so the topic is public
-  from the moment a drop starts -- readable by the DHT nodes near it, which
-  is what `engine/scratch-lookup.js` walks. Earlier versions hashed the
-  *whole* code into that topic, so a stranger who scraped one could grind
-  candidate codes offline, as fast as its hardware allowed, without ever
-  touching a peer. No challenge-response can fix that; the commitment is
-  already public.
+What to know before using it:
 
-  Now the topic commits only to the nameplate, and the secret is the
-  password to a [CPace](docs/PROTOCOL.md#32-parameter-mapping-transcript-and-downgrade-resistance)
-  PAKE -- so it is hashed into nothing an observer can obtain. A guess
-  costs a live protocol run against a peer that is counting them, and 100
-  failures burn the drop and say plainly that somebody was guessing. A
-  stranger who scraped the topic cannot be handed a file, nor hand one
-  over into your `~/Downloads`; it is mutual because both of those are
-  real. See
-  [The PAKE handshake](docs/ARCHITECTURE.md#the-pake-handshake-d3) --
-  including what it deliberately does not defend against, and note that it
-  is a wire-format change, so both machines must be redeployed together.
-- **Failure reporting:** failures are something a human can name and act on. The
-  receiver verifies the file against the sender's manifest digest and
-  publishes it under its real name only if it passes (D6, which had been
-  written down from the start and implemented nowhere that shipped); a manifest can no longer choose a path outside the output
-  directory; a sender that vanishes mid-transfer fails the receive instead
-  of hanging it forever; and a declared frame length is bounded rather
-  than buffered toward 4 GB. Progress is reported on both sides, and
-  Ctrl-C sends a real CANCEL so the peer reports a deliberate cancellation
-  rather than `connection reset by peer` -- which is exactly what a dead
-  hole punch looks like, and the confusion the Hyperswarm work spent a
-  week learning to separate. Every failure now carries a machine-readable `.code`. **This
-  is a second wire-format change** (a one-byte type tag on every frame),
-  so again both machines must be redeployed together; a peer on an older
-  build is detected and told to redeploy rather than reported as
-  corruption. See
-  [Manifest, progress and cancel](docs/ARCHITECTURE.md#manifest-progress-and-cancel).
-- **Stage 0 hardening:** the handshake proves a peer is the one the human
-  meant, and nothing more. A peer that has the code could still overwrite
-  `~/.zshrc`, redirect a write through a planted symlink, forge a log line
-  or clear your terminal with a crafted filename, declare a 9 PB transfer,
-  outrun your disk until the process grew without bound, or prove the code
-  and then hold the connection open forever. None of those are reachable
-  now, and each has a test. Three latent bugs were found by probing the
-  shipping code rather than reading it -- including a sender whose Ctrl-C
-  had never worked. See
-  [Stage 0 hardening](docs/ARCHITECTURE.md#stage-0-hardening) and
-  [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md).
-- **Security review hardening (W15a, W15b):** every frame after the
-  handshake is sealed with ChaCha20-Poly1305 under keys derived from the
-  PAKE, with the frame length authenticated too, so security no longer
-  depends on the transport that carried the bytes. The code is a bearer
-  capability -- whoever holds it can connect -- so when a second person
-  with the same code turns up after the drop has paired, they are told the
-  drop is taken, and the side that paired says someone else has the code.
-  Each drop announces under a fresh DHT key, enforced in code, so two drops
-  cannot be linked by that key. Peer-supplied text can no longer reach your
-  terminal through an error message. The sender hashes and sends a file
-  through one descriptor, so a file swapped at its path mid-drop is not
-  what gets sent. Channel keys and handshake secrets are zeroed once used
-  (best effort; see
-  [`docs/THREAT-MODEL.md`](docs/THREAT-MODEL.md) §7). See
-  [Security review hardening](docs/ARCHITECTURE.md#security-review-hardening-w15).
+- **The code is a bearer capability.** Whoever holds it can complete the
+  drop, so hand it over by a route only the intended person sees. If
+  someone else with the code reaches the receiver first, you are told the
+  drop was already taken, and the side that paired says someone else has
+  the code (W15a).
+- **Adhal is not anonymous.** Each side's IP address is visible to the
+  other, and to the DHT nodes near the drop's topic. Both CLIs say so
+  when they start.
+- **Windows is not supported for security purposes** until it is a
+  required CI leg. Some of the filesystem defences fall back to weaker,
+  racy checks there (Q-07).
 
-The readiness handshake between the two peers became two-way as of the
-first cross-ISP attempt at a real drop, which exposed a receiver
-that could be permanently consumed by a peer that connected and then
-vanished -- routine on a firewalled CGNAT path. Both sides now discard a
-candidate that fails to confirm and keep waiting, a join timeout says
-whether it found nobody or found peers that never completed the handshake,
-and each candidate is logged as it arrives or is dropped. Details and the
-measurement in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Not built yet: LAN discovery, the optional relay, and a receive that
+writes to stdout with stable `--json` events (W13). See the
+[roadmap](docs/IMPLEMENTATION-PLAN.md).
 
-Reliability on that path is measured, not assumed: `engine/scratch-trials.js`
-runs N real drops back to back and reports a success rate, a connect-time
-distribution and a classified reason for every failure. On Starlink CGNAT to
-Comcast (2026-09-17, 10 trials x 10 MB) it recorded **10/10 with a ~12.9s
-median end-to-end and a 3.0s median connect**, clearing the alpha gates.
-Stated honestly, 10/10 gives a 95% one-sided lower bound of 74.1%, so the
-defensible claim is "healthy and comfortably usable", not "proven >=75%". See [`docs/MEASURING-TRANSFER-RELIABILITY.md`](docs/MEASURING-TRANSFER-RELIABILITY.md)
--- single runs cannot distinguish a flaky path from a broken one, and
-assuming they can cost this project a day.
-
-The whole v2 message set is implemented: the accept gate, streaming
-(`size: null`), and resume of an interrupted transfer. Not yet
-implemented: an interactive accept prompt in the receiver CLI (the engine
-supports it; the CLI currently accepts any valid offer -- W15c), LAN
-discovery, and relay. Ad-ḫal is not anonymous: both peers' IP addresses
-are visible to each other and to DHT nodes near the drop's topic. See
-[`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md).
-
-## Project layout
-
-```
-quay/
-├── engine/   @ad-hal/engine -- transport-agnostic framing, manifest, chunking, hashing
-├── cli/      @ad-hal/cli    -- send/receive command-line proof of concept
-└── docs/     plan, architecture, threat model, protocol spec, setup
-```
-
-`engine` stays pure JS with no UI/runtime framework attached, per the plan's
-Phase A instruction. Holepunch packages (hyperswarm, hyperdht,
-hypercore-crypto, b4a) are already installed in
-`engine/` from the Hyperswarm work onward, even though the loopback transport is plain
-Node `net`/`fs`/`crypto`. `protomux` was installed alongside them and never
-used; W10 decided against it and removed it (`docs/PROTOCOL.md` §8.2).
-`@noble/curves` and `@noble/hashes` carry the v2 PAKE (`engine/src/cpace.js`),
-and their ESM-only packaging is why the workspace needs `require(esm)` at all.
-The floor is Node >= 24, though, and for a separate reason: on 22.x the
-stall-timer tests are canceled rather than run (`.github/workflows/ci.yml`).
-The word list is vendored into
-`engine/src/wordlist.js` so a drop code never depends on a network fetch;
-`cli/` adds the zero-dependency `qrcode-generator` to draw the symbol, and
-`jsqr` as a test-only decoder that proves the printed symbol really scans.
+Reliability is measured, not assumed. `engine/scratch-trials.js` runs
+repeated real drops and classifies every failure. On Starlink CGNAT to
+Comcast (2026-09-17, 10 trials of 10 MB) it recorded **10 of 10, with a
+~12.9 s median end to end**. Stated honestly, 10 of 10 gives a 95%
+one-sided lower bound of 74.1%, so the defensible claim is "healthy and
+comfortably usable", not "proven ≥ 75%"
+([`MEASURING-TRANSFER-RELIABILITY.md`](docs/MEASURING-TRANSFER-RELIABILITY.md)).
 
 ## Quickstart
 
-Prerequisites: Node.js >= 24, [pnpm](https://pnpm.io) 12.4.1 (`corepack enable` provides it from `packageManager`).
+Prerequisites: Node.js ≥ 24, and [pnpm](https://pnpm.io) 12.4.1
+(`corepack enable` provides it from `packageManager`).
 
 ```bash
 pnpm install
-pnpm test               # everything: 287 tests, several minutes (spins up DHT testnets)
-pnpm test:fast          # the same minus network/subprocess tests: ~5s
+pnpm test               # everything: ~500 tests, about two minutes (DHT testnets)
+pnpm test:fast          # the same without network and subprocess tests: ~15 s
 pnpm typecheck          # tsc --noEmit; the repo is JSDoc-typechecked
-pnpm run demo:loopback  # loopback TCP, printing both sides' output live
-pnpm run demo:swarm     # Hyperswarm, against the real public DHT
-pnpm run code           # a drop code + its QR, ready to screenshot
+pnpm fuzz               # the fuzz harness at 100,000 iterations per target
+pnpm run code           # a drop code and its QR symbol
+pnpm run demo:swarm     # a drop between two local processes, over the public DHT
 ```
 
-To do a real two-machine drop, let the receiver generate the code and read
-it off its screen -- by camera or by eye:
+A real two-machine drop. The receiver generates the code and shows it, as
+words and as a QR symbol, once it can be found:
 
 ```bash
 # on the receiving machine
 node cli/src/swarm-receive.js --new ~/Downloads
 
-# on the sending machine: type the words it printed at the prompt
-node cli/src/swarm-send.js - ./some-file.bin
+# on the sending machine: type the words at the prompt
+node cli/src/swarm-send.js - ./report.pdf
 ```
 
-The receiver shows the offer -- name, size, the sender's SHA-256, and a
-note if an interrupted earlier attempt can be resumed -- and asks before
-anything is written. `--yes` accepts without asking. A file that would run
-code when opened (a program, a script, an installer, an archive, or a
-disguise such as `invoice.pdf.exe`) gets a warning line even with `--yes`.
-With no terminal to ask on and no `--yes`, the offer is declined, and the
-sender is told why.
+These are the `ad-hal-receive` and `ad-hal-send` bins. The receiver shows
+the offer and asks before writing anything; `--yes` accepts without
+asking, and with no terminal and no `--yes` the offer is declined, and the
+sender is told why. Both sides show progress (`ADHAL_NO_PROGRESS=1` turns
+it off). Ctrl-C on either side cancels the drop, and the other side
+reports a cancellation with your reason rather than a dropped connection.
 
-Neither side is anonymous: each side's IP address is visible to the other,
-and to the DHT nodes near the drop's topic. Both CLIs say so when they
-start.
+- **The code** is read from the prompt or stdin (`-`), so it stays out of
+  your shell history and `ps`. A code on the command line is refused
+  unless you add `--code-on-argv`, which you need only when stdin carries
+  the file: `tar c dir | node cli/src/swarm-send.js <code> - --name=dir.tar --code-on-argv`.
+  Any casing or separator is accepted, as is a scanned QR payload, and a
+  mistyped word is named before anything touches the network.
+- **An existing file is never overwritten.** A name that is taken lands
+  as `name (1)`, unless you pass `--replace`.
+- **`--verbose`** prints the DHT topic, which is otherwise kept out of
+  the logs. **`--insecure-opaque-code`** accepts an arbitrary string
+  instead of a generated code. It is for diagnostics only, because such a
+  string can be guessed offline by anyone watching the DHT.
+- **`ADHAL_QR_WIDE=1`** draws a double-width symbol for console fonts
+  that lack the half-block glyphs. **`NO_COLOR`** drops the colours, at
+  the cost of relying on a light terminal background, since a QR only
+  scans dark-on-light.
 
-Both sides show a progress bar while the transfer runs (`ADHAL_NO_PROGRESS=1`
-turns it off), and Ctrl-C on either side cancels the drop deliberately: the
-other end reports a cancellation with your reason, rather than a dropped
-connection. That is true on both sides as of Stage 0 -- it had been
-documented here for four milestones while the *sender* silently ignored
-its abort signal. The receiver prints a `verified:` line only when the
-file it wrote matches the digest the sender declared -- if it does not
-match, nothing is saved.
+`--help` on either CLI lists every flag. `cli/src/send.js` and
+`receive.js` are a loopback pair over `127.0.0.1` for tests, not for real
+drops. See [`docs/SETUP.md`](docs/SETUP.md) for setting up a development
+environment.
 
-`-` reads the code from stdin, or from the prompt, so it never reaches
-your shell history or `ps`. A code on the command line is refused unless
-you add `--code-on-argv`, which you need only when stdin carries the file
-itself (`tar c dir | node cli/src/swarm-send.js <code> - --code-on-argv`).
-`--help` on either CLI lists every flag.
+## Project layout
 
-An existing file is never overwritten: a drop that collides with one lands
-as `name (1)` unless you pass `--replace`.
+```
+engine/   @ad-hal/engine -- the protocol, the transport and the transfer
+cli/      @ad-hal/cli    -- the command-line tools, their tests and test helpers
+docs/     the roadmap, architecture, protocol, threat model and history
+```
 
-If someone else with the same code reaches the other side first, you are
-told the drop was already taken, and nothing is transferred; the side that
-paired reports that another peer holds the code. Use a new code, and ask
-how it got out. `--verbose` prints the DHT topic the drop joins, which is
-otherwise kept out of logs. `--insecure-opaque-code` accepts an arbitrary
-string instead of a generated code, for diagnostics only: anyone watching
-the DHT can guess such a string offline.
-
-The sender accepts the code in any casing or separator style, and accepts a
-scanned QR payload (`ADHAL2:ACID-...`) verbatim; all of them normalize to
-the same topic. If a word is mistyped, it says which one, before it spends
-any time on the network. `ADHAL_QR_WIDE=1` switches to a double-width
-symbol for console fonts lacking the half-block glyphs, and `NO_COLOR`
-drops the ANSI colors (at the cost of relying on a light terminal
-background -- a QR only scans dark-on-light).
-
-See [`docs/SETUP.md`](docs/SETUP.md) for setup and more detail on running/extending the CLI.
+`engine/` is plain JavaScript with no UI framework, so any front end can
+sit on it, and `cli/` imports only from it. Every dependency is pinned to
+an exact version. Holepunch's packages carry the transport, and
+`@noble/curves` and `@noble/hashes` carry the PAKE. The wordlist is
+vendored, so a drop code never depends on a network fetch. `cli/` adds
+`qrcode-generator` to draw the symbol, and `jsqr`, test-only, to prove
+the printed symbol really scans.
 
 ## License
 
-MIT -- see [`LICENSE`](LICENSE). The engine and CLI are licensed
-permissively to maximize forkability; a future GUI app's license is a
-separate, not-yet-decided question.
+MIT; see [`LICENSE`](LICENSE). The engine and CLI are licensed
+permissively to maximise forkability. A future GUI app's licence is a
+separate question, not yet decided.

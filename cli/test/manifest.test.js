@@ -289,7 +289,7 @@ test('the optional maxSize is enforced when given and absent by default', async 
 
 // --- version skew --------------------------------------------------------
 
-test('a cleartext frame -- v1\'s, or a pre-item-5 build\'s -- never reaches the manifest parser', async (t) => {
+test('a cleartext frame -- v1\'s, or one from before type tags -- never reaches the manifest parser', async (t) => {
   // THIS TEST USED TO ASSERT THE "REDEPLOY" DIAGNOSIS, and the diagnosis
   // moved rather than disappeared. Under v2 every frame is sealed, so an
   // old build's cleartext frame fails to authenticate before its type byte

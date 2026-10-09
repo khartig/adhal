@@ -253,7 +253,7 @@ test('the QR payload is uppercase and stays inside QR alphanumeric mode', () => 
     // would silently drop the encoder into byte mode and cost a version.
     assert.match(payload, /^[0-9A-Z $%*+\-./:]+$/)
     // Case-insensitive parsing is what makes scanning and typing the same
-    // path, which is the whole basis of the item-3 decision.
+    // path, which is the whole basis of the uppercase QR payload.
     assert.equal(parseCode(payload), code)
   }
 
