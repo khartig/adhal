@@ -1,58 +1,45 @@
-# Quay wire protocol
+# Adhal wire protocol, v2
 
-**v1 — superseded, described in §9 for interoperability.**
-**v2 — specified here, frozen by W10, and on the wire as of W11's
-security-core pass.**
+This is the specification of the protocol Adhal speaks: how a drop code
+becomes a topic and a PAKE password (§2), the handshake (§3), the message
+set and its state machine (§4), the sealed framing (§5), the attempt cap
+(§6), and resume (§7). §8 records the decisions behind them, each with the
+evidence that settled it. §9 describes v1, which is historical. §10 is the
+error vocabulary, §11 the conformance material, §12 what v2 claims and
+does not, and §13 how this text has changed.
 
-What W11 shipped: §2's code split, §3's handshake, §5's AEAD channel
-(carrying every frame of the transfer, with no unsealed mode), §4's
-message numbers, §4.2's `RESULT`, and §6's attempt cap. The loopback CLI
-runs the same handshake over plain TCP with no Noise underneath, which is
-§3.3's claim exercised end to end. W11's second pass added §4.0's
-manifest v2, the ACCEPT/DECLINE gate, streaming (§4.3) and resume (§7,
-§8.3), all inside the one v2 wire break, which is what the capability
-tokens in §3.2 were for. §3.1, §4.0 and §7.2 each carry an amendment
-W11 found while implementing them, and §7.5 adds `PREFIX` to close the
-gap §7.2's amendment names.
+**Status.** v2 is implemented in full in `engine/src/`, and every frame
+after the handshake is sealed. It is not yet frozen: it is tagged
+v2-final at W17 ([`IMPLEMENTATION-PLAN.md`](IMPLEMENTATION-PLAN.md)).
+Until then the wire can still change; after it, a change is v3.
 
-§8's decisions are settled, not open: the PAKE suite, the framing, the
-resume strategy and the checkpoint interval each carry the measurement
-or the test vector that closed them. What W11 builds against will not
-move underneath it.
-
-This is the versioned specification. It is a deliverable, not a note: a
-published spec with test vectors and a conformance suite is what lets a
-second implementation exist, and that is
-[differentiator #2](IMPLEMENTATION-PLAN.md#differentiators). Both
-competitors are applications that happen to contain an engine. This is an
-engine with a specification, and that is what lets a solo project outlive
-its author.
+A published specification with test vectors and a conformance suite is
+what lets a second implementation exist, and that is what this document
+is for.
 
 Numbering: **D1-D7** are data-path steps, **W1-Wn** are work items. No
 bare "item N" — that collision has already produced one documented error.
 
 ---
 
-## 1. Why v2 breaks the wire, once
+## 1. What v2 changed from v1, and why at once
 
 v2 changes the code format, the handshake, the framing and the message
 set, all together. Three separate breaks would be three "redeploy both
 machines" events; this is one.
 
-**The window for doing it is now and it closes on first release.** At
-0.1.0, with no outside users, a wire break costs a `git pull` on two
-machines. After the first outside user it costs compatibility code
-forever. v1 already took two breaks (the code proof, then the type tag),
-and each was justified the same way: take it while it is cheap.
+Before the first release, with no outside users, a wire break costs a
+`git pull` on two machines. After it, a break costs compatibility code
+forever. So every change below was taken together, while it was cheap.
 
-What forces the break:
+What forced the break:
 
-| Change | Why it cannot wait |
+| Change | Why it could not wait |
 | --- | --- |
-| Split code into nameplate + secret | The topic currently commits to the whole code, so codes are grindable offline. Fixing it changes what a code *is*. |
+| Split code into nameplate + secret | v1's topic committed to the whole code, so codes were grindable offline. Fixing it changed what a code *is*. |
 | PAKE replaces the HMAC proof | Different messages, different sizes. |
 | AEAD channel keyed by the PAKE transcript | Security stops depending on which transport carried the bytes — the precondition for a relay and for browsers. |
-| `size: null` + `END{sha256}` | Streaming (`tar c dir \| quay send -`) cannot be expressed in a manifest that requires a length. Omitting it costs a *third* break. |
+| `size: null` + `END{sha256}` | Streaming (`tar c dir \| ad-hal-send <code> -`) cannot be expressed in a manifest that requires a length. Omitting it would have cost a *third* break. |
 | `ACCEPT{resumeFrom}` / `CHECKPOINT` | Resume needs a durable offset. |
 | `PREFIX{sha256}` | A prefix has to be checked before it is resumed, not after the whole remainder has been sent (§7.5). |
 
@@ -73,26 +60,18 @@ an unsigned LEB128 integer. For the nameplate `acid-acorn` the hashed bytes
 are `0e "adhal-v2:topic" 0a "acid-acorn"`. The nameplate is its canonical
 form (lowercase, hyphen-separated) in UTF-8.
 
-*Amended in W15a.* The topic was previously the bare concatenation
-`"adhal-v2:topic" || nameplate`. That was unambiguous only because the
-label had a fixed length and no word contains `:`. The length prefixes
-make the encoding unambiguous whatever either field contains.
-
 Words come from the vendored EFF large wordlist: 7772 words of 3-9
 letters, which is the published list of 7776 with its four hyphenated
 entries (`drop-down`, `felt-tip`, `t-shirt`, `yo-yo`) removed, because `-` is
 the word separator. That is log2(7772) ≈ 12.92 bits per word. Word order
-is the source file's. See [`ARCHITECTURE.md`](ARCHITECTURE.md) for why this
-list and not BIP39.
+is the source file's. See
+[`history/ENGINEERING-LOG.md`](history/ENGINEERING-LOG.md#the-drop-code-d1)
+for why this list and not BIP39.
 
-*Amended in W15a.* The list was EFF short list #1 (1295 words, about 31
-bits of secret). The large list keeps the 2 + 3 format and raises the
-secret to about 38.8 bits, so the attempt cap (§6) is no longer the only
-thing standing between an online guesser and a ~31-bit secret: at 100
-counted guesses the odds per drop fall from about 4.7 × 10⁻⁸ to about
-2 × 10⁻¹⁰. The nameplate rises to about 25.8 bits, which moves a 50%
-nameplate collision (about 1.18 × √N for N possible nameplates) from
-about 1,500 concurrent drops to about 9,150.
+Against the attempt cap (§6), 100 counted guesses give a guesser at most
+100 / 7772³ ≈ 2.1 × 10⁻¹⁰ of taking one drop. A 50% chance that two live
+drops share a nameplate (about 1.18 × √N for N possible nameplates) needs
+about 9,150 of them at once.
 
 The nameplate is a **rendezvous label**, not a secret. It is public the
 moment the receiver announces. The secret is the only secret, and it never
@@ -141,56 +120,30 @@ Same three messages, same first-read and first-write points, so **no new
 duplicate-resolution risk**. The third message is sent only after both
 sides are already established.
 
-**One framing consequence, stated here because W11 will otherwise trip
-over it.** v1's three messages were all fixed sizes — 33, 64, 32 — which
-is why `engine/src/swarm.js` could hold them as compile-time constants and
-call `MessageReader.take(n)` with a literal. `CONFIRM` (32) stays fixed
-under v2. `HELLO` and `REPLY` do not: `caps` is
-variable-length, so **both carry their own length prefix** and the reader
-takes the prefix first. `MessageReader` already reads by byte count and
-needs no change; the constants do.
+**The wire layout.** `CONFIRM` is fixed-size. `HELLO` and `REPLY` carry a
+variable-length capability set, so each has a 2-byte big-endian length
+prefix, and a reader takes the prefix before the body:
 
-> **Amended in W11, and the reason is a defect in this section.** As
-> frozen by W10, §3.1 fixed `REPLY` at 64 bytes — `{Yb 32, confirmS 32}`,
-> with no `caps_s` field. But §3.2 puts `ADb = lv_cat(version, caps_s)`
-> inside `transcript_ir`, derives `ISK` from that transcript, and MACs
-> `confirmS` under a key derived from `ISK`. So the receiver needs
-> `caps_s` in order to verify the confirmation that arrives *in* `REPLY`
-> — and `caps_s` was transmitted nowhere in the three-message handshake.
-> **§3.2's handshake was not implementable as §3.1 framed it.**
->
-> The fix is to length-prefix `REPLY` as well, so it carries `caps_s`:
->
-> ```
-> HELLO   = [2-byte BE len][version 1][sid 16][Ya 32][caps_r ...]   R -> S
-> REPLY   = [2-byte BE len][Yb 32][confirmS 32][caps_s ...]         S -> R
-> CONFIRM = [confirmR 32]                                           R -> S
-> ```
->
-> `version = 0x02`; `caps` is capped at 128 bytes, so both bodies are
-> bounded and a peer cannot make us buffer.
->
-> This preserves the property §3.1 actually calls load-bearing: the
-> receiver still writes first, the sender still reads first and writes on
-> answering. Checked against Hyperswarm's source rather than this
-> section's paraphrase of it — `hyperswarm/index.js:359` computes
-> `existingIsOutdated = existing.rawBytesRead > 0 && existing.rawBytesWritten > 0`
-> and line 361 falls back to an initiator comparison, so the tie-break
-> turns on *whether* bytes have moved, never on how many. A longer
-> `REPLY` cannot affect it.
->
-> So "REPLY stays fixed" was a note about holding sizes as compile-time
-> constants, not a security claim. Recorded here
-> rather than edited away, for the same reason §8.2's wrong latency
-> estimate and the Node-version floor are: a spec that quietly rewrites
-> its own mistakes teaches a second implementer nothing.
+```
+HELLO   = [2-byte BE len][version 1][sid 16][Ya 32][caps_r ...]   R -> S
+REPLY   = [2-byte BE len][Yb 32][confirmS 32][caps_s ...]         S -> R
+CONFIRM = [confirmR 32]                                           R -> S
+```
+
+`version` is `0x02`. Each `caps` field is capped at 128 bytes, so a HELLO
+body is 49–177 bytes and a REPLY body 64–192, and a length outside that is
+refused before any of the body is buffered. `REPLY` carries `caps_s`
+because the receiver needs it: `ADb` is inside the transcript that keys
+`confirmS` (§3.2). Its length cannot affect the tie-break above, which
+turns on *whether* bytes have moved, never on how many
+(`hyperswarm/index.js`, `_handleServerConnection`).
 
 ### 3.2 Parameter mapping, transcript, and downgrade resistance
 
 The suite is **CPACE-X25519-SHA512** (`CPace255`), per §8.1. The
 composition lives in `engine/src/cpace.js` and is checked against the
 CFRG vectors by `cli/test/cpace-vectors.test.js`. What follows is the
-part that is *not* in the draft: which Quay value goes into which CPace
+part that is *not* in the draft: which Adhal value goes into which CPace
 input. It is the only genuinely novel piece of v2's handshake, so it is
 specified here in full and its weak points are named rather than left
 for a reader to find.
@@ -406,29 +359,12 @@ manifest field is forever: a new one is a new `v`. `size` and `sha256`
 are both declared or both `null`, the two shapes §4.3 defines. A length
 without a digest would be a stream that lied about being one.
 
-**Amendment, recorded rather than edited in silently.** As frozen by W10
-this line read `{v, name, size|null, sha256|null, mode, blockSize, caps}`.
-W11 removed two fields while implementing it:
-
-- **`mode` had no definition anywhere in this spec.** The candidates
-  were each wrong. POSIX permission bits do not exist on Windows, an
-  eventual target (Node synthesises `stat.mode` there and `chmod` only
-  toggles read-only), and they would let a peer choose to deliver an
-  executable. A file/stream kind repeats `size: null`, and a repeated
-  fact is two facts that can disagree. A directory kind cannot be a
-  one-word field at all: it needs a list of entries, each needing the
-  traversal and symlink defences one name gets now, which is a different
-  manifest and so a different `v`. A v2 receiver refuses that by version,
-  which is the same clean refusal a `mode` value would have given.
-  Directories travel as a stream (`tar c dir | quay send -`, §4.3). The
-  protocol moves one named sequence of bytes and does not interpret it.
-- **`caps` was a second copy of what the handshake negotiates.** §3.2's
-  trap #3 requires that what a party acts on be a pure function of
-  `caps_r` and `caps_s` *as they appear in the transcript*. A manifest
-  copy is a second source that can disagree, and it is not in the
-  transcript. The receiver checks the manifest against the negotiated set
-  instead. `size: null` without `stream` negotiated is refused, and no
-  field is needed to say so.
+There is no `mode` field and no `caps` field. A file's kind, permissions
+or directory structure are not the protocol's to carry: directories
+travel as a stream (§4.3), and the protocol moves one named sequence of
+bytes without interpreting it. What a transfer may use is decided by the
+capabilities in the handshake transcript (§3.2), never by anything the
+manifest says about itself. §13 records why both fields were removed.
 
 **The offer.** A MANIFEST is an offer, and the receiver answers it before
 any file byte moves:
@@ -566,12 +502,16 @@ where that wait ran out with 0.3–4.2 MB still undelivered.
 
 ### 4.3 `size: null` and END — not optional
 
-Streaming is [differentiator #4](IMPLEMENTATION-PLAN.md#differentiators):
+Streaming is what lets a directory, or the output of any command, be
+sent without being written to disk first:
 
 ```
-tar c dir | quay send -
-quay recv | tar x
+tar c dir | ad-hal-send <code> - --name=dir.tar --code-on-argv
+ad-hal-receive                      # writes dir.tar once END's digest matches
 ```
+
+(The code goes on the command line here only because stdin carries the
+stream; see the CLI's `--help`.)
 
 A manifest that requires a length cannot express it. So `size` may be
 `null`, `sha256` may be `null`, and the sender closes with
@@ -582,13 +522,9 @@ size and hash it checks both; with neither it checks the `END` digest
 against what it computed. A receiver must not treat a missing `sha256` as
 "no verification" — it means "the digest arrives at the end".
 
-Blob-addressed designs (Iroh) cannot do this without hashing first,
-because they must know the hash to address the content. That is a
-structural advantage, and it is worth one message.
-
-**As implemented (W11).** `sendStream` in `engine/src/transfer.js` is
-`sendFile` with a different source, sharing one state machine. The rules
-a second implementation has to match:
+**The rules a second implementation has to match.** (In this
+implementation, `sendStream` in `engine/src/transfer.js` is `sendFile`
+with a different source, sharing one state machine.)
 
 - **Gated by the handshake, not the manifest.** A sender offers
   `size: null` only if `stream` is in the negotiated capability set (§3.2),
@@ -615,9 +551,10 @@ a second implementation has to match:
   promised no length and is not at fault, so it hears why rather than
   seeing a hang-up. Locally this is `ERR_SIZE_MISMATCH` with `.limit`.
 - The receiver still writes a `.part` and publishes only after END's
-  digest matches. `quay recv | tar x`, writing to stdout, cannot keep that
-  property, because the consumer sees bytes before the digest arrives.
-  That output contract is W13's, and not specified here.
+  digest matches. A receiver that wrote the stream to stdout, for
+  `… | tar x`, could not keep that property, because its consumer would
+  see bytes before the digest arrived. That output contract is W13's, and
+  not specified here.
 
 ### 4.4 The state machine (W15d)
 
@@ -736,11 +673,6 @@ rewritten therefore fails to authenticate, which is the same single event
 as every other tampering case: the channel does not report which part was
 altered.
 
-*Amended in W15a.* The length was previously outside the ciphertext and
-outside the tag, on the argument that a rewritten length re-delimits the
-stream so the frame cannot open anyway. That argument held, but it made
-the channel's integrity depend on the framing rather than on the AEAD.
-
 **The frame budget must account for every term.** v1 got this wrong in a
 way worth recording: `MAX_CHUNK_SIZE` and the frame cap were both stated
 as `1024 * 1024`, but `encodeMessage` prefixes a one-byte type tag, so a
@@ -809,22 +741,16 @@ guesses. Accepted deliberately: the alternative is unlimited guessing
 against ~38.8 bits, and a denial of service is a better failure than a silent
 compromise. See [`THREAT-MODEL.md`](THREAT-MODEL.md) §5.3.
 
-[`ARCHITECTURE.md`](ARCHITECTURE.md) still states the v1 rule, correctly,
-in its description of the v1 code proof; it is annotated there as
-superseded by this section rather than rewritten, because the v1
-handshake it describes is what still ships.
-
 ---
 
 ## 7. Resume, and the traps in it
 
 Resume is the feature most likely to be implemented wrongly, because the
-obvious design is wrong in three separate ways. All three had to be
-settled **before** the manifest format froze, since two of them change
-it. All three now are: §7.1 prefers re-pairing, §7.2 re-hashes the
-prefix (W10, amended in W11), and §7.3 is a statement about what the
-hash means. §7.4 records how W11 built it, and §7.5 checks a prefix
-before it is resumed, which is what makes §7.2's original promise true.
+obvious design is wrong in three separate ways, and two of them change the
+manifest. §7.1 re-pairs rather than persisting a secret. §7.2 does not
+trust the partial: it is re-hashed, and its prefix is proven by the sender
+before any byte moves (§7.5). §7.3 says what the hash means. §7.4 gives
+the rules a second implementation has to follow.
 
 ### 7.1 The secret must outlive the process
 
@@ -872,49 +798,30 @@ Why re-hashing wins here:
   reuses the integrity check the protocol already has rather than
   introducing a parallel one.
 
-The receiver re-hashes the prefix, compares against the offered
-manifest's `sha256` prefix-wise — that is, it hashes what it has and
-carries the hash state forward rather than recomputing at the end — and
-sends `ACCEPT{resumeFrom}` only for a prefix it has verified itself.
-A prefix that does not match is discarded and the transfer starts at
-zero; it is not an error to report to the human, because a planted
-`.part` is exactly the case this defends against and it is not the
-human's doing.
+The receiver re-hashes the prefix it holds and carries that hash state
+forward, so the final digest covers the whole file without the prefix
+being read twice. Re-hashing alone cannot say whether the prefix belongs
+to this file — a whole-file digest vouches for no prefix — so the sender
+proves its own prefix before any byte is sent (§7.5). A prefix that does
+not match is discarded, and the transfer starts at zero on the same
+connection. That is not an error to report to the human: a planted or
+stale `.part` is exactly the case this defends against, and it is not the
+human's doing. The final digest comparison stays, whatever the prefix
+check said.
 
 Note what this does **not** cover: `size: null` streaming transfers have
 no declared `sha256` (§4.3), so there is nothing to re-hash a prefix
 against. **Streaming transfers are not resumable**, and that falls out
 of this decision rather than being a separate one.
 
-> **Amended in W11: re-hashing cannot verify a prefix before ACCEPT.**
-> The paragraphs above say the receiver sends `ACCEPT{resumeFrom}` "only
-> for a prefix it has verified itself", and that a prefix that does not
-> match "is discarded and the transfer starts at zero; it is not an error
-> to report to the human". The first half cannot be met with what the
-> manifest carries. A whole-file SHA-256 says nothing about whether *n*
-> bytes are the first *n* bytes of that file. Re-hashing gives the
-> receiver the hash *state* of its prefix, which is what lets it carry
-> the state forward. Whether the prefix belonged is known only when the
-> final digest is compared.
->
-> So the guarantee, stated as it is actually enforced: **a wrong prefix
-> is never published.** It fails the final comparison
-> (`ERR_HASH_MISMATCH`, with `.resumedFrom`), the partial is deleted, and
-> the retry starts from zero. A planted or stale `.part` costs one failed
-> transfer, and the human does see that failure. Checking a prefix
-> *before* ACCEPT would need the sender to take part, for example a
-> prefix digest in ACCEPT that the sender checks, plus a way to fall back
-> to zero on the same connection. That is a wire change to ACCEPT and is
-> not made here. The per-block hashes W10 rejected would also do it, at
-> the manifest cost W10 declined.
->
-> **Superseded by §7.5.** The wire change was made, before release, with
-> the digest travelling the other way: the sender proves its prefix, and
-> the receiver checks. A wrong prefix now costs one round trip, is
-> discarded, and is not reported to the person, which is what the first
-> paragraphs of this section promised. The final digest comparison stays.
+### 7.3 The displayed hash is integrity, not authenticity
 
-### 7.4 As implemented (W11)
+Worth stating in the spec because resume makes it more tempting to
+misread: a matching SHA-256 proves the bytes arrived as the sender
+described them. It proves nothing about whether the sender was honest
+about what it was sending.
+
+### 7.4 The rules a second implementation must follow
 
 A second implementation needs these rules, not just the message shapes:
 
@@ -959,20 +866,14 @@ A second implementation needs these rules, not just the message shapes:
   what it has sent. The sender surfaces it as `onCheckpoint`: delivery,
   where `onProgress` is only hand-off.
 
-### 7.3 The displayed hash is integrity, not authenticity
+### 7.5 Checking a prefix before resuming
 
-Worth stating in the spec because resume makes it more tempting to
-misread: a matching SHA-256 proves the bytes arrived as the sender
-described them. It proves nothing about whether the sender was honest
-about what it was sending.
-
-### 7.5 Checking a prefix before resuming (W11)
-
-§7.2's amendment left a wrong prefix caught only by the final digest.
-The file was never published wrong, but the whole remainder was sent
-first, the person saw a failure, and the retry started from zero. At the
+Without this, a wrong prefix would be caught only by the final digest.
+The file would never be published wrong, but the whole remainder would be
+sent first, the person would see a failure, and the retry would start
+from zero. At the
 ~1 MB/s measured cross-ISP, a 4 GB file resumed at 2 GB on a wrong prefix
-spent about 35 minutes failing before a 70-minute retry. The realistic
+would spend about 35 minutes failing before a 70-minute retry. The realistic
 cause is not an attacker. It is a stale partial from an interrupted send
 of an older `report.pdf`, offered again as a newer file under the same
 name.
@@ -1081,12 +982,11 @@ resumed than the partial held, which is re-sent.
 
 ---
 
-## 8. Decisions settled in W10
+## 8. Decisions, and the evidence that settled them
 
-These were open when this document was first written (W9). W10 closed
-them, and each one below carries the evidence that closed it rather than
-the reasoning that motivated it. Nothing here went on the wire — W11 is
-the implementation, and it builds against a spec that will not move.
+Each decision below was settled in W10, and carries the evidence that
+settled it rather than the reasoning that motivated it, so that anyone
+who wants to change one can argue with the evidence.
 
 ### 8.1 Which PAKE, and on what — **CPACE-X25519-SHA512 over `@noble/curves`**
 
@@ -1130,23 +1030,12 @@ and group operation comes from the audited library, and the only thing
 together in the draft's order — which is precisely what a fixed
 input/output vector can check.
 
-**The one user-visible cost.** `@noble/curves@2.4.0` is ESM-only
-(`"type": "module"`, `engines: >= 20.19.0`). It loads from CommonJS via
-`require(esm)` on Node 20.19+ / 22.12+ but not on Node 18. The
-CJS-compatible `1.9.7` was checked as a fallback and **does not export
-the Elligator2 map at all**, so staying on v1 would mean reaching into
-internals or hand-rolling the map — the thing this decision exists to
-avoid. So `engines.node` moves from `>=18` to `>=20.19` in all three
-`package.json` files. Node 18 went end-of-life in April 2025 and CI
-already runs Node 22 on all three legs, so the declared `>=18` was
-untested anyway.
-
-> **Superseded.** The floor is now `>=24` and CI runs Node 24
-> (`.github/workflows/ci.yml:58,95,131`). Not for `require(esm)` —
-> 20.19/22.12 are enough for that — but because on 22.x the six
-> stall-timer and size-cap tests in `cli/test/hardening.test.js` are
-> reported cancelled rather than run, reproducibly on 22.23.2 and clean
-> on 24.21.0.
+**The one cost.** `@noble/curves@2.4.0` is ESM-only, and the
+CommonJS-compatible `1.9.7` does not export the Elligator2 map at all.
+Staying on 1.x would mean reaching into internals or hand-rolling the map,
+the thing this decision exists to avoid, so an implementation in Node
+needs one that can `require` an ES module. (This one requires Node ≥ 24
+for a reason of its own; see [`SETUP.md`](SETUP.md).)
 
 Also confirmed, so that neither forces a further dependency:
 
@@ -1265,10 +1154,12 @@ bytes — is the part a second implementation should copy.
 
 ---
 
-## 9. v1, for reference
+## 9. v1, historical
 
-Shipped today. Documented so a v2 implementation can recognise a v1 peer
-and say so rather than reporting corruption.
+v1 shipped until W11, under the product's old name, and nothing in this
+repository speaks it now. It is described only so that a v2
+implementation can recognise a v1 peer and say so, rather than reporting
+corruption.
 
 ```
 code  = 6 words
@@ -1289,7 +1180,7 @@ payload = [1-byte type][body]              cleartext (Noise underneath)
 
 Manifest v1: `{v: 1, type: "manifest", name, size, chunkSize, sha256}`.
 
-**Version-skew detection already exists and should be kept.** A v1 sender's
+**Version-skew detection is kept.** A v1 sender's
 first frame begins `0x7b` (`{`) if it predates the type tag, which is
 reported by name — "redeploy both sides", not "unknown type 0x7b". A v2
 implementation meeting a v1 peer should do the same: name the skew rather
@@ -1354,11 +1245,15 @@ considered published:
 - **Test vectors** for the code format, `topic` derivation, the CPace
   transcript, ISK derivation, and both confirmations — as fixed
   input/output pairs, independent of this implementation.
-  `cli/test/cpace-vectors.test.js` is the first of these and covers the
-  suite itself (the CFRG vectors, transcribed rather than computed). The
-  Quay-specific ones — a code to a topic, a secret and nameplate to an
-  ISK, an ISK to both confirmations — need W11's implementation to exist
-  before they can be generated.
+  `cli/test/cpace-vectors.test.js` covers the suite itself (the CFRG
+  vectors, transcribed rather than computed). The Adhal-specific ones are
+  `cli/test/code-vectors.test.js` (a code to its nameplate, secret,
+  topic and QR payload) and `cli/test/handshake-vectors.test.js` (a
+  secret, nameplate, `sid`, scalars and capabilities to the generator,
+  both points, K, the transcript, the ISK, both confirmations and both
+  channel keys). They were generated by this implementation, so they pin
+  it rather than prove it; the second file recomputes each derivation
+  independently to narrow that gap.
 - **A conformance harness** that drives any implementation through the
   handshake, a normal transfer, a cancel, a resume and a streaming
   transfer, and checks the wire bytes.
@@ -1434,7 +1329,7 @@ different adversary, and §12.3 says what it can do.
    peer, and no more. At 100 failed confirmations the drop is burned
    (§6). With the secret's ~38.8 bits (three words of the EFF large
    list), one drop's chance of falling to a guesser is at most
-   100 / 7776³ ≈ 2 × 10⁻¹⁰. Pinned: `attempts.test.js`,
+   100 / 7772³ ≈ 2.1 × 10⁻¹⁰ (§2). Pinned: `attempts.test.js`,
    `security-properties.test.js` (Q-14).
 2. **Mutual proof of the code, per connection.** Each side proves the
    secret to the other, `confirmS` then `confirmR`, over the whole
@@ -1528,5 +1423,149 @@ different adversary, and §12.3 says what it can do.
   on and nothing else does.
 
 The review that produced W15 was AI-assisted, not independent
-(`IMPLEMENTATION-PLAN.md`, W15). Nothing in this section has yet been
+([`SECURITY-REVIEW.md`](SECURITY-REVIEW.md)). Nothing in this section has yet been
 checked by anyone outside the project.
+
+---
+
+## 13. Changelog
+
+This specification changed while it was being implemented, and the
+changes are recorded rather than edited in silently: a spec that rewrites
+its own mistakes quietly teaches a second implementer nothing. The
+sections above say what is true now; this says what was true before, and
+why it changed.
+
+### W10 — the design is settled
+
+The PAKE suite, the framing, the resume strategy and the checkpoint
+interval were decided, each with the evidence in §8. v2's design was
+frozen against them, and W11 implemented it.
+
+### W11 — implementation, and three amendments it forced
+
+**§3.1: REPLY gained a length prefix and `caps_s`.** As frozen by W10,
+REPLY was a fixed 64 bytes, `{Yb, confirmS}`. But §3.2 puts
+`ADb = lv_cat(version, caps_s)` inside the transcript that keys
+`confirmS`, so the receiver needs `caps_s` to verify the confirmation
+that arrives *in* REPLY, and the three-message handshake sent it nowhere.
+§3.2's handshake was not implementable as §3.1 framed it.
+
+The fix was to length-prefix REPLY as well, so that it carries `caps_s`
+(§3.1, "The wire layout"). It keeps the property §3.1 calls
+load-bearing: the receiver still writes first, and the sender still reads
+first and writes on answering. Checked against Hyperswarm's source rather
+than this document's paraphrase of it, the duplicate tie-break turns on
+*whether* bytes have moved, never on how many, so a longer REPLY cannot
+affect it. "REPLY stays fixed" had been a note about holding sizes as
+compile-time constants, not a security claim.
+
+**§4.0: the manifest lost `mode` and `caps`.** As frozen by W10 the
+manifest was `{v, name, size|null, sha256|null, mode, blockSize, caps}`.
+W11 removed two fields while implementing it:
+
+- **`mode` had no definition anywhere in this spec.** The candidates
+  were each wrong. POSIX permission bits do not exist on Windows, an
+  eventual target (Node synthesises `stat.mode` there and `chmod` only
+  toggles read-only), and they would let a peer choose to deliver an
+  executable. A file/stream kind repeats `size: null`, and a repeated
+  fact is two facts that can disagree. A directory kind cannot be a
+  one-word field at all: it needs a list of entries, each needing the
+  traversal and symlink defences one name gets now, which is a different
+  manifest and so a different `v`. A v2 receiver refuses that by version,
+  which is the same clean refusal a `mode` value would have given.
+  Directories travel as a stream (`tar c dir | ad-hal-send <code> -`, §4.3). The
+  protocol moves one named sequence of bytes and does not interpret it.
+- **`caps` was a second copy of what the handshake negotiates.** §3.2's
+  trap #3 requires that what a party acts on be a pure function of
+  `caps_r` and `caps_s` *as they appear in the transcript*. A manifest
+  copy is a second source that can disagree, and it is not in the
+  transcript. The receiver checks the manifest against the negotiated set
+  instead. `size: null` without `stream` negotiated is refused, and no
+  field is needed to say so.
+
+**§7.2: re-hashing cannot verify a prefix before ACCEPT.** W10's text
+promised that a receiver would send `ACCEPT{resumeFrom}` only for a
+prefix it had verified, and that a wrong one would be discarded without
+the person seeing it. That could not be met with what the manifest
+carries. The amendment, as W11 recorded it:
+
+> **Amended in W11: re-hashing cannot verify a prefix before ACCEPT.**
+> The paragraphs above say the receiver sends `ACCEPT{resumeFrom}` "only
+> for a prefix it has verified itself", and that a prefix that does not
+> match "is discarded and the transfer starts at zero; it is not an error
+> to report to the human". The first half cannot be met with what the
+> manifest carries. A whole-file SHA-256 says nothing about whether *n*
+> bytes are the first *n* bytes of that file. Re-hashing gives the
+> receiver the hash *state* of its prefix, which is what lets it carry
+> the state forward. Whether the prefix belonged is known only when the
+> final digest is compared.
+>
+> So the guarantee, stated as it is actually enforced: **a wrong prefix
+> is never published.** It fails the final comparison
+> (`ERR_HASH_MISMATCH`, with `.resumedFrom`), the partial is deleted, and
+> the retry starts from zero. A planted or stale `.part` costs one failed
+> transfer, and the human does see that failure. Checking a prefix
+> *before* ACCEPT would need the sender to take part, for example a
+> prefix digest in ACCEPT that the sender checks, plus a way to fall back
+> to zero on the same connection. That is a wire change to ACCEPT and is
+> not made here. The per-block hashes W10 rejected would also do it, at
+> the manifest cost W10 declined.
+>
+> **Superseded by §7.5.** The wire change was made, before release, with
+> the digest travelling the other way: the sender proves its prefix, and
+> the receiver checks. A wrong prefix now costs one round trip, is
+> discarded, and is not reported to the person, which is what the first
+> paragraphs of this section promised. The final digest comparison stays.
+
+**§8.1: the Node floor.** Not a protocol matter, but §8.1 once carried
+it. Because `@noble/curves@2.4.0` is ESM-only, W10 moved `engines.node`
+from `>= 18` to `>= 20.19`, the first versions that can `require` an ES
+module. It is now `>= 24`, and CI runs Node 24, for an unrelated reason:
+on 22.x, six stall-timer and size-cap tests in `cli/test/hardening.test.js`
+are reported cancelled rather than run (reproducibly on 22.23.2, and
+clean on 24.21.0).
+
+### W15a — five wire changes from the security review
+
+The review's findings and their status are in
+[`SECURITY-REVIEW.md`](SECURITY-REVIEW.md). Each change regenerated the
+vectors it touched.
+
+- **The product was renamed**, and the protocol identifier became
+  `adhal`: CPace label `quay-v2` → `adhal-v2`, the HKDF and MAC labels
+  likewise, topic label `quay-v2:topic` → `adhal-v2:topic`, QR scheme
+  `QUAY2:` → `ADHAL2:` (`f22e517`).
+- **§5: the length prefix became associated data** (`14c8bea`). The length
+  was previously outside the ciphertext and outside the tag, on the
+  argument that a rewritten length re-delimits the stream so the frame
+  cannot open anyway. That argument held, but it made the channel's
+  integrity depend on the framing rather than on the AEAD.
+- **§2: the topic is `lv_cat`-encoded** (`93d99de`). The topic was
+  previously the bare concatenation `"adhal-v2:topic" || nameplate`. That
+  was unambiguous only because the label had a fixed length and no word
+  contains `:`. The length prefixes make the encoding unambiguous whatever
+  either field contains.
+- **§2: the EFF large wordlist** (`2937f9a`). The list was EFF short list
+  #1 (1295 words, about 31 bits of secret). The large list keeps the 2 + 3
+  format and raises the secret to about 38.8 bits, so the attempt cap (§6)
+  is no longer the only thing standing between an online guesser and a
+  ~31-bit secret: at 100 counted guesses the odds per drop fall from about
+  4.7 × 10⁻⁸ to about 2 × 10⁻¹⁰. The nameplate rises to about 25.8 bits,
+  which moves a 50% nameplate collision (about 1.18 × √N for N possible
+  nameplates) from about 1,500 concurrent drops to about 9,150.
+- **§4.0: `DECLINE{ERR_DROP_TAKEN}`**, from either side, as the first
+  sealed frame after CONFIRM, tells a late peer the drop is taken
+  (`88148a7`).
+
+### W15d — the state machine, negative vectors, claims
+
+§4.4 (the state machine), the negative vectors and fuzz harness in §11,
+and §12 (what v2 claims) were added. None of them changed the wire.
+
+### W16 — this document became a specification only
+
+The amendment history in the sections above moved here, and the text
+they kept now says only what is true. §7.3 and §7.4 were put in order,
+§9 was marked historical, the examples became real commands, and remarks
+about other products were removed.
