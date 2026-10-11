@@ -14,6 +14,8 @@ those who share it and no one else.
 
 - [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md): the
   roadmap, what is done, and what Adhal is built around
+- [`docs/POSITIONING.md`](docs/POSITIONING.md): how it compares with other
+  tools, and how that will be tested
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): how it is built
 - [`docs/PROTOCOL.md`](docs/PROTOCOL.md): the versioned wire
   specification, including what v2 claims and does not (§12)

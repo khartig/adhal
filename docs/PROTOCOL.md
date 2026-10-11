@@ -567,19 +567,21 @@ rather than a missing thought.
 
 **The handshake, per candidate.** A failure here discards the candidate,
 not the drop (§3.1): the side stays joined and waits for the next one.
-Only the two counted refusals move the attempt cap (§6).
+Only the refusals marked **counted** move the attempt cap (§6).
 
 | Role | State | Entered when | Accepts | Refused, and whether it counts |
 | --- | --- | --- | --- | --- |
 | receiver | candidate | a connection is surfaced | nothing; writes HELLO, after the §6 backoff | — |
 | receiver | awaiting REPLY | HELLO written | REPLY, body 64–192 bytes, canonical `caps_s` | a malformed or non-canonical REPLY: `ERR_PROTOCOL`, not counted. A REPLY whose `confirmS` fails: `ERR_PAKE_CONFIRMATION`, **counted** |
 | sender | awaiting HELLO | a connection is surfaced | HELLO, body 49–177 bytes, version `0x02`, canonical `caps_r`, a `sid` not seen on this nameplate | a malformed HELLO or another version: `ERR_PROTOCOL`, not counted. A `sid` already seen: `ERR_SID_REUSED`, **counted** |
-| sender | awaiting CONFIRM | REPLY written, after the backoff | CONFIRM, exactly 32 bytes | a CONFIRM that fails: `ERR_PAKE_CONFIRMATION`, **counted** |
+| sender | awaiting CONFIRM | an attempt reserved and REPLY written, after the backoff | CONFIRM, exactly 32 bytes | a CONFIRM that fails: `ERR_PAKE_CONFIRMATION`, **counted**. A close, a reset or the deadline: `ERR_REPLY_UNANSWERED`, **counted** |
 
-In every one of these states, a close, a reset, the per-candidate
-deadline (`HANDSHAKE_TIMEOUT_MS`, 15 s plus any backoff) or a connection
-that never receives a packet (`UNANSWERED_CONNECTION_MS`, 5 s; see
-`engine/src/swarm.js`) discards the candidate and is **not** counted.
+In every other state, a close, a reset, the per-candidate deadline
+(`HANDSHAKE_TIMEOUT_MS`, 15 s plus any backoff) or a connection that never
+receives a packet (`UNANSWERED_CONNECTION_MS`, 5 s; see
+`engine/src/swarm.js`) discards the candidate and is **not** counted. A
+sender whose failures and reservations already fill the cap drops a
+candidate in awaiting HELLO without writing REPLY, uncounted (§6).
 
 The receiver is paired once it has written CONFIRM; the sender once it
 has verified it. A side that is paired keeps running these states for
@@ -718,12 +720,30 @@ trying it.
 
 ## 6. Attempt cap
 
-Count **PAKE confirmation failures only**. N = 100, exponential backoff.
-On exhaustion, burn the drop, fail with `ERR_ATTEMPT_CAP` (§10) and tell
-the human that someone was guessing.
+Count **failed guesses only**. N = 100, exponential backoff. On
+exhaustion, burn the drop, fail with `ERR_ATTEMPT_CAP` (§10) and tell the
+human that someone was guessing.
 
-A repeated `sid` from a peer counts as a failed attempt too — see §3.2,
-where that mitigation is why a receiver-chosen `sid` is acceptable.
+A failed guess is one of three things:
+
+- **A failed confirmation**, on either side: `ERR_PAKE_CONFIRMATION`.
+- **A repeated `sid`** from a peer, on the sender: `ERR_SID_REUSED`. See
+  §3.2, where that mitigation is why a receiver-chosen `sid` is acceptable.
+- **A REPLY not answered by a valid CONFIRM**, on the sender:
+  `ERR_REPLY_UNANSWERED`. REPLY carries `confirmS`, which lets whoever
+  reads it test one guess offline, so a run that read REPLY and then hung
+  up, went quiet or was reset has guessed, whatever happened next
+  (§12.5, step 4). The sender **reserves** an attempt before it writes
+  REPLY and settles it when the run ends: released if a valid CONFIRM
+  arrives, counted otherwise. If failures and reservations together
+  already fill the cap, the candidate is dropped without a REPLY and is
+  not counted, because it was sent nothing to test. Reserving first,
+  rather than counting when a run ends, is what stops a crowd of guessers
+  in flight together from all reading REPLY before the first is counted.
+  Only settled failures feed the backoff.
+
+The receiver has no equivalent of the third case, because it sends
+nothing derived from `K` until `confirmS` has verified.
 
 The count covers the whole drop, including candidates that arrive after
 pairing (§4.0, "A drop that is already taken"): guessing does not become
@@ -733,7 +753,10 @@ answering late candidates and does not end the transfer.
 **Never count dropped candidates.** Stale DHT announces routinely produce
 dead candidates — measured in this repo, three were once enough to starve
 every connection slot — and counting them would let the DHT's own garbage
-burn a legitimate drop.
+burn a legitimate drop. A dead candidate never sends a well-formed HELLO,
+so it never receives REPLY, and the third case above does not reach it.
+Neither, in 20 drops on a local testnet, did Hyperswarm's duplicate
+connection (§3.1): it was destroyed before HELLO every time.
 
 This reverses v1's rule that an attacker must not be able to end a drop by
 connecting and failing. Under v2 a nameplate-holder can, after 100 failed
@@ -1221,13 +1244,14 @@ nothing to count until there was a PAKE confirmation to fail, and a code
 that nothing throws is a code nothing tests. The name matches §6's own
 term ("attempt cap") and the `ERR_NO_PEER` / `ERR_NO_HANDSHAKE` shape.
 
-Two further codes exist in the implementation and are **deliberately not
-in this table**: `ERR_PAKE_CONFIRMATION` and `ERR_SID_REUSED`. They say
+Three further codes exist in the implementation and are **deliberately
+not in this table**: `ERR_PAKE_CONFIRMATION`, `ERR_SID_REUSED` and
+`ERR_REPLY_UNANSWERED`. They say
 why one *candidate* was discarded, not how a *drop* ended, and the
 distinction is load-bearing — a receiver discards a failed candidate and
 keeps waiting, exactly as it does for a dead punch. What the drop reports
 is `ERR_NO_HANDSHAKE`, or `ERR_ATTEMPT_CAP` once enough of them have
-accumulated. They exist so that `engine/src/swarm.js` can count the two
+accumulated. They exist so that `engine/src/swarm.js` can count the three
 things §6 says to count and nothing else, and so
 `engine/scratch-trials.js` can tally them without matching prose.
 
@@ -1330,9 +1354,9 @@ different adversary, and §12.3 says what it can do.
    (§6). With the secret's ~38.8 bits (three words of the EFF large
    list), one drop's chance of falling to a guesser is at most
    100 / 7772³ ≈ 2.1 × 10⁻¹⁰ (§2). Pinned: `attempts.test.js`,
-   `security-properties.test.js` (Q-14). **The cap does not yet hold
-   against a peer in the receiver's role**: a guesser that reads REPLY
-   and hangs up is not counted (§12.5, step 4).
+   `security-properties.test.js` (Q-14). A guesser counts whether it
+   sends a wrong confirmation or hangs up after reading REPLY (§6,
+   §12.5 step 4).
 2. **Mutual proof of the code, per connection.** Each side proves the
    secret to the other, `confirmS` then `confirmR`, over the whole
    transcript and with distinct role labels, so neither confirmation can
@@ -1434,8 +1458,8 @@ This is the argument §12.3.1 says the composition needs. It is informal,
 it was written inside the project, and nobody outside has checked it. Its
 purpose is to give the independent review (Q-05) specific steps to break,
 rather than a design to reconstruct. Each step says what it inherits from
-CPace, what this mapping changes, and whether the change matters. One step
-fails on the current code, and says so.
+CPace, what this mapping changes, and whether the change matters. Step 4
+failed on the code until the change recorded in §13, "After W16".
 
 #### What is inherited, and the property actually used
 
@@ -1521,8 +1545,6 @@ confirmation is HMAC-SHA256 over a role label and the whole transcript
 
 #### Step 4: who reveals first, and what must be counted
 
-**Claim 1's online cap fails at this step on the current code.**
-
 Any explicit confirmation is an oracle for one candidate: whoever holds
 a candidate secret and the transcript can check it. (P) limits that to
 one candidate per run. Claim 1 also needs every such run to be counted.
@@ -1535,43 +1557,40 @@ The rule that follows:
 - **An attacker in the sender's role.** Before it verifies anything, the
   receiver sends only HELLO: `sid`, `Ya` and `caps_r`, none of it derived
   from `K`. To learn anything the attacker must send `confirmS` for its
-  candidate. A wrong one is `ERR_CONFIRMATION`, which `acceptOnce` counts.
-  An attacker that hangs up before REPLY has tested nothing. **Holds.**
+  candidate. A wrong one is `ERR_PAKE_CONFIRMATION`, which `acceptOnce`
+  counts. An attacker that hangs up before REPLY has tested nothing.
+  **Holds.**
 - **An attacker in the receiver's role.** The sender puts `confirmS` in
-  REPLY before it has verified anything. An attacker sends HELLO for one
-  candidate, reads REPLY, checks `confirmS` offline, and hangs up without
-  sending CONFIRM. `connectOnce` counts only `ERR_CONFIRMATION` and
-  `ERR_SID_REUSED`, so the run is not counted, and the backoff stays at
-  zero because it grows only with counted failures. The Q-14 sender test
-  in `security-properties.test.js` asserts this case as "never counted".
-  **Does not hold.** Measured in memory over `FakeSwarm` on 2026-10-10:
-  301 such runs against one sender, an attempt count of 0, a backoff of
-  0 ms, and the right candidate identified. The rate over the public
-  DHT, which is bounded by how fast a sender dials new candidates, has not
-  been measured. Each run still tests only one candidate, so the first
-  half of claim 1, no offline guessing, is unaffected. What does not
-  apply is the cap.
+  REPLY before it has verified anything, so the sender is the side the
+  rule binds. It reserves an attempt before writing REPLY, and settles
+  the reservation as a failure, `ERR_REPLY_UNANSWERED`, unless a valid
+  CONFIRM arrives (§6). An attacker that reads REPLY, checks `confirmS`
+  offline and hangs up is counted. One that goes quiet is counted when
+  the per-candidate deadline ends the run. **Holds.** Pinned by the Q-14
+  sender tests in `security-properties.test.js`.
+- **Guessers in flight together.** A reservation is taken before REPLY
+  is written, and refused when failures and reservations already fill
+  the cap. So no more than 100 REPLYs ever reach peers that do not
+  confirm, however many connect at once. Counting when a run ends would
+  not give this: measured over `FakeSwarm`, 301 guessers connecting
+  together all read REPLY against a cap of 100. Pinned by "no more
+  REPLYs reach guessers than the cap allows".
 
-§6's rule "never count dropped candidates" does not stand in the way of a
-fix. The candidates it protects, stale announces and failed punches,
-never send a well-formed HELLO and never receive REPLY. A run that sent
-HELLO and received REPLY was handed an oracle, whatever happened next.
-
-**The fix, for decision before the wire freeze.** The sender charges an
-attempt when it writes REPLY, and settles it when a valid CONFIRM
-arrives. This needs no wire change. Its cost is a legitimate receiver
-whose connection Hyperswarm's duplicate tie-break destroys after REPLY
-(§3.1). That is one or two charges against 100, and they could be
-refunded when the same remote public key confirms. The Q-14 sender test
-changes from "never counted" to "counted". Reordering the messages does
-not help: if the receiver confirmed first, the oracle would move to the
+The cost falls on a legitimate receiver whose connection is ended after
+REPLY and before CONFIRM, for instance by Hyperswarm's duplicate
+tie-break (§3.1). It is charged one attempt of 100. In 20 drops on a
+local testnet this did not happen once: the duplicate was destroyed
+before HELLO each time. The public DHT has not been measured. A refund
+when the same remote public key later confirms was considered and left
+out: it would save one or two attempts, at the cost of a second
+mechanism to review. Reordering the messages would not remove the cost
+either: if the receiver confirmed first, the oracle would move to the
 receiver, which would then need the same rule.
 
 #### Claim by claim
 
 1. **No offline guessing:** holds, by (P). **The online cap:** holds
-   against an attacker in the sender's role, and fails against one in
-   the receiver's role until step 4's rule is applied.
+   against an attacker in either role, by step 4.
 2. **Mutual proof, per connection:** holds, by step 3. Fresh scalars per
    connection make each run's transcript and keys fresh, and the role
    labels close reflection.
@@ -1592,8 +1611,9 @@ receiver, which would then need the same rule.
 2. Step 3: whether confirmations over the whole transcript with role
    labels, instead of the draft's per-message ones, lose anything other
    than reflection.
-3. Step 4: whether the counting rule, once applied, is sufficient, and
-   whether a refund for duplicate connections can be abused.
+3. Step 4: whether the counting rule is sufficient, and whether
+   reserving before REPLY leaves any path on which a peer reads
+   `confirmS` and the reservation is released without a valid CONFIRM.
 4. Step 2: whether any two distinct (nameplate, secret, `sid`) can
    produce related generators.
 
@@ -1740,3 +1760,19 @@ The amendment history in the sections above moved here, and the text
 they kept now says only what is true. §7.3 and §7.4 were put in order,
 §9 was marked historical, the examples became real commands, and remarks
 about other products were removed.
+
+### After W16 — an unanswered REPLY is counted
+
+Writing the argument for claims 1–4 (§12.5) found that claim 1's cap did
+not hold against a peer in the receiver's role. REPLY carries `confirmS`,
+and the sender counted only `ERR_PAKE_CONFIRMATION` and `ERR_SID_REUSED`.
+A guesser could send HELLO for one candidate, check `confirmS` offline,
+and hang up without sending CONFIRM, and it was never counted. The
+backoff stayed at zero, because it grows only with counted failures, and
+the Q-14 sender test asserted the case as "never counted". Measured over
+`FakeSwarm`: 301 such runs against one sender left an attempt count of 0
+and identified the right candidate.
+
+The sender now reserves an attempt before each REPLY and counts it as
+`ERR_REPLY_UNANSWERED` unless a valid CONFIRM arrives (§4.4, §6). The
+wire did not change.

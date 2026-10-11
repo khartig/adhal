@@ -27,9 +27,18 @@ const { TransferError } = require('./errors')
 //
 // WHAT IS COUNTED, AND -- MORE IMPORTANTLY -- WHAT IS NOT.
 //
-// Counted: a PAKE confirmation failure, and a repeated `sid` from a peer
-// for the same nameplate (section 3.2's mitigation for a receiver-chosen
-// sid, which is why that choice is acceptable at all).
+// Counted: a PAKE confirmation failure; a repeated `sid` from a peer for
+// the same nameplate (section 3.2's mitigation for a receiver-chosen sid,
+// which is why that choice is acceptable at all); and, on the sender, any
+// run that was sent REPLY and did not answer it with a valid CONFIRM.
+//
+// THE THIRD ONE IS NOT NETWORK NOISE, although it can look like it. REPLY
+// carries confirmS, which lets whoever reads it test one candidate secret
+// offline. A run that read REPLY and then hung up, went quiet or was reset
+// has been handed that test whatever happened next, and before this was
+// counted a guesser could repeat it with no limit and no backoff
+// (PROTOCOL.md section 12.5, step 4). The receiver has no equivalent: it
+// sends nothing derived from K until confirmS has verified.
 //
 // NOT counted: anything else, and in particular never a dropped
 // candidate. Stale DHT announces routinely produce dead candidates -- a
@@ -39,7 +48,9 @@ const { TransferError } = require('./errors')
 // That is not a hypothetical: it is the failure mode engine/src/swarm.js's
 // MAX_PARALLEL exists to survive. A cap that fires on network noise is
 // worse than no cap, because it converts an intermittent transport problem
-// into a permanent one and blames the wrong thing.
+// into a permanent one and blames the wrong thing. A dead candidate never
+// sends a well-formed HELLO, so it never receives REPLY, and the third
+// counted case does not reach it.
 
 // Section 6's number.
 const MAX_ATTEMPTS = 100
@@ -104,6 +115,28 @@ function sidReusedError (sid) {
   return err
 }
 
+// A run that was sent REPLY and ended without a valid CONFIRM, as a
+// per-candidate discard reason. Not in section 10's table, for the reason
+// ERR_SID_REUSED is not.
+const ERR_REPLY_UNANSWERED = 'ERR_REPLY_UNANSWERED'
+
+/**
+ * @param {any} [cause] how the run actually ended: a reset, a close, the
+ *   per-candidate deadline
+ * @returns {Error & { code: string }}
+ */
+function replyUnansweredError (cause) {
+  const how = cause && cause.message ? cause.message : 'closed'
+  const err = /** @type {Error & { code: string }} */ (new Error(
+    `read our REPLY and did not confirm (${how}). REPLY lets a peer test one ` +
+    'guess at the secret, so this counts as a failed attempt. A real receiver ' +
+    'whose connection was replaced by a duplicate can cost one too'
+  ))
+  err.code = ERR_REPLY_UNANSWERED
+  if (cause !== undefined) err.cause = cause
+  return err
+}
+
 /**
  * @param {number} attempts
  * @returns {InstanceType<typeof TransferError>}
@@ -138,6 +171,7 @@ class AttemptCap {
     this._maxDelayMs = maxDelayMs
     this._maxSids = maxSids
     this._attempts = 0
+    this._pending = 0
     // Insertion-ordered, so eviction is FIFO for free: a JavaScript Set
     // iterates in insertion order, and the oldest entry is the first one
     // its iterator yields.
@@ -173,6 +207,47 @@ class AttemptCap {
   fail () {
     this._attempts++
     return this.exhausted
+  }
+
+  /** @returns {number} runs charged by `charge()` and not yet settled */
+  get pending () {
+    return this._pending
+  }
+
+  /**
+   * Reserves an attempt before revealing a confirmation, which on the
+   * sender means before writing REPLY. Settle it with `settle()`.
+   *
+   * WHY RESERVE RATHER THAN COUNT AFTERWARDS. Counting when a run ends lets
+   * every run still in flight read its REPLY first: measured over
+   * FakeSwarm, 301 guessers connecting at once all read REPLY before the
+   * first hang-up was counted, against a cap of 100. Reserving first means
+   * no more than `max` confirmations ever reach peers that do not confirm
+   * back. A reservation is refused, not counted, when there is no room:
+   * that peer is sent nothing and has tested nothing.
+   *
+   * Reservations do not feed `delayMs()`. Only settled failures do, so a
+   * real receiver's duplicate connection, which is in flight alongside the
+   * one that will confirm, is not slowed down by it.
+   *
+   * @returns {boolean} false if failures and reservations already fill the cap
+   */
+  charge () {
+    if (this._attempts + this._pending >= this._max) return false
+    this._pending++
+    return true
+  }
+
+  /**
+   * Settles a reservation from `charge()`. Call exactly once per charge.
+   *
+   * @param {boolean} confirmed true if the peer answered with a valid
+   *   confirmation, which releases the reservation uncounted
+   * @returns {boolean} true if this settlement burned the drop
+   */
+  settle (confirmed) {
+    this._pending--
+    return confirmed ? false : this.fail()
   }
 
   /**
@@ -223,7 +298,9 @@ module.exports = {
   AttemptCap,
   attemptCapError,
   sidReusedError,
+  replyUnansweredError,
   ERR_SID_REUSED,
+  ERR_REPLY_UNANSWERED,
   MAX_ATTEMPTS,
   BASE_DELAY_MS,
   MAX_DELAY_MS,

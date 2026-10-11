@@ -21,7 +21,8 @@ server holding the bytes, no install on a third party's terms.
 That sentence is not distinctive on its own: several tools claim it.
 What makes Adhal distinctive is the five properties below, each a design
 decision that would be expensive to reverse. That expense is what makes
-them worth protecting.
+them worth protecting. How they compare with other tools, and how that
+will be tested, is in [`POSITIONING.md`](POSITIONING.md).
 
 ---
 
@@ -118,8 +119,10 @@ The security review's 21 findings and their status are in
   >   its superseded passages, because its reasoning is what the design
   >   rests on.
   > - The finished work items' full record is `history/WORK-RECORD.md`.
-  >   The competitor analysis was removed outright, not moved, since
-  >   `history/` is public too; it is in git history before this item.
+  >   The competitor analysis moved to `POSITIONING.md`, with the
+  >   positioning half of the 2026-09-18 review, so that it can grow with
+  >   W14's comparison testing. Decision 3 is amended to match: the roadmap
+  >   carries no competitor analysis, and the positioning document does.
   > - PROTOCOL.md kept its section numbers, so every `§` reference in the
   >   code still holds, and gained §13, the changelog. §12's odds now use
   >   the vendored list's 7,772 words, not 7,776.
@@ -216,7 +219,8 @@ has all 21).
   file-transfer tools, on identical network pairs, including
   **CGNAT↔CGNAT** and symmetric NAT. Reuse `scratch-trials.js`. **This
   single experiment tests the central thesis and decides how much the
-  relay matters.**
+  relay matters.** The method, the tools and the network pairs are in
+  [`POSITIONING.md`](POSITIONING.md) §5, and so will the results be.
 
 ---
 

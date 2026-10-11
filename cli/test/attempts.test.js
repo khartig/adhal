@@ -122,6 +122,39 @@ test('a repeated sid is detected, and the set that remembers them is bounded', (
     'the real bound must be far above the attempts the cap even permits')
 })
 
+test('a reservation counts unless it is confirmed, and reservations cannot outrun the cap', () => {
+  // The sender reserves an attempt before each REPLY, because REPLY lets
+  // whoever reads it test one guess (PROTOCOL.md section 12.5, step 4).
+  const cap = new AttemptCap({ max: 3, baseDelayMs: 10 })
+
+  assert.equal(cap.charge(), true)
+  assert.equal(cap.settle(true), false)
+  assert.equal(cap.attempts, 0, 'a run that confirmed costs nothing')
+  assert.equal(cap.pending, 0)
+
+  assert.equal(cap.charge(), true)
+  assert.equal(cap.settle(false), false)
+  assert.equal(cap.attempts, 1, 'a run that read REPLY and did not confirm is counted')
+
+  // In flight: two reservations fill the cap with the one failure, so a
+  // third REPLY is refused rather than sent. Counting only when runs end
+  // would let every run in flight read REPLY first.
+  assert.equal(cap.charge(), true)
+  assert.equal(cap.charge(), true)
+  assert.equal(cap.charge(), false, 'no room: failures plus reservations already fill the cap')
+  assert.equal(cap.pending, 2)
+  // Reservations do not slow anyone: only settled failures feed the backoff,
+  // so a real receiver's duplicate connection is not delayed by it.
+  assert.equal(cap.delayMs(), 10)
+
+  assert.equal(cap.settle(true), false, 'the real peer confirms and frees its place')
+  assert.equal(cap.charge(), true, 'and the place can be reserved again')
+  assert.equal(cap.settle(false), false)
+  assert.equal(cap.settle(false), true, 'the failure that reaches the cap burns the drop')
+  assert.equal(cap.exhausted, true)
+  assert.equal(cap.pending, 0)
+})
+
 test('the error carries the code section 10 specifies, and the counts with it', () => {
   const err = /** @type {any} */ (attemptCapError(100))
   assert.equal(err.code, 'ERR_ATTEMPT_CAP')

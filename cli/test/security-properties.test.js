@@ -11,9 +11,10 @@
 //   Q-01  channel nonces never repeat, either direction  here
 //   Q-12  two drops from one process announce under      announce-key.test.js
 //         different public keys
-//   Q-14  the attempt cap counts confirmation failures,  here (fast, every
-//         never silent or dropped candidates, and        rule); attempts.test.js
-//         applies its backoff                            (the same over a DHT)
+//   Q-14  the attempt cap counts confirmation failures   here (fast, every
+//         and every REPLY not answered by a valid        rule); attempts.test.js
+//         CONFIRM, never silent or dropped candidates,   (the same over a DHT)
+//         and applies its backoff
 //   Q-15  opaque codes are never on by default           code.test.js, "opaque
 //                                                        codes are off unless..."
 //   Q-11  a manifest body of ESC[2J, and a field         hardening.test.js, "a
@@ -49,6 +50,7 @@ const {
   CONFIRM_SIZE,
   ERR_CONFIRMATION,
   ERR_SID_REUSED,
+  ERR_REPLY_UNANSWERED,
   PREFIX_BOUNDARY,
   NONCE_SIZE,
   generateCode,
@@ -450,7 +452,7 @@ test('Q-14: the burn is the cap\'s last failed confirmation, and nothing else', 
   assert.equal(log.drops.length, 6, 'every candidate was reported, the burning one included')
 })
 
-test('Q-14: the sender counts failed confirmations and reused sids, never silent or dropped candidates', async () => {
+test('Q-14: the sender counts every run it sent REPLY that did not confirm, and never a candidate it did not answer', async () => {
   const { secret, nameplate } = splitCode(generateCode())
   const wrong = splitCode(generateCode()).secret
   const swarm = new FakeSwarm()
@@ -459,41 +461,113 @@ test('Q-14: the sender counts failed confirmations and reused sids, never silent
   const paired = connectOnce(/** @type {any} */ (swarm), Buffer.alloc(32), {
     secret, nameplate, attemptCap: cap, handshakeTimeout: 150, refreshInterval: 0, timeout: 30000, onCandidateDropped: log.onCandidateDropped
   })
+  const reset = () => Object.assign(new Error('connection reset by peer'), { code: 'ECONNRESET' })
 
-  // A receiver that only sends HELLO and then hangs up is the sender's
-  // "dropped" -- it has read HELLO, answered, and the transport closes.
-  const dropped = () => (/** @type {any} */ far, /** @type {any} */ near) => {
-    far.write(new Initiator({ secret, nameplate }).hello())
-    far.once('data', () => near.destroy(Object.assign(new Error('connection reset by peer'), { code: 'ECONNRESET' })))
+  // Candidates that were never sent REPLY have tested nothing, and are the
+  // DHT's stale announces and dead punches that section 6 must not count:
+  // one resets before HELLO, one resets halfway through it, one is silent.
+  const deadBeforeHello = () => (/** @type {any} */ _far, /** @type {any} */ near) => { near.destroy(reset()) }
+  const deadMidHello = () => (/** @type {any} */ far, /** @type {any} */ near) => {
+    far.write(new Initiator({ secret, nameplate }).hello().subarray(0, 20))
+    setImmediate(() => near.destroy(reset()))
   }
-  for (const play of [dropped(), peers.silent(), dropped()]) {
+  for (const play of [deadBeforeHello(), deadMidHello(), peers.silent()]) {
     const next = log.next()
     swarm.candidate(play)
     await next
   }
-  assert.equal(cap.attempts, 0, 'a dropped or silent candidate is never counted')
+  assert.equal(cap.attempts, 0, 'a candidate that was never sent REPLY is never counted')
 
-  // A receiver with the wrong secret cannot confirm.
+  // A guesser that reads REPLY, checks its one guess against confirmS
+  // offline, and hangs up instead of sending a wrong CONFIRM. Before
+  // section 12.5's fix this was "never counted", and a guesser could repeat
+  // it with no limit. Broken on purpose: settling the reservation as
+  // confirmed in connectOnce's onFailed fails this.
+  const guessAndHangUp = () => (/** @type {any} */ far, /** @type {any} */ near) => {
+    far.write(new Initiator({ secret: wrong, nameplate }).hello())
+    far.once('data', () => near.destroy(reset()))
+  }
+  {
+    const next = log.next()
+    swarm.candidate(guessAndHangUp())
+    await next
+    assert.equal(log.drops.at(-1)?.code, ERR_REPLY_UNANSWERED)
+    assert.equal(cap.attempts, 1, 'reading REPLY and hanging up is counted')
+  }
+  // The same guesser going quiet after REPLY instead is counted when the
+  // per-candidate deadline ends it.
+  {
+    const next = log.next()
+    swarm.candidate((far) => far.write(new Initiator({ secret: wrong, nameplate }).hello()))
+    await next
+    assert.equal(log.drops.at(-1)?.code, ERR_REPLY_UNANSWERED)
+    assert.match(log.drops.at(-1)?.reason ?? '', /did not complete the handshake within/)
+    assert.equal(cap.attempts, 2)
+  }
+
+  // A receiver with the wrong secret cannot confirm: counted once, not once
+  // for the bad CONFIRM and again for the reservation.
   {
     const next = log.next()
     swarm.candidate(peers.receiver(wrong, nameplate))
     await next
     assert.equal(log.drops.at(-1)?.code, ERR_CONFIRMATION)
+    assert.equal(cap.attempts, 3)
   }
-  // A HELLO replayed on a second connection reuses its sid.
+  // A HELLO replayed on a second connection: the first run read REPLY and
+  // hung up, the second reuses its sid and is refused before REPLY.
   {
     const hello = new Initiator({ secret, nameplate }).hello()
     const first = log.next()
     swarm.candidate((far, near) => { far.write(hello); far.once('data', () => near.destroy()) })
     await first
+    assert.equal(log.drops.at(-1)?.code, ERR_REPLY_UNANSWERED)
     const second = log.next()
     swarm.candidate((far) => far.write(hello))
     await second
     assert.equal(log.drops.at(-1)?.code, ERR_SID_REUSED)
   }
-  assert.equal(cap.attempts, 2, 'the failed confirmation and the reused sid, and nothing else')
+  assert.equal(cap.attempts, 5, 'two hang-ups after REPLY, a failed confirmation, a replay, a reused sid')
+  assert.equal(cap.pending, 0, 'every reservation was settled')
 
+  // The receiver that knows the code pairs, and its own run costs nothing.
   swarm.candidate(peers.receiver(secret, nameplate))
   const tx = await paired
+  assert.equal(cap.attempts, 5)
+  assert.equal(cap.pending, 0, 'a confirmed run releases its reservation')
   tx.stopAnswering()
+})
+
+test('Q-14: no more REPLYs reach guessers than the cap allows, however many arrive at once', async () => {
+  // Counting runs when they end lets every run in flight read REPLY first:
+  // 301 guessers connecting together all read it against a cap of 100.
+  // The sender reserves an attempt before each REPLY instead. Broken on
+  // purpose: making AttemptCap#charge always return true fails this.
+  const { secret, nameplate } = splitCode(generateCode())
+  const swarm = new FakeSwarm()
+  const max = 5
+  const cap = new AttemptCap({ max, baseDelayMs: 1 })
+  const guessers = 3 * max
+  let replies = 0
+  let ended = 0
+  /** @type {() => void} */
+  let allEnded = () => {}
+  const done = new Promise((resolve) => { allEnded = () => resolve(undefined) })
+  const result = settle(connectOnce(/** @type {any} */ (swarm), Buffer.alloc(32), {
+    // A short join timeout, so a sender that never burns fails in seconds.
+    secret, nameplate, attemptCap: cap, handshakeTimeout: 150, refreshInterval: 0, timeout: 3000,
+    onCandidateDropped: () => { if (++ended === guessers) allEnded() }
+  }))
+
+  for (let i = 0; i < guessers; i++) {
+    swarm.candidate((far, near) => {
+      far.write(new Initiator({ secret: splitCode(generateCode()).secret, nameplate }).hello())
+      far.once('data', () => { replies++; near.destroy() })
+    })
+  }
+  await Promise.race([done, result])
+  const { ok, error } = await result
+  assert.equal(ok, false)
+  assert.equal(error.code, 'ERR_ATTEMPT_CAP')
+  assert.equal(replies, max, `${replies} guessers read REPLY; the cap is ${max}`)
 })

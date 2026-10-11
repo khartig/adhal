@@ -254,9 +254,9 @@ codes are PROTOCOL §10's. Automation, tests and `scratch-trials.js` switch
 on the code, never on the message. A local abort uses Node's own
 `AbortError`/`ABORT_ERR`, so generic abort handling still works.
 
-Two more codes say why one *candidate* was discarded, not how a drop
-ended: `ERR_PAKE_CONFIRMATION` and `ERR_SID_REUSED`. They are what
-`swarm.js` counts. Two kinds of error carry a code without being a
+Three more codes say why one *candidate* was discarded, not how a drop
+ended: `ERR_PAKE_CONFIRMATION`, `ERR_SID_REUSED` and
+`ERR_REPLY_UNANSWERED`. They are what `swarm.js` counts. Two kinds of error carry a code without being a
 `TransferError`: frame.js's `FrameLengthError`, which keeps that module
 free of the engine's vocabulary, and the handshake's per-candidate
 refusals. Everything branches on `.code`, so that is the contract.

@@ -5,7 +5,7 @@ const HyperDHT = require('hyperdht')
 const { TransferError, abortError } = require('./errors')
 const { MessageReader } = require('./reader')
 const { Initiator, Responder, assertHandshakeInputs, ERR_CONFIRMATION } = require('./handshake')
-const { AttemptCap, sidReusedError, ERR_SID_REUSED } = require('./attempts')
+const { AttemptCap, sidReusedError, replyUnansweredError, ERR_SID_REUSED, ERR_REPLY_UNANSWERED } = require('./attempts')
 const { Channel } = require('./channel')
 const { TYPE_DECLINE, declineBody, ERR_DROP_TAKEN } = require('./message')
 
@@ -788,7 +788,9 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   counting failed confirmations it remembers the sid values it has seen
  *   for this nameplate, and treats a repeat as a failed attempt. That is
  *   section 3.2's mitigation for a receiver-chosen sid, and it is why that
- *   choice is acceptable at all.
+ *   choice is acceptable at all. It also counts every run that was sent
+ *   REPLY and did not answer it with a valid CONFIRM, because the sender
+ *   is the side that reveals a confirmation first (section 12.5, step 4).
  * @returns {Promise<{
  *   socket: any, peerInfo: any, pending: Buffer | null,
  *   sendKey: Buffer, receiveKey: Buffer, caps: string[],
@@ -870,6 +872,12 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
       const handshake = new Responder({ secret, nameplate })
       const reader = new MessageReader()
       let replied = false
+      // True from the moment an attempt is reserved for this run, which is
+      // just before REPLY is written, until the run is settled. Not when
+      // REPLY is computed: with a backoff the write waits on replyTimer, and
+      // a peer that leaves before it fires was never sent confirmS and has
+      // tested nothing.
+      let charged = false
       /** @type {NodeJS.Timeout | null} */
       let replyTimer = null
 
@@ -897,10 +905,24 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 
       function onFailed (err) {
         if (!listening) return
-        // See acceptOnce's copy: only a confirmation failure or a reused
-        // sid is counted, never a dead punch or a reset socket.
-        const counted = Boolean(err && (err.code === ERR_CONFIRMATION || err.code === ERR_SID_REUSED))
-        const burned = counted ? attemptCap.fail() : false
+        // See acceptOnce's copy: a confirmation failure and a reused sid
+        // are counted, and a dead punch or a reset socket is not -- UNLESS
+        // it happened after REPLY went out. REPLY carries confirmS, so a
+        // peer that read it has tested one guess, and a guesser that hangs
+        // up instead of sending a wrong CONFIRM must not be free
+        // (PROTOCOL.md section 12.5, step 4). Its reservation is settled as
+        // a failure, under its own code so the log says it was counted.
+        let burned = false
+        if (charged) {
+          charged = false
+          if (!(err && err.code === ERR_CONFIRMATION)) err = replyUnansweredError(err)
+          burned = attemptCap.settle(false)
+        } else if (err && (err.code === ERR_CONFIRMATION || err.code === ERR_SID_REUSED)) {
+          // A reused sid is caught before REPLY. So is a wrong CONFIRM that
+          // arrived coalesced with HELLO while REPLY waited on the backoff.
+          burned = attemptCap.fail()
+        }
+        const counted = Boolean(err && (err.code === ERR_CONFIRMATION || err.code === ERR_SID_REUSED || err.code === ERR_REPLY_UNANSWERED))
         detach()
         // detach() just removed the only 'error' listener, and destroy()
         // on a NoiseSecretStream can emit one asynchronously -- "connection
@@ -933,6 +955,21 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
           finish()
           reject(attemptCap.error())
         }
+      }
+
+      // Reserves an attempt, then writes REPLY. With no room in the cap the
+      // candidate is dropped unanswered and uncounted: it was sent no
+      // confirmation, so it has tested nothing.
+      function sendReply (/** @type {Buffer} */ reply) {
+        if (!attemptCap.charge()) {
+          onFailed(new Error(
+            `not answered: the attempt cap has no room for another guess ` +
+            `(${attemptCap.attempts} failed, ${attemptCap.pending} in flight)`
+          ))
+          return
+        }
+        charged = true
+        socket.write(reply)
       }
 
       // Two reads, in order, off one listener: the receiver's HELLO, then
@@ -982,11 +1019,11 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
             // needs this REPLY.
             const backoff = attemptCap.delayMs()
             if (backoff === 0) {
-              socket.write(answer.reply)
+              sendReply(answer.reply)
             } else {
               replyTimer = setTimeout(() => {
                 if (!listening || socket.destroyed) return
-                socket.write(answer.reply)
+                sendReply(answer.reply)
               }, backoff)
               if (typeof replyTimer.unref === 'function') replyTimer.unref()
             }
@@ -1004,6 +1041,11 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
         }
         if (!confirmed) return
 
+        // A valid CONFIRM releases the reservation uncounted.
+        if (charged) {
+          charged = false
+          attemptCap.settle(true)
+        }
         detach()
         if (paired) {
           declineLate(socket, confirmed, null)
