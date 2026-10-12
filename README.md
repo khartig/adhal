@@ -87,7 +87,7 @@ comfortably usable", not "proven ≥ 75%"
 
 ## Quickstart
 
-Prerequisites: Node.js ≥ 24, and [pnpm](https://pnpm.io) 12.4.1
+Prerequisites: Node.js ≥ 24, and [pnpm](https://pnpm.io) 12.11.2
 (`corepack enable` provides it from `packageManager`).
 
 ```bash

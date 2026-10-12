@@ -5,9 +5,10 @@
 - Node.js >= 24, which is what CI runs. Check with `node -v`. 22.x is not
   enough: six stall-timer and size-cap tests are reported cancelled there
   rather than run (PROTOCOL.md §8.1).
-- [pnpm](https://pnpm.io) (developed against 12.4.1). Install with
+- [pnpm](https://pnpm.io) (pinned to 12.11.2 by `packageManager` in `package.json`; with
+  `corepack enable`, the `pnpm` command runs exactly that version). Install with
   `npm install -g pnpm`, or via Corepack if your Corepack install can reach
-  npm's registry (`corepack enable && corepack prepare pnpm@12.4.1 --activate`).
+  npm's registry (`corepack enable && corepack prepare pnpm@12.11.2 --activate`).
   If Corepack fails with a `Cannot find matching keyid` signature error,
   its bundled key set is stale -- skip it and install pnpm directly with
   `npm install -g pnpm` instead (remove any existing corepack pnpm/pnpx

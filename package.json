@@ -7,7 +7,7 @@
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "pnpm@12.4.1",
+  "packageManager": "pnpm@12.11.2",
   "scripts": {
     "test": "pnpm --filter @ad-hal/cli test",
     "typecheck": "tsc --noEmit",
