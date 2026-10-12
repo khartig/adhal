@@ -23,7 +23,7 @@
 // Both sides must be given the SAME --seed and --trials. Start them within
 // a minute of each other, then leave them alone.
 //
-// Options: --slot <s> per-trial budget (default 90), --start-epoch <s> to
+// Options: --slot <s> per-trial budget (default 135), --start-epoch <s> to
 // pin the schedule explicitly, --out <path> to write per-trial JSON.
 //
 // TWO DESIGN CONSTRAINTS, because the two ends cannot talk to each other:

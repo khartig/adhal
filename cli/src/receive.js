@@ -81,8 +81,8 @@ async function main () {
           onProgress: progress.onProgress,
           onOffer: consent.onOffer,
           onManifest: (manifest, { resumeFrom }) => {
-            console.log(`[receive] manifest: ${manifest.name} (${manifest.size === null ? 'streamed, size unknown until it ends' : `${manifest.size} bytes`})`)
-            if (resumeFrom > 0) console.log(`[receive] resuming from byte ${resumeFrom} of an earlier, interrupted attempt`)
+            progress.log(`[receive] manifest: ${manifest.name} (${manifest.size === null ? 'streamed, size unknown until it ends' : `${manifest.size} bytes`})`)
+            if (resumeFrom > 0) progress.log(`[receive] resuming from byte ${resumeFrom} of an earlier, interrupted attempt`)
           }
         })
       }).then((result) => {

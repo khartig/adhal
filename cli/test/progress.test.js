@@ -150,6 +150,54 @@ test('a TTY stream gets one line redrawn in place, throttled, but always rendere
   assert.equal(stream.writes[stream.writes.length - 1], '\n', 'close() must end the line so the next log starts clean')
 })
 
+test('a line logged while the bar is up gets its own line, and the bar is redrawn below it', () => {
+  // The receiver's `manifest:` line used to be a console.log written onto
+  // the end of the 0% bar, which has no newline so that '\r' can redraw
+  // it: `[...]   0%  0 B / 10.0 MB[swarm-receive] manifest: ...`. Broken
+  // on purpose: making log() a plain `${text}\n` write fails this.
+  const stream = fakeStream(true)
+  let clock = 0
+  const reporter = createProgressReporter({ label: 'receive', stream, env: {}, now: () => clock })
+  const total = 100
+
+  reporter.log('[receive] before any bar')
+  reporter.onProgress({ bytes: 0, total })
+  reporter.log('[receive] manifest: test.bin (100 bytes)')
+  clock += 1000
+  reporter.onProgress({ bytes: 50, total })
+  reporter.onProgress({ bytes: 100, total })
+  reporter.close()
+  reporter.log('[receive] done: test.bin')
+
+  // What a terminal shows: apply '\r' + clear-line as "start this line over".
+  const screen = stream.text.replace(/\r\x1b\[2K/g, '\r').split('\n').map((line) => line.split('\r').pop())
+  assert.deepEqual(screen, [
+    '[receive] before any bar',
+    '[receive] manifest: test.bin (100 bytes)',
+    '[receive] [########################] 100%  100 B / 100 B',
+    '[receive] done: test.bin',
+    ''
+  ])
+  // And the bar was put back after the logged line, not left blank until
+  // the next progress event.
+  assert.match(stream.text, /manifest: test\.bin \(100 bytes\)\n\[receive\] \[-+\]   0%/)
+})
+
+test('off a TTY, log() is an ordinary line and never a carriage return', () => {
+  const stream = fakeStream(false)
+  const reporter = createProgressReporter({ label: 'receive', stream, env: {} })
+  reporter.onProgress({ bytes: 0, total: 100 })
+  reporter.log('[receive] manifest: test.bin (100 bytes)')
+  reporter.onProgress({ bytes: 100, total: 100 })
+  reporter.close()
+  assert.equal(stream.text.includes('\r'), false)
+  assert.deepEqual(stream.text.split('\n').filter(Boolean), [
+    '[receive] progress: 0% (0/100 bytes)',
+    '[receive] manifest: test.bin (100 bytes)',
+    '[receive] progress: 100% (100/100 bytes)'
+  ])
+})
+
 test('a stream of unknown length gets a running count on a TTY and nothing off one', () => {
   // total: null is a stream (PROTOCOL.md section 4.3). There is no
   // percentage to draw a bar or a milestone from, and a line per chunk off

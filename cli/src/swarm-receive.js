@@ -297,11 +297,11 @@ async function main () {
         // terminal, before anything has validated that it is printable.
         // A name carrying ESC or a bidi override forged whatever it liked
         // on this line until displayName existed.
-        console.log(`[swarm-receive] manifest: ${displayName(manifest.name)} (${manifest.size === null ? 'streamed, size unknown until it ends' : `${manifest.size} bytes`})`)
+        progress.log(`[swarm-receive] manifest: ${displayName(manifest.name)} (${manifest.size === null ? 'streamed, size unknown until it ends' : `${manifest.size} bytes`})`)
         // A partial from an interrupted drop was found, re-hashed, and is
         // being continued. It is verified with the rest at the end: if it
         // was not this file's, the digest says so and it is discarded.
-        if (resumeFrom > 0) console.log(`[swarm-receive] resuming from byte ${resumeFrom} of an earlier, interrupted attempt`)
+        if (resumeFrom > 0) progress.log(`[swarm-receive] resuming from byte ${resumeFrom} of an earlier, interrupted attempt`)
       }
     })
 

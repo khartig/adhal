@@ -30,6 +30,14 @@
 //      to:'. On a TTY that is what close() is for; off one, every
 //      progress write is already a whole line.
 //
+// A LINE PRINTED WHILE THE BAR IS UP goes through log(), never straight to
+// console.log. The bar ends without a newline so that '\r' can redraw it,
+// so anything else written to the terminal lands on the end of it: the
+// receiver's `manifest:` line once read
+// `[...]   0%  0 B / 10.0 MB[swarm-receive] manifest: test.bin (...)`.
+// log() clears the bar, prints the line, and redraws the bar below it, so
+// the bar keeps moving in place underneath.
+//
 // A STREAM HAS NO TOTAL (`total: null`, PROTOCOL.md section 4.3). On a TTY
 // it gets a running byte count instead of a bar. Off one it gets nothing:
 // there are no percentages to make milestones of, and a line per chunk
@@ -69,13 +77,13 @@ function percentOf (bytes, total) {
  *   env?: Record<string, string | undefined>,
  *   now?: () => number
  * }} options
- * @returns {{ onProgress: (p: { bytes: number, total: number | null }) => void, close: () => void }}
+ * @returns {{ onProgress: (p: { bytes: number, total: number | null }) => void, close: () => void, log: (text: string) => void }}
  */
 function createProgressReporter ({ label, stream = process.stdout, env = process.env, now = Date.now }) {
   // An escape hatch that costs nothing to honour and saves anyone piping
   // this into a log from having to filter it.
   if (env.ADHAL_NO_PROGRESS === '1') {
-    return { onProgress: () => {}, close: () => {} }
+    return { onProgress: () => {}, close: () => {}, log: (/** @type {string} */ text) => { stream.write(`${text}\n`) } }
   }
 
   const isTty = Boolean(stream.isTTY)
@@ -84,10 +92,15 @@ function createProgressReporter ({ label, stream = process.stdout, env = process
   let lastMilestone = -1
   let drewSomething = false
   let finished = false
+  // What is on the TTY's current line right now, for log() to restore.
+  // Null when the cursor is at the start of a clean line.
+  /** @type {string | null} */
+  let onScreen = null
 
   function drawTty (bytes, total) {
     if (total === null) {
-      stream.write(`\r\x1b[2K[${label}] ${formatBytes(bytes)} (streaming, size unknown)`)
+      onScreen = `[${label}] ${formatBytes(bytes)} (streaming, size unknown)`
+      stream.write(`\r\x1b[2K${onScreen}`)
       drewSomething = true
       return
     }
@@ -97,7 +110,8 @@ function createProgressReporter ({ label, stream = process.stdout, env = process
     const line = `[${label}] [${bar}] ${String(percent).padStart(3)}%  ${formatBytes(bytes)} / ${formatBytes(total)}`
     // Cleared to end of line so a shorter render cannot leave the tail of
     // a longer one behind.
-    stream.write(`\r[2K${line}`)
+    onScreen = line
+    stream.write(`\r\x1b[2K${line}`)
     drewSomething = true
   }
 
@@ -139,9 +153,24 @@ function createProgressReporter ({ label, stream = process.stdout, env = process
     if (finished) return
     finished = true
     if (isTty && drewSomething) stream.write('\n')
+    onScreen = null
   }
 
-  return { onProgress, close }
+  /**
+   * Prints one whole line without breaking the bar. Off a TTY, and on one
+   * with no bar showing, it is an ordinary line.
+   *
+   * @param {string} text
+   */
+  function log (text) {
+    if (isTty && onScreen !== null) {
+      stream.write(`\r\x1b[2K${text}\n${onScreen}`)
+      return
+    }
+    stream.write(`${text}\n`)
+  }
+
+  return { onProgress, close, log }
 }
 
 module.exports = { createProgressReporter, formatBytes, percentOf }
