@@ -292,7 +292,8 @@ in `bin`, and `--help` says so.
 `pnpm test` runs everything; `pnpm test:fast` (`ADHAL_FAST=1`) skips the
 tests marked `slow`, which need a DHT testnet or a child process. `pnpm
 typecheck` runs `tsc` over the JSDoc. `pnpm fuzz` runs the fuzz harness at
-100,000 iterations per target.
+100,000 iterations per target. [`TESTING.md`](TESTING.md) has the commands
+and how to use them, including drops between two machines.
 
 Helpers live in `cli/test-helpers/`, outside `cli/test/` so the runner
 does not count them as tests:

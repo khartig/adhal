@@ -188,7 +188,7 @@ test('a cancel reason round-trips, and a hostile one is defanged', () => {
 
   // The reason is printed straight into a terminal, so it is untrusted
   // input in the place that is easiest to forget.
-  assert.equal(sanitizeReason('a[2Kfake\nline'), 'a [2Kfake line')
+  assert.equal(sanitizeReason('a\x1b[2Kfake\nline'), 'a [2Kfake line')
   assert.ok(Buffer.byteLength(sanitizeReason('x'.repeat(10000)), 'utf8') <= 256)
 
   // A malformed body must not turn a clean cancel back into a mystery.
