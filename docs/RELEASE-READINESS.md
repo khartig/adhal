@@ -109,7 +109,11 @@ Ordered by how expensive each gets to fix later.
   weighed against the privacy properties: it would contact a server, and
   that is a design decision rather than a default.
 - [ ] **W17 gate 8 — A real two-machine drop** (macOS ↔ Linux) on the
-  public DHT, on the frozen wire.
+  public DHT, on the frozen wire. Done before the freeze on 2026-10-12:
+  one 10 MB drop each way between macOS on eero/Xfinity and Linux on
+  Starlink, both verified ([`ARCHITECTURE.md`](ARCHITECTURE.md),
+  "Measured on real networks"). It stays open until it is repeated on
+  the frozen build, with the commit recorded.
 - [ ] **Q-05 — Independent review** of the cryptographic composition,
   after W17, against PROTOCOL §12.
 

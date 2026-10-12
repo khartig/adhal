@@ -120,10 +120,13 @@ shape:
   connection open whose far end it has already discarded, and Hyperswarm
   then prefers that dead connection to a live one. `swarm.js` has the
   mechanism in full (W15d).
-- **What is counted.** A failed confirmation, and on the sender a reused
-  `sid`, go to the `AttemptCap`. A close, a reset, a silent candidate or a
-  dead connection never do. After a failure, the next HELLO (receiver) or
-  REPLY (sender) is delayed by the backoff, and refused by nobody.
+- **What is counted.** A failed confirmation goes to the `AttemptCap`. On
+  the sender so do a reused `sid`, and any run it sent REPLY that did not
+  answer with a valid CONFIRM: the sender reserves an attempt before each
+  REPLY and settles it when the run ends (PROTOCOL §6). A close, a reset,
+  a silent candidate or a dead connection that was never sent REPLY is
+  never counted. After a failure, the next HELLO (receiver) or REPLY
+  (sender) is delayed by the backoff, and refused by nobody.
 - **Pairing.** The first candidate to complete is resolved with its socket
   (paused, so nothing arrives before the transfer listens), any bytes read
   past the handshake as `pending`, the channel keys, and the negotiated
@@ -317,6 +320,22 @@ skip it.
 ```
 find . -name '*.js' -not -path './node_modules/*' -exec file {} + | grep -v text
 ```
+
+## Measured on real networks
+
+Drops between two machines on the public DHT. A single drop is a
+success, not a rate: a rate comes from `scratch-trials.js`
+([`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md)).
+Newest first.
+
+| Date | What | Path | Result |
+| --- | --- | --- | --- |
+| 2026-10-12 | One 10 MB drop each way with the CLIs (`swarm-receive.js --new`, `swarm-send.js -`). W17 gate 8, before the wire freeze. Branch `w11-protocol-v2`; the commit was not recorded | macOS behind an eero firewall on Xfinity ↔ Linux on Starlink | Both succeeded. Receiver on macOS: digest `93fe8bc7…`, verified on both sides. Receiver on Linux: digest `d6d1a529…`, verified on both sides. Each side saw one candidate and dropped none, so no attempt was counted. The second receiver ran with `ADHAL_JOIN_TIMEOUT=300000`; the first made it inside the default 30 s |
+| before `RESULT` | 100 trials | Firewalled Comcast sender → Starlink receiver | Sender 100/100, receiver 94/100. All six were the old close wait running out (PROTOCOL §4.2) |
+| — | 10 drops | Starlink CGNAT → Comcast | Punched 10 of 10 ([`POSITIONING.md`](POSITIONING.md)) |
+
+Not yet measured: a rate on the eero/Xfinity ↔ Starlink pair, and dual
+hard NAT, which is the named risk for direct connections.
 
 ## Diagnostics: `engine/scratch-*.js`
 
