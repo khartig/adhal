@@ -60,6 +60,9 @@ const {
   resolveCode,
   sendFile,
   receiveFile,
+  closeAfterResult,
+  RESULT_DELIVERY_TIMEOUT_MS,
+  CLOSE_GRACE_MS,
   WORD_COUNT,
   ERR_CONFIRMATION
 } = require('./src')
@@ -276,15 +279,26 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       onProgress: (p) => { bytesReceived = p.bytes }
     })
     // RESULT is written but only locally flushed, and the finally below
-    // destroys the swarm. So wait for the sender's end in reply, as
+    // destroys the swarm. So wait for the transport to confirm the sender
+    // has it, and for the sender's close in reply, as
     // cli/src/swarm-receive.js does; the file is already verified, so the
-    // timer can cost the sender its confirmation but never this trial.
+    // wait can cost the sender its confirmation but never this trial.
+    //
+    // Timed separately from the transfer, and its outcome recorded, after
+    // 2026-10-12's run A trial 9: this wait was a flat 5s then, and the
+    // receiver's record could not say whether it had run out -- which was
+    // the whole question once the sender reported a reset for a file the
+    // receiver had saved. completedMs used to include it, too.
+    //
+    // Bounded by what is left of this trial's budget as well, so a drop
+    // that finished late cannot wait into the next slot. Cut short that
+    // way, the outcome is still an honest 'timeout'.
     phase = 'end'
-    socket.end()
-    await Promise.race([
-      new Promise((resolve) => socket.once('close', resolve)),
-      sleep(5000)
-    ])
+    const completedMs = sinceDial()
+    const left = started + budgetMs - Date.now() - CLOSE_GRACE_MS
+    const closeWait = await closeAfterResult(socket, {
+      deliveryTimeout: Math.max(1000, Math.min(RESULT_DELIVERY_TIMEOUT_MS, left))
+    })
 
     // A CROSS-CHECK, no longer the integrity check itself.
     //
@@ -307,10 +321,12 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       announcedMs: announcedAt,
       candidateMs: candidateAt,
       connectedMs: connectedAt,
-      completedMs: sinceDial(),
+      completedMs,
       badConfirmations,
       bytes: result.size,
-      sha256: result.sha256
+      sha256: result.sha256,
+      closeWait: closeWait.outcome,
+      closeWaitMs: closeWait.ms
     }
   } catch (err) {
     return {
@@ -324,6 +340,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       phase,
       bytesReceived,
       manifestSize: manifest ? manifest.size : null,
+      cause: err && err.cause ? err.cause.message : null,
       failedAtEpochMs: Date.now()
     }
   } finally {
@@ -414,6 +431,12 @@ async function runSenderTrial (i, budgetMs) {
       // still going out, or after they all had and before it confirmed.
       // The second is the case the receiver's own record has to settle.
       phase: (err && err.phase) || null,
+      bytesSent: err && typeof err.bytes === 'number' ? err.bytes : null,
+      manifestSize: err && err.size !== undefined ? err.size : null,
+      // The transport's own error behind an ERR_CONNECTION, e.g. "connection
+      // reset by peer". Before the engine wrapped socket errors, that was
+      // all a record got.
+      cause: err && err.cause ? err.cause.message : null,
       failedAtEpochMs: Date.now()
     }
   } finally {
@@ -473,6 +496,14 @@ function summarise (results) {
   const timerWaits = ok.filter((r) => r.closeWait === 'timer').length
   if (role === 'sender' && ok.length) {
     log(`close wait: ${ok.length - timerWaits} closed by receiver, ${timerWaits} ended by the 5s timer (after RESULT)`)
+  }
+  // The receiver's side of the same wait (closeAfterResult). 'acked' is
+  // harmless: the sender's transport has RESULT. 'timeout' is the one
+  // that matters -- the sender may never have heard, and its record for
+  // that trial is likely a failure the file does not deserve.
+  if (role === 'receiver' && ok.length) {
+    const by = (outcome) => ok.filter((r) => r.closeWait === outcome).length
+    log(`close wait: ${by('closed')} closed by sender, ${by('acked')} acked without a close, ${by('timeout')} never acked (after RESULT)`)
   }
   const unconfirmed = results.filter((r) => r.phase === 'result').length
   if (role === 'sender' && unconfirmed) {
@@ -559,13 +590,15 @@ async function main () {
     const timing = typeof result.completedMs === 'number'
       ? ` connect=${(result.connectedMs / 1000).toFixed(1)}s total=${(result.completedMs / 1000).toFixed(1)}s`
       : ''
-    // The two lines that line a sender 'ok' up against a receiver failure:
-    // how the sender's close wait ended, and where the receiver stopped.
+    // The lines that line one side's 'ok' up against the other's failure:
+    // how each side's close wait ended, and where a failed side stopped.
     const closeInfo = result.closeWait
-      ? ` close=${result.closeWait}(${(result.closeWaitMs / 1000).toFixed(1)}s) destroyAt=${result.destroyAtEpochMs}`
+      ? ` close=${result.closeWait}(${(result.closeWaitMs / 1000).toFixed(1)}s)` +
+        (result.destroyAtEpochMs ? ` destroyAt=${result.destroyAtEpochMs}` : '')
       : ''
     const failInfo = result.phase
-      ? ` [phase=${result.phase} bytes=${result.bytesReceived}/${result.manifestSize ?? '?'} failedAt=${result.failedAtEpochMs}]`
+      ? ` [phase=${result.phase} bytes=${result.bytesReceived ?? result.bytesSent}/${result.manifestSize ?? '?'}` +
+        `${result.cause ? ` cause="${result.cause}"` : ''} failedAt=${result.failedAtEpochMs}]`
       : ''
     log(`trial ${i + 1}/${trials}: ${result.outcome}${timing}${closeInfo}${result.error ? ` -- ${result.error}` : ''}${failInfo}`)
   }

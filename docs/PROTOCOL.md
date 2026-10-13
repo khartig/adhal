@@ -643,9 +643,10 @@ Timers, by state: the receiver waits `MANIFEST_TIMEOUT_MS` (30 s) in
 while *considering*, since that wait is its own. The sender bounds the
 answer to its offer and to its PREFIX with `ACCEPT_TIMEOUT_MS` (5 min)
 and RESULT with `RESULT_TIMEOUT_MS` (2 min), both `ERR_STALLED`. A
-close in any state before *done* is `ERR_CONNECTION`. On the sender it
-carries `.phase`: `offer`, `prefix`, `send` or `result`, for the four
-sender states in order.
+close in any state before *done* is `ERR_CONNECTION`, and so is a
+transport error such as a reset, which keeps its own error as `.cause`.
+On the sender it carries `.phase`: `offer`, `prefix`, `send` or
+`result`, for the four sender states in order.
 
 ---
 

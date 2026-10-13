@@ -22,7 +22,7 @@
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, receiveFile, generateCode, encodeQrPayload, resolveCode, displayName } = require('@ad-hal/engine')
+const { createSwarm, acceptOnce, receiveFile, closeAfterResult, generateCode, encodeQrPayload, resolveCode, displayName } = require('@ad-hal/engine')
 
 const { printQr } = require('./qr')
 const { readCode } = require('./read-code')
@@ -329,17 +329,14 @@ async function main () {
     // receiveFile has written RESULT, but "written" is a local flush.
     // Destroying now could drop it and leave the sender reporting an
     // unconfirmed file -- the same mistake the sender used to make with
-    // the last chunks. So end, and wait for the sender's end in reply,
-    // which it sends once it has read RESULT. The timeout only bounds a
-    // sender that vanished: the file is already verified and saved.
-    socket.end()
-    await new Promise((resolve) => {
-      const timer = setTimeout(resolve, 5000)
-      socket.once('close', () => {
-        clearTimeout(timer)
-        resolve(undefined)
-      })
-    })
+    // the last chunks. So end, and wait until the transport confirms the
+    // sender has RESULT and the sender closes in reply. The bound only
+    // covers a sender that vanished: the file is already verified and
+    // saved. See closeAfterResult in engine/src/transfer.js.
+    const { outcome } = await closeAfterResult(socket)
+    if (outcome === 'timeout') {
+      console.log('[swarm-receive] note: the sender never acknowledged the confirmation, so it may report the file as unconfirmed. The file here is complete and verified.')
+    }
   } catch (err) {
     // First, so the reason does not land on the question's line.
     consent.close()

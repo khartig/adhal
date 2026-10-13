@@ -286,6 +286,82 @@ function writeFlushed (socket, frame) {
   })
 }
 
+// How long a receiver that has sent RESULT waits for the transport to
+// confirm the sender has it, and then for the sender's close in reply.
+//
+// Both callers used to end the socket and wait a flat 5s for the close.
+// That was the sender's old mistake made from the other side -- a fixed
+// timer standing in for delivery -- and on 2026-10-12 it cost a trial:
+// a 10 MB drop that took 63s on a degraded path, where the receiver
+// verified and saved the file, sent RESULT, saw no close within 5s and
+// destroyed its swarm. The sender, still waiting for RESULT, reported
+// "connection reset by peer".
+//
+// writeFlushed cannot help here: its write callback is a local hand-off,
+// and it gives up after CANCEL_FLUSH_MS regardless. Over Hyperswarm the
+// socket's flush() resolves once the peer's transport has ACKED every
+// write, which is the delivery signal the timer was guessing at. So:
+// wait for that, bounded by PROGRESS_TIMEOUT_MS -- the receiver's own
+// definition of a dead path, and enough for UDX's backed-off
+// retransmissions on a lossy one -- and then CLOSE_GRACE_MS for the
+// sender to read RESULT and end. A transport with no flush() (plain TCP,
+// the in-memory pairs in tests) skips straight to the grace window, which
+// is the old 5s behaviour.
+//
+// The file is already verified and saved before any of this, so a timeout
+// here can cost the sender its confirmation but never the receiver its
+// file. What it must not do is cut off a RESULT still in flight.
+const RESULT_DELIVERY_TIMEOUT_MS = PROGRESS_TIMEOUT_MS
+const CLOSE_GRACE_MS = 5000
+
+/**
+ * Ends `socket` after the receiver's RESULT and waits for the sender to
+ * close in reply. Never rejects. The outcome says how the wait ended:
+ *   'closed'  the sender closed: it read RESULT, or vanished visibly
+ *   'acked'   the transport confirmed delivery, but no close followed
+ *             within the grace window
+ *   'timeout' delivery was never confirmed; the sender may not have RESULT
+ * @param {any} socket
+ * @param {{ deliveryTimeout?: number, grace?: number }} [options]
+ * @returns {Promise<{ outcome: 'closed' | 'acked' | 'timeout', ms: number }>}
+ */
+function closeAfterResult (socket, { deliveryTimeout = RESULT_DELIVERY_TIMEOUT_MS, grace = CLOSE_GRACE_MS } = {}) {
+  const started = Date.now()
+  if (socket.destroyed) return Promise.resolve({ outcome: 'closed', ms: 0 })
+  return new Promise((resolve) => {
+    let done = false
+    /** @type {NodeJS.Timeout | null} */
+    let timer = null
+    const finish = (/** @type {'closed' | 'acked' | 'timeout'} */ outcome) => {
+      if (done) return
+      done = true
+      if (timer) clearTimeout(timer)
+      socket.removeListener('close', onClose)
+      resolve({ outcome, ms: Date.now() - started })
+    }
+    const onClose = () => finish('closed')
+    socket.once('close', onClose)
+
+    // Taken a microtask after end(), which is fine: RESULT is already
+    // written, so if it is still unacked it is among the writes flush()
+    // waits on, and the end packet only adds to them. False means the
+    // socket is already going, and its close will settle this. A flush
+    // that never settles -- a socket destroyed under it -- is covered by
+    // the same close.
+    const acked = typeof socket.flush === 'function'
+      ? Promise.resolve().then(() => socket.flush()).catch(() => false)
+      : Promise.resolve(true)
+    socket.end()
+
+    timer = setTimeout(() => finish('timeout'), deliveryTimeout)
+    acked.then((ok) => {
+      if (done || ok === false) return
+      clearTimeout(timer)
+      timer = setTimeout(() => finish('acked'), grace)
+    })
+  })
+}
+
 /**
  * @param {any} socket
  * @param {InstanceType<typeof Channel>} channel
@@ -676,7 +752,19 @@ async function offerSource (socket, channel, source, {
       resolve(undefined)
     }
 
-    const onError = (err) => fail(err)
+    // A socket error is a close that came with a reason, and is reported as
+    // one. It used to be passed through raw, so a reset beat the 'close'
+    // below to `fail` and the caller got a bare "connection reset by peer"
+    // with no code, no phase and no byte count -- on 2026-10-12, a sender
+    // whose receiver had the file reported exactly that, and the harness
+    // could only bucket it as a generic transfer error. The transport's
+    // own error is kept as `.cause`.
+    const onError = (err) => {
+      if (settled) return
+      const lost = connectionLost()
+      lost.cause = err
+      fail(lost)
+    }
 
     // Before RESULT, a sender never listened for the close at all: it had
     // nothing left to wait for once its writes were accepted. Now a close
@@ -684,6 +772,10 @@ async function offerSource (socket, channel, source, {
     // which part of the transfer it cut off.
     function onClosed () {
       if (settled) return
+      fail(connectionLost())
+    }
+
+    function connectionLost () {
       const message = {
         offer: 'the receiver disconnected before answering the offer; no file bytes were sent',
         prefix: 'the receiver disconnected while checking the prefix it asked to resume from; no file bytes were sent',
@@ -692,7 +784,7 @@ async function offerSource (socket, channel, source, {
           : `the receiver disconnected after ${sent} of ${size} bytes were sent`,
         result: 'the receiver disconnected after every byte was sent but before confirming the file; whether it was saved is unknown'
       }[phase]
-      fail(new TransferError('ERR_CONNECTION', message, { bytes: sent, size, phase }))
+      return new TransferError('ERR_CONNECTION', message, { bytes: sent, size, phase })
     }
 
     function onAccept (body) {
@@ -1737,8 +1829,13 @@ function receiveFile (socket, outputDir, {
       fail(err, notice)
     }
 
+    // Reported as the close it is, with the transport's error as `.cause`,
+    // for the reason given at the sender's onError.
     function onSocketError (err) {
-      fail(err, null, true)
+      if (settled) return
+      const lost = connectionLost()
+      lost.cause = err
+      fail(lost, null, true)
     }
 
     // The infinite hang this closes: the only listeners used to be 'data'
@@ -1748,6 +1845,10 @@ function receiveFile (socket, outputDir, {
     // also fires on the normal path, after we have already resolved.
     function onClosed () {
       if (settled) return
+      fail(connectionLost(), null, true)
+    }
+
+    function connectionLost () {
       const message = accepted
         ? manifest.size === null
           ? `the sender disconnected after ${received} bytes of a stream, before its END`
@@ -1755,7 +1856,7 @@ function receiveFile (socket, outputDir, {
         : offered
           ? 'the sender disconnected before its offer was answered'
           : 'the sender disconnected before sending a manifest'
-      fail(new TransferError('ERR_CONNECTION', message, { bytes: received, size: manifest ? manifest.size : null }), null, true)
+      return new TransferError('ERR_CONNECTION', message, { bytes: received, size: manifest ? manifest.size : null })
     }
 
     function onAbort () {
@@ -2221,6 +2322,9 @@ module.exports = {
   PROGRESS_TIMEOUT_MS,
   ACCEPT_TIMEOUT_MS,
   RESULT_TIMEOUT_MS,
+  RESULT_DELIVERY_TIMEOUT_MS,
+  CLOSE_GRACE_MS,
+  closeAfterResult,
   CHECKPOINT_INTERVAL_MS,
   MANIFEST_VERSION
 }

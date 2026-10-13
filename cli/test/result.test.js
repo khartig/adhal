@@ -114,6 +114,44 @@ test('a receiver that closes after every byte but before RESULT fails the send, 
   assert.equal(outcome.error.phase, 'result')
 })
 
+// 2026-10-12, run A trial 9: the receiver had the file, and the sender
+// reported a bare "connection reset by peer" -- no code, no phase, no byte
+// count -- because a socket 'error' reached fail() ahead of the 'close'
+// that carries all three. A reset is a close with a reason attached.
+const reset = () => Object.assign(new Error('connection reset by peer'), { code: 'ECONNRESET' })
+
+test('a reset after every byte but before RESULT is reported as the result phase, not a raw socket error', async (t) => {
+  const { sourcePath } = await fixture(t, 'result-reset')
+  const { txSocket, keys, allIn } = receiverPeer()
+
+  const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
+  await allIn
+  txSocket.destroy(reset())
+
+  const outcome = await sent
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.error.code, 'ERR_CONNECTION')
+  assert.equal(outcome.error.phase, 'result')
+  assert.equal(outcome.error.bytes, 256 * 1024)
+  assert.equal(outcome.error.cause.code, 'ECONNRESET', 'the transport\'s own error is kept')
+})
+
+test('a reset on the receiver mid-transfer is reported as the sender disconnecting, not a raw socket error', async (t) => {
+  const { body, sha256, outputDir } = await fixture(t, 'result-rx-reset', 128 * 1024)
+  const { rxSocket, keys, offer } = senderPeer()
+
+  const received = settle(receiveFile(rxSocket, outputDir, { ...keys }))
+  await offer({ v: 2, name: 'payload.bin', size: body.length, sha256, blockSize: 64 * 1024 }, body.subarray(0, 64 * 1024))
+  await tick()
+  rxSocket.destroy(reset())
+
+  const outcome = await received
+  assert.equal(outcome.ok, false)
+  assert.equal(outcome.error.code, 'ERR_CONNECTION')
+  assert.equal(outcome.error.bytes, 64 * 1024)
+  assert.equal(outcome.error.cause.code, 'ECONNRESET')
+})
+
 test('the sender does not resolve on hand-off, only on RESULT', async (t) => {
   const { sourcePath, sha256 } = await fixture(t, 'result-wait')
   const { txSocket, keys, allIn, reply } = receiverPeer()

@@ -171,6 +171,19 @@ Both roles measure connect time from the same instant (the moment the
 sender is scheduled to dial), so their numbers are directly comparable. If
 they disagree by much, something is wrong with the run itself.
 
+Each `ok` line also says how that side's wait after the transfer ended,
+as `close=<outcome>(<seconds>)`, and the summary counts them. `total` stops
+before this wait on both sides.
+
+- **Sender:** `closed` or `timer`. A `timer` is a receiver that confirmed
+  the file and then took more than 5s to close: harmless.
+- **Receiver** (`closeAfterResult` in `engine/src/transfer.js`): `closed`,
+  `acked` or `timeout`. `acked` means the sender's transport acknowledged
+  RESULT but no close followed: also harmless. **`timeout` means delivery
+  of RESULT was never confirmed**, so the sender's record for that trial
+  is probably a failure for a file this side saved. Read the two records
+  together.
+
 ### Failure classes
 
 | Outcome | Meaning | Where to look |
@@ -188,7 +201,7 @@ they disagree by much, something is wrong with the run itself.
 | `declined` | Sender only: the receiver refused the offer before any byte moved | This harness's receiver asks no person, so the reason is the engine's: a name, a size, the disk. The receiver's record says which. |
 | `no-space` / `exists` | Receiver only: the declared size does not fit, or no partial could be opened without destroying a file | The receiving machine's disk or output directory, not the path |
 | `drop-taken` | Another peer holding this trial's code paired first | Should never happen on a derived private code. Another machine is running the same `--seed`. |
-| `connection-lost` | The socket closed before the transfer finished | A punch that died mid-transfer. Before the failure-reporting work this hung forever instead of being counted. |
+| `connection-lost` | The socket closed or reset before the transfer finished | A punch that died mid-transfer. Before the failure-reporting work this hung forever instead of being counted. A reset carries the transport's own error as `cause`; on the sender, `phase: 'result'` means every byte went out and the receiver's record is the only one that knows whether the file landed. Until 2026-10-12 a reset arrived uncoded and was counted as `transfer-error`. |
 | `unsafe-name` / `manifest-invalid` / `protocol-error` | The peer's manifest or framing was refused | On a private topic, almost always a build-version skew between the two hosts |
 | `cancelled-by-peer` / `cancelled-locally` | Someone stopped the drop deliberately | Not a failure of the path. Should be zero in an unattended run. |
 | `timeout-other` | Timed out without a recognised reason | Read the `error` field in the JSON. A coded engine error should never land here or in `transfer-error`; if one does, give it a row. |
