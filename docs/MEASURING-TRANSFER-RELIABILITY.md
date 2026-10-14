@@ -184,6 +184,13 @@ before this wait on both sides.
   is probably a failure for a file this side saved. Read the two records
   together.
 
+  **`closed` does not prove the sender heard.** It means the socket closed,
+  and the connection dying closes it too. On 2026-10-13, run A trial 10,
+  the receiver's wait ended `closed` 2.2 s after RESULT, while the sender
+  never got RESULT and reported `connection-lost` with `phase: result`.
+  So a sender failure next to a receiver `ok` is still possible, and the
+  sender's record is what settles it.
+
 ### Failure classes
 
 | Outcome | Meaning | Where to look |
