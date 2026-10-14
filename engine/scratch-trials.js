@@ -24,7 +24,8 @@
 // a minute of each other, then leave them alone.
 //
 // Options: --slot <s> per-trial budget (default 135), --start-epoch <s> to
-// pin the schedule explicitly, --out <path> to write per-trial JSON.
+// pin the schedule explicitly, --out <path> to write per-trial JSON,
+// --record-addresses to keep IP addresses in the log and JSON (see below).
 //
 // TWO DESIGN CONSTRAINTS, because the two ends cannot talk to each other:
 //
@@ -53,6 +54,8 @@ const os = require('node:os')
 const fs = require('node:fs')
 const path = require('node:path')
 const crypto = require('node:crypto')
+const { execFileSync } = require('node:child_process')
+const { createRequire } = require('node:module')
 const {
   createSwarm,
   acceptOnce,
@@ -88,6 +91,7 @@ const refreshMs = flag('refresh') === undefined ? undefined : Number(flag('refre
 if (!['receiver', 'sender'].includes(role) || !seed || !Number.isInteger(trials) || trials < 1) {
   console.error('Usage: scratch-trials.js --role <receiver|sender> --seed <string> --trials <n>')
   console.error('                         [--file <path>] [--slot 135] [--refresh <ms>] [--start-epoch <s>] [--out <path>]')
+  console.error('                         [--record-addresses]')
   console.error('The sender requires --file. Both sides need the same --seed and --trials.')
   process.exit(1)
 }
@@ -117,6 +121,10 @@ const SLOT_MS = slotSeconds * 1000
 // chosen value is printed so a mismatch is obvious rather than silent.
 const ALIGN_MS = 300000
 const startEpoch = flag('start-epoch')
+// Off by default because these logs are committed: docs/trials/ holds two
+// home networks' worth of them. Without it, every address is reduced to its
+// kind (public, private, CGNAT, ...), which is what the analysis needs.
+const recordAddresses = process.argv.includes('--record-addresses')
 const startMs = startEpoch
   ? Number(startEpoch) * 1000
   : Math.ceil((Date.now() + 60000) / ALIGN_MS) * ALIGN_MS
@@ -150,6 +158,161 @@ function codeForTrial (i) {
 }
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
+
+// --- What the network looked like ------------------------------------------
+//
+// Added on 2026-10-13, after a run whose rate could not be read without
+// knowing what kind of pair it measured. A 95% between two consistent NATs
+// says little about the case the project's own risk list names -- two
+// randomized ("hard") NATs, which hole punching cannot cross without a
+// relay -- and nothing in the records said which this was. Each side can
+// only see its own NAT, so read the two machines' logs together.
+
+// Classifies an address without recording it. `null` for no address.
+/** @param {string | null | undefined} host */
+function addressKind (host) {
+  if (!host) return null
+  let h = String(host).toLowerCase()
+  if (h.startsWith('::ffff:') && h.includes('.')) h = h.slice(7)
+  const v4 = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    if (a === 127) return 'loopback'
+    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return 'private'
+    if (a === 100 && b >= 64 && b <= 127) return 'cgnat'
+    if (a === 169 && b === 254) return 'link-local'
+    return 'public'
+  }
+  if (h === '::1') return 'loopback'
+  if (/^f[cd]/.test(h)) return 'private'
+  if (/^fe[89ab]/.test(h)) return 'link-local'
+  return 'public'
+}
+
+// This side's NAT as the DHT has sampled it, from the addresses other nodes
+// report seeing us at. 'consistent': they agree on a host and port, the
+// mapping hole punching relies on. 'randomized': they agree on the host but
+// not the port, a new mapping per destination -- the hard case. 'unknown':
+// too few samples agree yet. `firewalled` is the DHT's own finding that
+// unsolicited packets do not reach us. Reads dht-rpc's NAT sampler for the
+// sample count, which is not public API; a scratch tool can afford that.
+/** @param {any} dht */
+function natSnapshot (dht) {
+  try {
+    const localPorts = [dht.io && dht.io.serverSocket, dht.io && dht.io.clientSocket]
+      .filter(Boolean)
+      .map((sock) => { try { return sock.address().port } catch { return null } })
+      .filter((port) => typeof port === 'number')
+    const kind = dht.host === null ? 'unknown' : dht.randomized ? 'randomized' : 'consistent'
+    return {
+      kind,
+      firewalled: dht.firewalled,
+      // A NAT that keeps the local port is the easiest kind to punch.
+      portPreserved: kind === 'consistent' ? localPorts.includes(dht.port) : null,
+      samples: dht._nat ? dht._nat.size : null,
+      ...(recordAddresses ? { publicHost: dht.host, publicPort: dht.port, localPorts } : {})
+    }
+  } catch (err) {
+    return { kind: 'unavailable', error: err.message }
+  }
+}
+
+// The connection a trial used, from UDX's own counters. Every connection is
+// direct: Hyperswarm relays only through a relay it is given, and this
+// project configures none. Read at the end of a trial, after the socket may
+// have closed, which is safe: the counters live in a buffer UDX allocates
+// on the JS side. `onDhtSocket` is whether the punch landed on the DHT's own
+// socket rather than one opened for punching, which a randomized NAT forces.
+/** @param {any} socket @param {any} dht */
+function pathSnapshot (socket, dht) {
+  const raw = socket && socket.rawStream
+  if (!raw) return null
+  try {
+    return {
+      remoteKind: addressKind(raw.remoteHost),
+      remoteFamily: raw.remoteFamily || null,
+      onDhtSocket: !!dht && !!dht.io && (raw.socket === dht.io.serverSocket || raw.socket === dht.io.clientSocket),
+      rttMs: raw.rtt,
+      mtu: raw.mtu,
+      retransmits: raw.retransmits,
+      rtoCount: raw.rtoCount,
+      packetsSent: raw.packetsTransmitted,
+      packetsReceived: raw.packetsReceived,
+      bytesSent: raw.bytesTransmitted,
+      bytesReceived: raw.bytesReceived,
+      ...(recordAddresses ? { remoteHost: raw.remoteHost, remotePort: raw.remotePort } : {})
+    }
+  } catch (err) {
+    return { error: err.message }
+  }
+}
+
+// The build, so a run records what it measured. Two runs have so far been
+// written up with "the commit was not recorded".
+function buildInfo () {
+  const git = (args) => execFileSync('git', args, { cwd: __dirname, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+  let commit = null
+  let dirty = null
+  try {
+    commit = git(['rev-parse', '--short=12', 'HEAD'])
+    dirty = git(['status', '--porcelain', '--untracked-files=no']) !== ''
+  } catch {}
+  const versions = {}
+  const req = createRequire(__filename)
+  for (const name of ['hyperswarm', 'hyperdht']) {
+    try { versions[name] = req(`${name}/package.json`).version } catch { versions[name] = null }
+  }
+  try {
+    versions['udx-native'] = createRequire(req.resolve('hyperdht'))('udx-native/package.json').version
+  } catch { versions['udx-native'] = null }
+  return { commit, dirty, versions }
+}
+
+// Interface counts only, never addresses. Global IPv6 matters because the
+// DHT and its punching are IPv4.
+function interfaceSummary () {
+  let ipv4 = 0
+  let globalIpv6 = false
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const ni of list || []) {
+      if (ni.internal) continue
+      if (ni.family === 'IPv4' || ni.family === 4) ipv4++
+      if ((ni.family === 'IPv6' || ni.family === 6) && addressKind(ni.address) === 'public') globalIpv6 = true
+    }
+  }
+  return { ipv4, globalIpv6 }
+}
+
+// One throwaway swarm before the first slot, so the header says what kind
+// of NAT this run starts behind. The per-trial snapshots say whether that
+// held: on Starlink in particular, it need not.
+async function probeNat () {
+  const probe = createSwarm()
+  try {
+    let timer
+    await Promise.race([
+      probe.dht.ready(),
+      new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('the DHT did not bootstrap within 20s')), 20000) })
+    ]).finally(() => clearTimeout(timer))
+    return natSnapshot(probe.dht)
+  } catch (err) {
+    return { kind: 'unavailable', error: err.message }
+  } finally {
+    await probe.destroy().catch(() => {})
+  }
+}
+
+/** @param {any} nat */
+function describeNat (nat) {
+  if (!nat) return 'n/a'
+  if (nat.kind === 'unavailable') return `unavailable (${nat.error})`
+  const parts = [nat.kind]
+  if (nat.kind === 'consistent') parts.push(nat.portPreserved ? 'port preserved' : 'port translated')
+  parts.push(nat.firewalled ? 'firewalled' : 'not firewalled')
+  if (typeof nat.samples === 'number') parts.push(`${nat.samples} samples`)
+  if (nat.publicHost) parts.push(`${nat.publicHost}:${nat.publicPort}`)
+  return parts.join(', ')
+}
 
 // Classifies a failure into something countable.
 //
@@ -249,6 +412,11 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
   let phase = 'accept'
   let connectedAt = null
   let bytesReceived = 0
+  /** @type {any} */
+  let conn = null
+  // Taken before the finally below destroys the swarm.
+  const withNet = (/** @type {any} */ record) =>
+    Object.assign(record, { nat: natSnapshot(swarm.dht), path: pathSnapshot(conn, swarm.dht) })
 
   try {
     const { socket, pending, sendKey, receiveKey } = await acceptOnce(swarm, topic, {
@@ -268,6 +436,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       }
     })
     socket.on('error', () => {})
+    conn = socket
     connectedAt = sinceDial()
 
     phase = 'receive'
@@ -315,7 +484,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
     // verification itself, which is worth hearing about loudly and
     // separately.
     const crossCheckOk = !!manifest && manifest.sha256 === result.sha256
-    return {
+    return withNet({
       trial: i,
       outcome: crossCheckOk ? 'ok' : 'hash-crosscheck-disagreed',
       announcedMs: announcedAt,
@@ -326,10 +495,12 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       bytes: result.size,
       sha256: result.sha256,
       closeWait: closeWait.outcome,
-      closeWaitMs: closeWait.ms
-    }
+      closeWaitMs: closeWait.ms,
+      closeWaitAcked: closeWait.acked,
+      closeWaitError: closeWait.error
+    })
   } catch (err) {
-    return {
+    return withNet({
       trial: i,
       outcome: classify(err),
       announcedMs: announcedAt,
@@ -342,7 +513,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
       manifestSize: manifest ? manifest.size : null,
       cause: err && err.cause ? err.cause.message : null,
       failedAtEpochMs: Date.now()
-    }
+    })
   } finally {
     await swarm.destroy().catch(() => {})
     await fs.promises.rm(outDir, { recursive: true, force: true }).catch(() => {})
@@ -371,6 +542,8 @@ async function runSenderTrial (i, budgetMs) {
   let socketErrorAfterSend = null
   /** @type {any} */
   let out
+  /** @type {any} */
+  let conn = null
 
   try {
     const { socket, pending, sendKey, receiveKey } = await connectOnce(swarm, topic, {
@@ -385,6 +558,7 @@ async function runSenderTrial (i, budgetMs) {
       }
     })
     socket.on('error', () => {})
+    conn = socket
     const connectedAt = Date.now() - started
 
     // `pending` is anything the receiver coalesced after its proof.
@@ -443,7 +617,10 @@ async function runSenderTrial (i, budgetMs) {
     // Stamped immediately before the destroy, so it can be lined up with
     // the receiver's `failedAtEpochMs`. This destroy was what reset
     // receivers still draining, before sendFile waited for RESULT.
-    if (out) out.destroyAtEpochMs = Date.now()
+    if (out) {
+      Object.assign(out, { nat: natSnapshot(swarm.dht), path: pathSnapshot(conn, swarm.dht) })
+      out.destroyAtEpochMs = Date.now()
+    }
     await swarm.destroy().catch(() => {})
   }
   return out
@@ -455,7 +632,7 @@ function percentile (sorted, p) {
   return sorted[idx]
 }
 
-function summarise (results) {
+function summarise (results, startNat) {
   const ok = results.filter((r) => r.outcome === 'ok')
   const rate = results.length ? (ok.length / results.length) * 100 : 0
   const connects = ok.map((r) => r.connectedMs).filter((v) => typeof v === 'number').sort((a, b) => a - b)
@@ -497,18 +674,47 @@ function summarise (results) {
   if (role === 'sender' && ok.length) {
     log(`close wait: ${ok.length - timerWaits} closed by receiver, ${timerWaits} ended by the 5s timer (after RESULT)`)
   }
-  // The receiver's side of the same wait (closeAfterResult). 'acked' is
-  // harmless: the sender's transport has RESULT. 'timeout' is the one
-  // that matters -- the sender may never have heard, and its record for
-  // that trial is likely a failure the file does not deserve.
+  // The receiver's side of the same wait (closeAfterResult). 'closed' is
+  // the sender ending in reply, which it does only once it has RESULT.
+  // 'acked' is harmless: the sender's transport has RESULT. 'lost' and
+  // 'timeout' are the ones that matter -- the sender probably never
+  // heard, and its record for that trial is likely a failure the file
+  // does not deserve.
   if (role === 'receiver' && ok.length) {
     const by = (outcome) => ok.filter((r) => r.closeWait === outcome).length
-    log(`close wait: ${by('closed')} closed by sender, ${by('acked')} acked without a close, ${by('timeout')} never acked (after RESULT)`)
+    log(`close wait: ${by('closed')} ended by sender, ${by('acked')} acked without an end, ` +
+      `${by('lost')} connection lost, ${by('timeout')} never acked (after RESULT)`)
+    const unconfirmed = ok.filter((r) => r.closeWait === 'lost' || r.closeWait === 'timeout').map((r) => r.trial + 1)
+    if (unconfirmed.length) {
+      log(`   trial(s) ${unconfirmed.join(', ')}: this side saved the file, but the sender probably`)
+      log('   never got RESULT. Expect its record to show phase=result for those.')
+    }
   }
   const unconfirmed = results.filter((r) => r.phase === 'result').length
   if (role === 'sender' && unconfirmed) {
     log(`   ${unconfirmed} trial(s) sent every byte and never got RESULT; the receiver's`)
     log('   record for those trials is the only one that knows whether the file landed.')
+  }
+
+  // Whether this side's NAT held still. Each line is one side only; the
+  // other machine's log has its half.
+  const natKinds = new Map()
+  for (const r of results) {
+    if (!r.nat) continue
+    const key = describeNat({ ...r.nat, samples: undefined, publicHost: undefined })
+    natKinds.set(key, (natKinds.get(key) || 0) + 1)
+  }
+  if (natKinds.size) {
+    log(`nat (this side): at start ${describeNat({ ...startNat, publicHost: undefined })}`)
+    for (const [key, n] of natKinds) log(`   ${String(n).padStart(3)} trial(s): ${key}`)
+    if (natKinds.size > 1) log('   CHANGED DURING THE RUN -- read failures against the trials where it did')
+  }
+  const paths = results.map((r) => r.path).filter((p) => p && !p.error)
+  if (paths.length) {
+    const kinds = new Map()
+    for (const p of paths) kinds.set(p.remoteKind, (kinds.get(p.remoteKind) || 0) + 1)
+    log(`peer address: ${[...kinds].map(([k, n]) => `${k} ${n}`).join(', ')}` +
+      (kinds.has('private') ? '  (private = same LAN, not a punch across the internet)' : ''))
   }
 
   const badConfirmations = results.reduce((n, r) => n + (r.badConfirmations || 0), 0)
@@ -557,6 +763,23 @@ function summarise (results) {
 async function main () {
   log(`host machine: ${os.hostname()} (${os.platform()}/${os.arch()}) node ${process.version}`)
   log(`role=${role} seed=${seed} trials=${trials} slot=${slotSeconds}s refresh=${refreshMs ?? 'default(4000)'}`)
+  const build = buildInfo()
+  const interfaces = interfaceSummary()
+  log(`build: commit ${build.commit ?? 'unknown'}${build.dirty ? ' (UNCOMMITTED CHANGES)' : build.dirty === false ? ' (clean)' : ''}  ` +
+    Object.entries(build.versions).map(([name, v]) => `${name} ${v ?? '?'}`).join('  ') +
+    `  os ${os.platform()} ${os.release()}`)
+  log(`interfaces: ${interfaces.ipv4} IPv4, global IPv6 ${interfaces.globalIpv6 ? 'yes' : 'no'}`)
+  const startNat = await probeNat()
+  log(`nat at start: ${describeNat(startNat)}  <-- each side sees only its own; compare both logs`)
+  const environment = {
+    hostname: os.hostname(),
+    os: { platform: os.platform(), release: os.release(), arch: os.arch() },
+    node: process.version,
+    build,
+    interfaces,
+    natAtStart: startNat,
+    addressesRecorded: recordAddresses
+  }
   if (role === 'sender') {
     const stat = await fs.promises.stat(filePath)
     log(`file: ${filePath} (${stat.size} bytes)`)
@@ -600,13 +823,20 @@ async function main () {
       ? ` [phase=${result.phase} bytes=${result.bytesReceived ?? result.bytesSent}/${result.manifestSize ?? '?'}` +
         `${result.cause ? ` cause="${result.cause}"` : ''} failedAt=${result.failedAtEpochMs}]`
       : ''
-    log(`trial ${i + 1}/${trials}: ${result.outcome}${timing}${closeInfo}${result.error ? ` -- ${result.error}` : ''}${failInfo}`)
+    // This side's NAT for the trial, and how the path behaved. Retransmits
+    // and RTO counts are the ones to read beside a slow or failed trial.
+    const p = result.path
+    const netInfo = (result.nat ? ` nat=${result.nat.kind}` : '') +
+      (p && !p.error
+        ? ` path=${p.remoteKind ?? '?'} rtt=${p.rttMs}ms retx=${p.retransmits} rto=${p.rtoCount}`
+        : '')
+    log(`trial ${i + 1}/${trials}: ${result.outcome}${timing}${closeInfo}${netInfo}${result.error ? ` -- ${result.error}` : ''}${failInfo}`)
   }
 
-  summarise(results)
+  summarise(results, startNat)
 
   if (outPath) {
-    await fs.promises.writeFile(outPath, JSON.stringify({ role, seed, trials, slotSeconds, refreshMs: refreshMs ?? 4000, results }, null, 2))
+    await fs.promises.writeFile(outPath, JSON.stringify({ role, seed, trials, slotSeconds, refreshMs: refreshMs ?? 4000, environment, results }, null, 2))
     log(`per-trial JSON written to ${outPath}`)
   }
 }

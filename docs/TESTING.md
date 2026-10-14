@@ -306,8 +306,9 @@ Keep the JSON files. Add each result to "Measured on real networks" in
 [`ARCHITECTURE.md`](ARCHITECTURE.md), with:
 
 - the date;
-- the commit, from `git log --oneline -1`;
-- both machines' operating systems and networks;
+- the commit, from each log's `build:` line, and whether it was clean;
+- both machines' operating systems and networks, and each side's `nat`
+  line;
 - the direction, and the trial count.
 
 A rate with those details can be compared with the next run. "It worked

@@ -334,7 +334,7 @@ async function main () {
     // covers a sender that vanished: the file is already verified and
     // saved. See closeAfterResult in engine/src/transfer.js.
     const { outcome } = await closeAfterResult(socket)
-    if (outcome === 'timeout') {
+    if (outcome === 'lost' || outcome === 'timeout') {
       console.log('[swarm-receive] note: the sender never acknowledged the confirmation, so it may report the file as unconfirmed. The file here is complete and verified.')
     }
   } catch (err) {

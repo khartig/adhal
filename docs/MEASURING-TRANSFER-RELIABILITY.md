@@ -107,6 +107,7 @@ minutes off, use `--start-epoch` computed on that host.
 | `--refresh` | engine default (4000) | Overrides `REFRESH_INTERVAL` in `engine/src/swarm.js` for the run. |
 | `--start-epoch` | next 5-min boundary ≥1 min out | Unix seconds. Pin the schedule explicitly. |
 | `--out` | — | Write per-trial JSON here. |
+| `--record-addresses` | off | Keep IP addresses (public host and port, the peer's address) in the log and JSON. Off because these files get committed; without it, each address is recorded only as its kind. |
 
 ### Why `--slot` defaults to 135
 
@@ -177,19 +178,61 @@ before this wait on both sides.
 
 - **Sender:** `closed` or `timer`. A `timer` is a receiver that confirmed
   the file and then took more than 5s to close: harmless.
-- **Receiver** (`closeAfterResult` in `engine/src/transfer.js`): `closed`,
-  `acked` or `timeout`. `acked` means the sender's transport acknowledged
-  RESULT but no close followed: also harmless. **`timeout` means delivery
-  of RESULT was never confirmed**, so the sender's record for that trial
-  is probably a failure for a file this side saved. Read the two records
-  together.
+- **Receiver** (`closeAfterResult` in `engine/src/transfer.js`): one of
+  four outcomes.
+  - `closed`: the sender ended its side. It does that only once it has
+    read RESULT, so this is the one outcome that means the sender has its
+    confirmation.
+  - `acked`: the sender's transport acknowledged RESULT, but the sender
+    did not end. Harmless.
+  - **`lost`**: the connection closed with neither an end nor an
+    acknowledgement. The sender probably never got RESULT.
+  - **`timeout`**: nothing happened within 60 s. Same meaning as `lost`.
 
-  **`closed` does not prove the sender heard.** It means the socket closed,
-  and the connection dying closes it too. On 2026-10-13, run A trial 10,
-  the receiver's wait ended `closed` 2.2 s after RESULT, while the sender
-  never got RESULT and reported `connection-lost` with `phase: result`.
-  So a sender failure next to a receiver `ok` is still possible, and the
-  sender's record is what settles it.
+  After `lost` or `timeout`, the sender's record for that trial is
+  probably a `phase: result` failure for a file this side saved, and the
+  summary lists those trials. The JSON adds `closeWaitAcked` and
+  `closeWaitError`, the socket's own error (e.g. "connection timed out").
+
+  `lost` is new since 2026-10-13. Before it, any close counted as
+  `closed`, and in run A trial 10 that day a connection that died 2.2 s
+  after RESULT was reported as the sender's reply.
+
+### What each side's network looked like
+
+Added after the 2026-10-13 run, whose rate could not be read without knowing
+what kind of pair it measured. **Each machine sees only its own NAT, so read
+both logs.** The header says:
+
+```
+build: commit 643ffeb90d72 (clean)  hyperswarm 4.17.1  hyperdht 6.34.0  udx-native 1.21.1  os darwin 25.5.0
+interfaces: 1 IPv4, global IPv6 no
+nat at start: consistent, port preserved, firewalled, 16 samples
+```
+
+- **`build`** is the commit and the transport versions, so a write-up no
+  longer has to say "the commit was not recorded". `UNCOMMITTED CHANGES`
+  means the run measured code that is not in any commit.
+- **`nat`** is from the DHT's sampling of the addresses other nodes see us
+  at.
+  - `consistent`: they agree on a host and port. Hole punching relies on
+    this mapping. `port preserved` is the easiest version of it.
+  - `randomized`: a new external port per destination, the hard case. Two
+    randomized sides cannot be punched without a relay.
+  - `unknown`: too few samples agree yet.
+  - `firewalled`: unsolicited packets do not reach this machine, which is
+    normal behind any home router.
+- **`interfaces`** counts addresses without recording them. Global IPv6
+  matters because the DHT and its punching are IPv4.
+
+Every trial records the same NAT snapshot from its own swarm, plus the
+connection's UDX counters: round-trip time, retransmits, RTO count,
+packets and bytes each way, MTU. The trial line shows the short form,
+`nat=consistent path=public rtt=48ms retx=0 rto=0`. Read `retx` and `rto`
+beside a slow or failed trial. `path` is the kind of address the peer
+connected from. `private` means the same LAN, which is not a punch across
+the internet at all. The summary counts the NAT kinds across trials and
+flags a NAT that changed during the run.
 
 ### Failure classes
 

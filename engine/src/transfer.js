@@ -316,31 +316,64 @@ const CLOSE_GRACE_MS = 5000
 
 /**
  * Ends `socket` after the receiver's RESULT and waits for the sender to
- * close in reply. Never rejects. The outcome says how the wait ended:
- *   'closed'  the sender closed: it read RESULT, or vanished visibly
- *   'acked'   the transport confirmed delivery, but no close followed
- *             within the grace window
- *   'timeout' delivery was never confirmed; the sender may not have RESULT
+ * end in reply. Never rejects. The outcome says how the wait ended:
+ *   'closed'  the sender ended its side. Both callers end only once they
+ *             have read RESULT{ok}, so this is the one outcome that means
+ *             the sender has its confirmation
+ *   'acked'   the transport confirmed delivery, but the sender did not
+ *             end: the grace window ran out, or the connection closed
+ *   'lost'    the connection closed with neither: it died, and the sender
+ *             probably never got RESULT
+ *   'timeout' nothing happened within `deliveryTimeout`
+ * `acked` says whether delivery was confirmed at all, and `error` is the
+ * socket's own error if it reported one, e.g. "connection timed out".
+ *
+ * 'lost' is new, and the reason is a trial. On 2026-10-13, run A trial 10,
+ * the receiver's connection closed 2.2 s after RESULT and this reported
+ * 'closed', which the harness counted as "closed by sender". The sender
+ * had not closed anything: it never got RESULT, and reported the file as
+ * unconfirmed. A close is not a reply. The sender's end of stream is.
  * @param {any} socket
  * @param {{ deliveryTimeout?: number, grace?: number }} [options]
- * @returns {Promise<{ outcome: 'closed' | 'acked' | 'timeout', ms: number }>}
+ * @returns {Promise<{ outcome: 'closed' | 'acked' | 'lost' | 'timeout', ms: number, acked: boolean, error: string | null }>}
  */
 function closeAfterResult (socket, { deliveryTimeout = RESULT_DELIVERY_TIMEOUT_MS, grace = CLOSE_GRACE_MS } = {}) {
   const started = Date.now()
-  if (socket.destroyed) return Promise.resolve({ outcome: 'closed', ms: 0 })
+  let acked = false
+  let ended = peerEnded(socket)
+  /** @type {string | null} */
+  let error = null
+  const result = (/** @type {'closed' | 'acked' | 'lost' | 'timeout'} */ outcome) =>
+    ({ outcome, ms: Date.now() - started, acked, error })
+  if (socket.destroyed) return Promise.resolve(result(ended ? 'closed' : 'lost'))
   return new Promise((resolve) => {
     let done = false
     /** @type {NodeJS.Timeout | null} */
     let timer = null
-    const finish = (/** @type {'closed' | 'acked' | 'timeout'} */ outcome) => {
+    const finish = (/** @type {'closed' | 'acked' | 'lost' | 'timeout'} */ outcome) => {
       if (done) return
       done = true
       if (timer) clearTimeout(timer)
       socket.removeListener('close', onClose)
-      resolve({ outcome, ms: Date.now() - started })
+      socket.removeListener('end', onEnd)
+      socket.removeListener('error', onError)
+      resolve(result(outcome))
     }
-    const onClose = () => finish('closed')
+    const onEnd = () => { ended = true }
+    const onError = (/** @type {any} */ err) => {
+      if (error === null) error = err && err.message ? err.message : String(err)
+    }
+    // Still waits for the close rather than settling on the end: the
+    // close follows within milliseconds once both sides have ended, and
+    // the caller destroys the swarm next.
+    const onClose = () => finish(ended || peerEnded(socket) ? 'closed' : acked ? 'acked' : 'lost')
+    socket.on('end', onEnd)
+    socket.on('error', onError)
     socket.once('close', onClose)
+    // Nothing reads after receiveFile, and a readable that is not flowing
+    // never emits 'end' -- the event this now depends on. Nothing more is
+    // expected from the sender, so draining it costs nothing.
+    if (typeof socket.resume === 'function') socket.resume()
 
     // Taken a microtask after end(), which is fine: RESULT is already
     // written, so if it is still unacked it is among the writes flush()
@@ -348,18 +381,31 @@ function closeAfterResult (socket, { deliveryTimeout = RESULT_DELIVERY_TIMEOUT_M
     // socket is already going, and its close will settle this. A flush
     // that never settles -- a socket destroyed under it -- is covered by
     // the same close.
-    const acked = typeof socket.flush === 'function'
+    const delivered = typeof socket.flush === 'function'
       ? Promise.resolve().then(() => socket.flush()).catch(() => false)
       : Promise.resolve(true)
     socket.end()
 
     timer = setTimeout(() => finish('timeout'), deliveryTimeout)
-    acked.then((ok) => {
+    delivered.then((ok) => {
       if (done || ok === false) return
-      clearTimeout(timer)
+      acked = true
+      if (timer) clearTimeout(timer)
       timer = setTimeout(() => finish('acked'), grace)
     })
   })
+}
+
+// Whether the peer's end of stream has arrived, read off the stream's
+// state rather than the 'end' event, which a caller may already have
+// missed. `_readableState.ended` is set by the end of stream on a Node
+// stream, and by its delivery on a streamx one (the Hyperswarm socket),
+// whose `ending` covers the moment before.
+/** @param {any} socket */
+function peerEnded (socket) {
+  if (socket.readableEnded === true) return true
+  const state = socket._readableState
+  return !!state && (state.ended === true || state.ending === true)
 }
 
 /**
