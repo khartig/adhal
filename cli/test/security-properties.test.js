@@ -221,6 +221,36 @@ function recordAead () {
   }
 }
 
+// Passes the first `bytes` a side writes straight through, then holds the
+// rest until release(). Writable calls _write one chunk at a time, so
+// holding that chunk's callback holds everything behind it, in order.
+/**
+ * @param {import('node:stream').Duplex} side
+ * @param {number} bytes
+ */
+function holdAfter (side, bytes) {
+  const write = side._write.bind(side)
+  let passed = 0
+  /** @type {(() => void) | null} */
+  let held = null
+  let released = false
+  side._write = (chunk, encoding, callback) => {
+    if (released || passed < bytes) {
+      passed += chunk.length
+      return write(chunk, encoding, callback)
+    }
+    held = () => write(chunk, encoding, callback)
+  }
+  return {
+    release () {
+      released = true
+      const next = held
+      held = null
+      if (next) next()
+    }
+  }
+}
+
 /** @param {number} n */
 const nonceFor = (n) => {
   const nonce = Buffer.alloc(NONCE_SIZE)
@@ -247,10 +277,23 @@ test('Q-01: no (key, nonce) pair is ever sealed twice, in either direction, acro
   const aead = recordAead()
   t.after(() => aead.restore())
   const [tx, rx] = duplexPair()
+  // A CHECKPOINT waits on a timer and then an fsync, so left to race, a
+  // disk whose fsync is slower than the rest of the transfer -- ext4 under
+  // the full suite -- lets the transfer finish with none sealed. Hold the
+  // second half of the resumed tail until the sender has heard one.
+  const tail = holdAfter(tx, 512 * 1024)
   /** @type {number[]} */
   const checkpoints = []
   const [sent, received] = await Promise.all([
-    sendFile(tx, f.sourcePath, { ...keys.sender, caps: ['resume'], chunkSize: 16 * 1024, onCheckpoint: ({ offset }) => checkpoints.push(offset) }),
+    sendFile(tx, f.sourcePath, {
+      ...keys.sender,
+      caps: ['resume'],
+      chunkSize: 16 * 1024,
+      onCheckpoint: ({ offset }) => {
+        checkpoints.push(offset)
+        tail.release()
+      }
+    }),
     receiveFile(rx, f.outputDir, { ...keys.receiver, caps: ['resume'], checkpointInterval: 2 })
   ])
   aead.restore()
