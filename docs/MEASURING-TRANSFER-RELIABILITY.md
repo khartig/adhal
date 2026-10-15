@@ -108,6 +108,8 @@ minutes off, use `--start-epoch` computed on that host.
 | `--start-epoch` | next 5-min boundary ≥1 min out | Unix seconds. Pin the schedule explicitly. |
 | `--out` | — | Write per-trial JSON here. |
 | `--record-addresses` | off | Keep IP addresses (public host and port, the peer's address) in the log and JSON. Off because these files get committed; without it, each address is recorded only as its kind. |
+| `--lookup-isp` | off | Record the AS (number, name, country) that this side's DHT-observed public address belongs to. **Sends that address off the machine**, as a DNS query to Team Cymru's IP-to-ASN service, which is why it is off. The address itself is not recorded. |
+| `--note <text>` | — | Free text for the log and JSON, for what the machine cannot detect: the router's firewall settings, the uplink beyond the first hop. Repeatable. |
 
 ### Why `--slot` defaults to 135
 
@@ -207,7 +209,13 @@ both logs.** The header says:
 ```
 build: commit 643ffeb90d72 (clean)  hyperswarm 4.17.1  hyperdht 6.34.0  udx-native 1.21.1  os darwin 25.5.0
 interfaces: 1 IPv4, global IPv6 no
+os: macOS 26.5.2 (25F84)
+access: wifi via en0 (Wi-Fi)
+vpn: not on the route; services: ProtonVPN disconnected
+host firewall: disabled, stealth mode off (macOS application firewall; pf not checked, it needs root)
 nat at start: consistent, port preserved, firewalled, 16 samples
+isp: AS7922 COMCAST-7922 - Comcast Cable Communications, LLC, US
+note: eero firewall on
 ```
 
 - **`build`** is the commit and the transport versions, so a write-up no
@@ -223,7 +231,44 @@ nat at start: consistent, port preserved, firewalled, 16 samples
   - `firewalled`: unsolicited packets do not reach this machine, which is
     normal behind any home router.
 - **`interfaces`** counts addresses without recording them. Global IPv6
-  matters because the DHT and its punching are IPv4.
+  matters because the DHT and its punching are IPv4. An address in the
+  CGNAT range (100.64/10) is called out: the machine sits directly on a
+  carrier NAT. Behind a home router a CGNAT is upstream and not visible.
+- **`os`** is the product version (`sw_vers`, `/etc/os-release`), which
+  the kernel release on the `build` line is not.
+- **`access`** is the interface the route to the internet leaves by, and
+  its kind: `wifi`, `ethernet`, `cellular`, `tethered`, `vpn`, or
+  `virtual` (a container or VM). A gateway at an iPhone or Android
+  hotspot's fixed address is flagged as a likely hotspot.
+- **`vpn`** says whether that route goes through a tunnel, and on macOS
+  lists the configured VPN services and their state.
+- **`host firewall`** is this machine's own firewall, read without root:
+  the application firewall on macOS; ufw, firewalld and nftables on
+  Linux. The router's firewall is not visible from the host. Put it in a
+  `--note`.
+- **`isp`** appears only with `--lookup-isp`.
+
+These were added on 2026-10-14. All of them, and the slot start, file and
+start and end times, are also in the JSON's `environment` block.
+
+### Writing up a run: `ENVIRONMENT.md`
+
+Put both machines' JSON (and logs) in one directory, then:
+
+```bash
+node engine/scratch-trials-environment.js <run-dir>            # print
+node engine/scratch-trials-environment.js <run-dir> --write    # write <run-dir>/ENVIRONMENT.md
+```
+
+It fills in everything the harness recorded and marks the rest `FILL IN`,
+so `grep 'FILL IN'` lists what is left to write by hand. It groups files
+into runs by seed and calls the receiver of the first run Machine 1,
+which is [`TESTING.md`](TESTING.md)'s convention. A **Checks** section
+lists what would make the run hard to read: the two sides' seeds, trial
+counts, slots or start times disagreeing, different commits, uncommitted
+changes, a NAT that changed, a same-LAN connection, two randomized NATs.
+`--write` does not replace an existing `ENVIRONMENT.md` without `--force`.
+For JSON from before 2026-10-14 it reads what it can from the logs.
 
 Every trial records the same NAT snapshot from its own swarm, plus the
 connection's UDX counters: round-trip time, retransmits, RTO count,

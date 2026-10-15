@@ -25,7 +25,12 @@
 //
 // Options: --slot <s> per-trial budget (default 135), --start-epoch <s> to
 // pin the schedule explicitly, --out <path> to write per-trial JSON,
-// --record-addresses to keep IP addresses in the log and JSON (see below).
+// --record-addresses to keep IP addresses in the log and JSON (see below),
+// --lookup-isp to record the AS this side's public address belongs to (it
+// sends that address to a DNS lookup), --note <text> (repeatable) for what
+// the machine cannot detect, such as the router's firewall settings.
+// engine/scratch-trials-environment.js turns a run's JSON into the
+// ENVIRONMENT.md beside its logs.
 //
 // TWO DESIGN CONSTRAINTS, because the two ends cannot talk to each other:
 //
@@ -87,11 +92,15 @@ const outPath = flag('out')
 // settles nothing about the rate -- exactly the question this harness is
 // for. Omitted, the engine default applies.
 const refreshMs = flag('refresh') === undefined ? undefined : Number(flag('refresh'))
+// What the host cannot detect about its own network -- the router's rules,
+// the link beyond the first hop -- in the operator's words. Repeatable.
+const notes = process.argv.flatMap((arg, i) => arg === '--note' && process.argv[i + 1] !== undefined ? [process.argv[i + 1]] : [])
+const lookupIspFlag = process.argv.includes('--lookup-isp')
 
 if (!['receiver', 'sender'].includes(role) || !seed || !Number.isInteger(trials) || trials < 1) {
   console.error('Usage: scratch-trials.js --role <receiver|sender> --seed <string> --trials <n>')
   console.error('                         [--file <path>] [--slot 135] [--refresh <ms>] [--start-epoch <s>] [--out <path>]')
-  console.error('                         [--record-addresses]')
+  console.error('                         [--record-addresses] [--lookup-isp] [--note <text>]...')
   console.error('The sender requires --file. Both sides need the same --seed and --trials.')
   process.exit(1)
 }
@@ -269,23 +278,283 @@ function buildInfo () {
 }
 
 // Interface counts only, never addresses. Global IPv6 matters because the
-// DHT and its punching are IPv4.
+// DHT and its punching are IPv4. An address in 100.64/10 on this machine
+// itself means it sits directly on a carrier-grade NAT (a Starlink dish in
+// bypass mode, a phone's tether); behind a home router the CGNAT is
+// upstream of it and invisible from here.
 function interfaceSummary () {
   let ipv4 = 0
+  let cgnatIpv4 = 0
   let globalIpv6 = false
   for (const list of Object.values(os.networkInterfaces())) {
     for (const ni of list || []) {
       if (ni.internal) continue
-      if (ni.family === 'IPv4' || ni.family === 4) ipv4++
+      if (ni.family === 'IPv4' || ni.family === 4) {
+        ipv4++
+        if (addressKind(ni.address) === 'cgnat') cgnatIpv4++
+      }
       if ((ni.family === 'IPv6' || ni.family === 6) && addressKind(ni.address) === 'public') globalIpv6 = true
     }
   }
-  return { ipv4, globalIpv6 }
+  return { ipv4, cgnatIpv4, globalIpv6 }
+}
+
+// --- What the machine itself looked like -----------------------------------
+//
+// Added on 2026-10-14, after writing up the 2026-10-13 run left the OS
+// version, access type, VPN and firewall as "not recorded". Everything here
+// is read without root and without sending a packet; anything a command
+// cannot tell is recorded as null rather than guessed. The router's own
+// configuration is not visible from the host at all: that is what --note
+// is for.
+
+// stdout of a command, or null if it is missing, fails or hangs. `anyExit`
+// keeps the output of a command whose exit status is itself an answer, as
+// `systemctl is-active` is: it exits 3 when a unit is inactive.
+/** @param {string} cmd @param {string[]} args */
+function run (cmd, args, { anyExit = false } = {}) {
+  try {
+    return execFileSync(cmd, args, { encoding: 'utf8', timeout: 3000, stdio: ['ignore', 'pipe', 'ignore'] })
+  } catch (err) {
+    return anyExit && typeof err.status === 'number' && err.stdout ? String(err.stdout) : null
+  }
+}
+
+/** @param {string} file */
+function readText (file) {
+  try { return fs.readFileSync(file, 'utf8') } catch { return null }
+}
+
+function osVersion () {
+  if (os.platform() === 'darwin') {
+    const get = (opt) => (run('sw_vers', [opt]) || '').trim() || null
+    const name = get('-productName')
+    const version = get('-productVersion')
+    const build = get('-buildVersion')
+    return { name, version, build, pretty: name && version ? `${name} ${version}${build ? ` (${build})` : ''}` : null }
+  }
+  if (os.platform() === 'linux') {
+    const text = readText('/etc/os-release') || readText('/usr/lib/os-release')
+    if (!text) return { name: null, version: null, build: null, pretty: null }
+    const field = (key) => {
+      const m = text.match(new RegExp(`^${key}=(.*)$`, 'm'))
+      return m ? m[1].trim().replace(/^(["'])(.*)\1$/, '$2') : null
+    }
+    return { name: field('NAME'), version: field('VERSION_ID'), build: null, pretty: field('PRETTY_NAME') }
+  }
+  return { name: null, version: null, build: null, pretty: typeof os.version === 'function' ? os.version() : null }
+}
+
+// Tunnel interface names. A name is only a hint; what counts is whether the
+// route to the internet goes through one.
+const TUNNEL_NAME = /^(utun|ipsec|tun|tap|wg|tailscale|zt|nordlynx|proton|ppp)/
+
+// iPhone Personal Hotspot always hands out 172.20.10.0/28 with the phone at
+// .1, and older Android hotspots used 192.168.43.1. A match is a strong hint,
+// not proof, so it is recorded as one.
+/** @param {string | null} gateway */
+function hotspotHint (gateway) {
+  if (gateway === '172.20.10.1') return 'gateway is 172.20.10.1, the address of an iPhone Personal Hotspot'
+  if (gateway === '192.168.43.1') return 'gateway is 192.168.43.1, the address older Android hotspots use'
+  return null
+}
+
+// The interface the route to the internet leaves by, and what kind of link
+// it is. Asks for the route to a public address rather than the default
+// route, because a full-tunnel VPN often installs 0/1 + 128/1 or a policy
+// rule and leaves the default route alone. Neither command sends a packet.
+function accessSnapshot () {
+  const probe = '1.1.1.1'
+  let iface = null
+  let gateway = null
+  let type = null
+  let detail = null
+  if (os.platform() === 'darwin') {
+    const out = run('route', ['-n', 'get', probe]) || ''
+    iface = (out.match(/^\s*interface:\s*(\S+)/m) || [])[1] || null
+    gateway = (out.match(/^\s*gateway:\s*(\S+)/m) || [])[1] || null
+    if (iface) {
+      // "Hardware Port: Wi-Fi\nDevice: en0" blocks.
+      const ports = run('networksetup', ['-listallhardwareports']) || ''
+      const block = ports.split(/\n\s*\n/).find((b) => new RegExp(`^Device:\\s*${iface}\\s*$`, 'm').test(b))
+      const port = block ? (block.match(/^Hardware Port:\s*(.+)$/m) || [])[1] : null
+      detail = port || null
+      if (TUNNEL_NAME.test(iface)) type = 'vpn'
+      else if (!port) type = null
+      else if (/wi-?fi|airport/i.test(port)) type = 'wifi'
+      else if (/iphone|ipad|android|modem|cellular|bluetooth pan/i.test(port)) type = 'tethered'
+      else if (/ethernet|lan|thunderbolt/i.test(port)) type = 'ethernet'
+      else type = 'other'
+    }
+  } else if (os.platform() === 'linux') {
+    // "1.1.1.1 via 192.168.1.1 dev wlp2s0 src 192.168.1.50 uid 1000"
+    const out = run('ip', ['route', 'get', probe]) || ''
+    iface = (out.match(/\bdev\s+(\S+)/) || [])[1] || null
+    gateway = (out.match(/\bvia\s+(\S+)/) || [])[1] || null
+    if (iface) {
+      const sys = `/sys/class/net/${iface}`
+      let driver = null
+      try { driver = path.basename(fs.readlinkSync(`${sys}/device/driver`)) } catch {}
+      detail = driver ? `driver ${driver}` : null
+      if (TUNNEL_NAME.test(iface)) type = 'vpn'
+      else if (fs.existsSync(`${sys}/wireless`) || fs.existsSync(`${sys}/phy80211`)) type = 'wifi'
+      else if (/^(wwan|wwp)/.test(iface) || ['qmi_wwan', 'cdc_mbim'].includes(driver)) type = 'cellular'
+      else if (['ipheth', 'rndis_host'].includes(driver)) type = 'tethered'
+      // cdc_ether and cdc_ncm are phones and some USB Ethernet adapters alike.
+      else if (['cdc_ether', 'cdc_ncm'].includes(driver)) type = 'usb (tethered phone or USB Ethernet adapter)'
+      else if (fs.existsSync(`${sys}/device`)) type = 'ethernet'
+      else type = 'virtual'
+    }
+  }
+  return {
+    interface: iface,
+    type,
+    detail,
+    gatewayKind: addressKind(gateway),
+    hotspot: hotspotHint(gateway),
+    ...(recordAddresses ? { gateway } : {})
+  }
+}
+
+// Whether the route out is a tunnel, plus what else could be one. On macOS
+// `scutil --nc list` lists the VPN services the system knows, by the name
+// the user gave them, with their state.
+/** @param {{ type: string | null }} access */
+function vpnSnapshot (access) {
+  const tunnels = Object.keys(os.networkInterfaces()).filter((name) => TUNNEL_NAME.test(name) && !/^utun\d+$/.test(name))
+  /** @type {{ name: string, status: string }[] | null} */
+  let services = null
+  if (os.platform() === 'darwin') {
+    const out = run('scutil', ['--nc', 'list'])
+    if (out !== null) {
+      services = []
+      for (const line of out.split('\n')) {
+        const m = line.match(/^\s*\*?\s*\(([^)]+)\).*"([^"]+)"/)
+        if (m) services.push({ name: m[2], status: m[1] })
+      }
+    }
+  }
+  return {
+    onRoute: access.type === null ? null : access.type === 'vpn',
+    // macOS always has utun interfaces for its own services, so they are
+    // left out; the route and the service list are what say more there.
+    tunnelInterfaces: tunnels,
+    services
+  }
+}
+
+// The host's own firewall. Inbound UDP is what matters to hole punching,
+// but a host firewall that drops it shows up in the DHT's `firewalled`
+// finding anyway; this says whose firewall that was.
+function hostFirewallSnapshot () {
+  if (os.platform() === 'darwin') {
+    const tool = '/usr/libexec/ApplicationFirewall/socketfilterfw'
+    const state = run(tool, ['--getglobalstate'])
+    const stealth = run(tool, ['--getstealthmode'])
+    const n = state && (state.match(/State = (\d)/) || [])[1]
+    return {
+      tool: 'macOS application firewall; pf not checked, it needs root',
+      enabled: n === undefined || n === null ? null : n !== '0',
+      blockAll: n === '2',
+      stealth: stealth ? /\bon\b|enabled/i.test(stealth) : null
+    }
+  }
+  if (os.platform() === 'linux') {
+    const ufwConf = readText('/etc/ufw/ufw.conf')
+    const ufw = ufwConf ? /^ENABLED=yes/m.test(ufwConf) : null
+    // One line per unit, in order. Unknown units print "inactive" too.
+    const active = (run('systemctl', ['is-active', 'firewalld', 'nftables'], { anyExit: true }) || '').split('\n').map((s) => s.trim())
+    const firewalld = active[0] ? active[0] === 'active' : null
+    const nftables = active[1] ? active[1] === 'active' : null
+    const known = [ufw, firewalld, nftables].filter((v) => v !== null)
+    return {
+      tool: 'ufw (/etc/ufw/ufw.conf), firewalld, nftables.service; iptables not checked, it needs root',
+      enabled: known.length ? known.some(Boolean) : null,
+      ufw,
+      firewalld,
+      nftables
+    }
+  }
+  return { tool: null, enabled: null }
+}
+
+// Opt-in (--lookup-isp): the network this side's public address belongs to,
+// by Team Cymru's IP-to-ASN DNS service. This SENDS the DHT-observed public
+// address off the machine, to the DNS resolver and to Cymru, which is why it
+// is off by default. Only the AS number, name and country are recorded.
+// The address is the one the DHT saw, so behind CGNAT or a VPN this is the
+// carrier's or the VPN provider's network, which is the one that matters.
+/** @param {string | null} host */
+async function lookupIsp (host) {
+  if (!host || !/^\d+\.\d+\.\d+\.\d+$/.test(host)) return { error: 'the DHT reported no public IPv4 address' }
+  const dns = require('node:dns').promises
+  const txt = async (name) => (await dns.resolveTxt(name)).map((parts) => parts.join(''))[0] || ''
+  let timer
+  try {
+    return await Promise.race([
+      (async () => {
+        // "14593 | 98.97.0.0/18 | US | arin | 2019-11-18"; a prefix
+        // announced by several ASes lists them space-separated.
+        const origin = await txt(`${host.split('.').reverse().join('.')}.origin.asn.cymru.com`)
+        const asn = origin.split('|')[0].trim().split(/\s+/)[0]
+        if (!/^\d+$/.test(asn)) throw new Error('no ASN in the answer')
+        // "14593 | US | arin | 2018-09-05 | SPACEX-STARLINK - Space Exploration Technologies Corporation, US"
+        const desc = (await txt(`AS${asn}.asn.cymru.com`)).split('|').map((s) => s.trim())
+        return { asn: Number(asn), name: desc[4] || null, country: desc[1] || null, source: 'Team Cymru IP-to-ASN (DNS)' }
+      })(),
+      new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('no answer within 5s')), 5000) })
+    ])
+  } catch (err) {
+    return { error: err.message }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** @param {any} isp */
+function describeIsp (isp) {
+  if (!isp) return 'not looked up (pass --lookup-isp)'
+  if (isp.error) return `lookup failed (${isp.error})`
+  return `AS${isp.asn} ${isp.name ?? '?'}`
+}
+
+/** @param {any} access */
+function describeAccess (access) {
+  if (!access.interface) return 'unknown (no route to the internet found)'
+  const parts = [`${access.type ?? 'unknown'} via ${access.interface}`]
+  if (access.detail) parts.push(`(${access.detail})`)
+  if (access.hotspot) parts.push(`-- ${access.hotspot}`)
+  return parts.join(' ')
+}
+
+/** @param {any} vpn */
+function describeVpn (vpn) {
+  const parts = [vpn.onRoute === null ? 'route unknown' : vpn.onRoute ? 'ROUTE GOES THROUGH A TUNNEL' : 'not on the route']
+  if (vpn.tunnelInterfaces.length) parts.push(`tunnel interfaces: ${vpn.tunnelInterfaces.join(', ')}`)
+  if (vpn.services) {
+    parts.push(vpn.services.length
+      ? `services: ${vpn.services.map((s) => `${s.name} ${s.status.toLowerCase()}`).join(', ')}`
+      : 'services: none')
+  }
+  return parts.join('; ')
+}
+
+/** @param {any} fw */
+function describeFirewall (fw) {
+  if (fw.enabled === null) return `unknown${fw.tool ? ` (checked ${fw.tool})` : ''}`
+  if ('stealth' in fw) {
+    return `${fw.blockAll ? 'enabled, blocking all incoming' : fw.enabled ? 'enabled' : 'disabled'}` +
+      `${fw.stealth === null ? '' : `, stealth mode ${fw.stealth ? 'on' : 'off'}`} (${fw.tool})`
+  }
+  const on = ['ufw', 'firewalld', 'nftables'].filter((k) => fw[k])
+  return on.length ? `enabled: ${on.join(', ')} (iptables not checked: it needs root)` : `none enabled (checked ${fw.tool})`
 }
 
 // One throwaway swarm before the first slot, so the header says what kind
 // of NAT this run starts behind. The per-trial snapshots say whether that
 // held: on Starlink in particular, it need not.
+// With --lookup-isp it also looks up the network of the public address the
+// DHT saw, which is the only time that address leaves the probe.
 async function probeNat () {
   const probe = createSwarm()
   try {
@@ -294,9 +563,9 @@ async function probeNat () {
       probe.dht.ready(),
       new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error('the DHT did not bootstrap within 20s')), 20000) })
     ]).finally(() => clearTimeout(timer))
-    return natSnapshot(probe.dht)
+    return { nat: natSnapshot(probe.dht), isp: lookupIspFlag ? await lookupIsp(probe.dht.host) : null }
   } catch (err) {
-    return { kind: 'unavailable', error: err.message }
+    return { nat: { kind: 'unavailable', error: err.message }, isp: lookupIspFlag ? { error: err.message } : null }
   } finally {
     await probe.destroy().catch(() => {})
   }
@@ -768,20 +1037,38 @@ async function main () {
   log(`build: commit ${build.commit ?? 'unknown'}${build.dirty ? ' (UNCOMMITTED CHANGES)' : build.dirty === false ? ' (clean)' : ''}  ` +
     Object.entries(build.versions).map(([name, v]) => `${name} ${v ?? '?'}`).join('  ') +
     `  os ${os.platform()} ${os.release()}`)
-  log(`interfaces: ${interfaces.ipv4} IPv4, global IPv6 ${interfaces.globalIpv6 ? 'yes' : 'no'}`)
-  const startNat = await probeNat()
+  log(`interfaces: ${interfaces.ipv4} IPv4${interfaces.cgnatIpv4 ? ` (${interfaces.cgnatIpv4} in the CGNAT range 100.64/10)` : ''}, ` +
+    `global IPv6 ${interfaces.globalIpv6 ? 'yes' : 'no'}`)
+  const version = osVersion()
+  const access = accessSnapshot()
+  const vpn = vpnSnapshot(access)
+  const hostFirewall = hostFirewallSnapshot()
+  log(`os: ${version.pretty ?? 'product version unknown'}`)
+  log(`access: ${describeAccess(access)}`)
+  log(`vpn: ${describeVpn(vpn)}`)
+  log(`host firewall: ${describeFirewall(hostFirewall)}`)
+  const { nat: startNat, isp } = await probeNat()
   log(`nat at start: ${describeNat(startNat)}  <-- each side sees only its own; compare both logs`)
+  log(`isp: ${describeIsp(isp)}`)
+  for (const note of notes) log(`note: ${note}`)
   const environment = {
     hostname: os.hostname(),
-    os: { platform: os.platform(), release: os.release(), arch: os.arch() },
+    os: { platform: os.platform(), release: os.release(), arch: os.arch(), ...version },
     node: process.version,
     build,
     interfaces,
+    access,
+    vpn,
+    hostFirewall,
     natAtStart: startNat,
+    isp,
+    notes,
     addressesRecorded: recordAddresses
   }
+  let file = null
   if (role === 'sender') {
     const stat = await fs.promises.stat(filePath)
+    file = { path: filePath, size: stat.size }
     log(`file: ${filePath} (${stat.size} bytes)`)
   }
   // Printed so that two hosts which picked different schedules are caught
@@ -836,7 +1123,19 @@ async function main () {
   summarise(results, startNat)
 
   if (outPath) {
-    await fs.promises.writeFile(outPath, JSON.stringify({ role, seed, trials, slotSeconds, refreshMs: refreshMs ?? 4000, environment, results }, null, 2))
+    await fs.promises.writeFile(outPath, JSON.stringify({
+      role,
+      seed,
+      trials,
+      slotSeconds,
+      refreshMs: refreshMs ?? 4000,
+      startEpoch: Math.floor(startMs / 1000),
+      startedAtEpochMs: t0,
+      endedAtEpochMs: Date.now(),
+      file,
+      environment,
+      results
+    }, null, 2))
     log(`per-trial JSON written to ${outPath}`)
   }
 }

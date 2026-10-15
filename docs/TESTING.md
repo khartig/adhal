@@ -239,10 +239,16 @@ echo $(( $(date +%s) + 300 ))
 ```bash
 E=<the start time>
 D=<today, e.g. 20261012>
-node engine/scratch-trials.js --role receiver --seed "$D-a" --trials 20 \
-  --start-epoch "$E" --out ~/trials-a-rx.json 2>&1 | tee ~/trials-a-rx.log ; \
-node engine/scratch-trials.js --role sender --seed "$D-b" --trials 20 \
-  --start-epoch $((E + 3000)) --file /tmp/test.bin --out ~/trials-b-tx.json 2>&1 | tee ~/trials-b-tx.log
+CONFIG=starlink-cgnat-to-comcast-home-router
+RUN_DIR=~/trials/$D/$CONFIG
+NOTES=(--note "<what this machine cannot detect, e.g. eero firewall on, default rules>")
+mkdir -p "$RUN_DIR"
+node engine/scratch-trials.js --role receiver --seed "$D-$CONFIG-a" --trials 20 \
+  --start-epoch "$E" --lookup-isp "${NOTES[@]}" \
+  --out "$RUN_DIR/$D-trials-a-rx.json" 2>&1 | tee "$RUN_DIR/$D-trials-a-rx.log" ; \
+node engine/scratch-trials.js --role sender --seed "$D-$CONFIG-b" --trials 20 \
+  --start-epoch $((E + 3000)) --file /tmp/test.bin --lookup-isp "${NOTES[@]}" \
+  --out "$RUN_DIR/$D-trials-b-tx.json" 2>&1 | tee "$RUN_DIR/$D-trials-b-tx.log"
 ```
 
 **Machine 2:** sender for run A, then receiver for run B.
@@ -250,11 +256,33 @@ node engine/scratch-trials.js --role sender --seed "$D-b" --trials 20 \
 ```bash
 E=<the same start time>
 D=<the same date>
-node engine/scratch-trials.js --role sender --seed "$D-a" --trials 20 \
-  --start-epoch "$E" --file /tmp/test.bin --out ~/trials-a-tx.json 2>&1 | tee ~/trials-a-tx.log ; \
-node engine/scratch-trials.js --role receiver --seed "$D-b" --trials 20 \
-  --start-epoch $((E + 3000)) --out ~/trials-b-rx.json 2>&1 | tee ~/trials-b-rx.log
+CONFIG=starlink-cgnat-to-comcast-home-router
+RUN_DIR=~/trials/$D/$CONFIG
+NOTES=(--note "<what this machine cannot detect, e.g. Starlink router, bypass off>")
+mkdir -p "$RUN_DIR"
+node engine/scratch-trials.js --role sender --seed "$D-$CONFIG-a" --trials 20 \
+  --start-epoch "$E" --file /tmp/test.bin --lookup-isp "${NOTES[@]}" \
+  --out "$RUN_DIR/$D-trials-a-tx.json" 2>&1 | tee "$RUN_DIR/$D-trials-a-tx.log" ; \
+node engine/scratch-trials.js --role receiver --seed "$D-$CONFIG-b" --trials 20 \
+  --start-epoch $((E + 3000)) --lookup-isp "${NOTES[@]}" \
+  --out "$RUN_DIR/$D-trials-b-rx.json" 2>&1 | tee "$RUN_DIR/$D-trials-b-rx.log"
 ```
+
+`--lookup-isp` sends each machine's public address to a DNS lookup, to
+record its ISP. Leave it out to keep the address on the machine, and write
+the ISP into `ENVIRONMENT.md` by hand. With `NOTES=()` the run records no
+notes.
+
+When both runs are done, copy the other machine's files into the same
+`$RUN_DIR` and write the environment file from them:
+
+```bash
+node engine/scratch-trials-environment.js "$RUN_DIR" --write
+grep -n 'FILL IN' "$RUN_DIR/ENVIRONMENT.md"
+```
+
+The `grep` lists what the harness could not detect. See
+[`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md#writing-up-a-run-environmentmd).
 
 How the schedule works:
 
