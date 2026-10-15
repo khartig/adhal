@@ -115,7 +115,9 @@ Ordered by how expensive each gets to fix later.
   Starlink, 20 each way. 38 of 40 were confirmed on both sides, and every
   file that landed was verified ([`ARCHITECTURE.md`](ARCHITECTURE.md),
   "Measured on real networks"). It stays open until it is repeated on
-  the frozen build, with the commit recorded.
+  the frozen build, with the commit recorded. Gate 8's other half, the
+  suite and the typecheck on macOS and Linux, holds at `5c5029e`
+  (2026-10-14).
 - [ ] **Q-05 — Independent review** of the cryptographic composition,
   after W17, against PROTOCOL §12.
 

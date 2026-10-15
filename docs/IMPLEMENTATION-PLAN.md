@@ -135,12 +135,21 @@ The security review's 21 findings and their status are in
   > `1736d1c`: `pnpm typecheck` clean; `pnpm test` 523 passed, 1
   > skipped, 0 failed, the gate tests among them; no tracked file
   > outside the docs mentions `quay`; every finding in SECURITY-REVIEW.md
-  > has a status. Gate 8 is what remains. The 2026-10-13 drops
+  > has a status.
+  >
+  > Gate 8's first half holds at `5c5029e`: `pnpm typecheck` clean and
+  > `pnpm test` green on macOS and on Linux. The first Linux run failed
+  > one test, Q-01's nonce test, which assumed a CHECKPOINT always lands
+  > before a resumed transfer ends. A CHECKPOINT waits on an fsync, and an
+  > fsync slower than about 20 ms let the transfer finish first. The code
+  > was right: a short transfer may send no CHECKPOINT. `5c5029e` makes
+  > the test hold the transfer until one is heard.
+  >
+  > Left: the second half of gate 8, the macOS ↔ Linux trial run on the
+  > build to be tagged, with its commit in the logs. The 2026-10-13 drops
   > ([`trials/20261013`](trials/20261013/starlink-cgnat-to-comcast-eero/ENVIRONMENT.md))
   > ran on an earlier build with no commit recorded, so they do not
-  > count. Left: `pnpm test` and `pnpm typecheck` on Linux, and the
-  > macOS ↔ Linux trial run on the build to be tagged, with its commit in
-  > the logs. Then the tag.
+  > count. Then the tag.
 
 ---
 
