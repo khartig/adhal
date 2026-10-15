@@ -1,4 +1,4 @@
-# Work record: Stage 0 to W15
+# Work record: Stage 0 to W16
 
 The full record of the finished work items, as the plan held them when
 each was done: what was planned, what was found, where the result
@@ -576,3 +576,61 @@ them change the wire and the freeze is defined by them.
   | Q-08 gating advisories, SBOM, signed releases | First release | Nothing ships yet. The unused `compact-encoding` is removed in W15b: `engine/package.json` is edited, and `pnpm install` regenerates the lockfile. |
   | Q-09 length padding, re-announce back-off | Post-freeze | Neither changes the wire. Padding only if file-size confidentiality ever becomes a stated goal. |
   | Q-10 relay invariants | Before any relay code | Written into THREAT-MODEL §8 as merge gates now (W16); enforced when a relay exists. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
+
+- **W16 — Release documentation pass. Done.** Last, so the docs
+  describe the final code.
+
+  > **Done.** Committed in `7e403a0`, `6a1877e`, `15956c4`, `7269725`,
+  > `9aa0589`, `4075fc8` and `25cd39f`. `POSITIONING.md` and the
+  > 2026-10-13 trial records followed in `668bab4`. The two things left
+  > to the owner were closed on 2026-10-14: the repository went public
+  > and GitHub private vulnerability reporting was turned on, and the
+  > response targets in SECURITY.md (7, 14 and 90 days) were confirmed.
+  > Where the result differed from the table below:
+  > - ARCHITECTURE.md was rewritten from the code rather than edited. The
+  >   old file is `history/ENGINEERING-LOG.md` whole, with a note listing
+  >   its superseded passages, because its reasoning is what the design
+  >   rests on.
+  > - The finished work items' full record is `history/WORK-RECORD.md`.
+  >   The competitor analysis moved to `POSITIONING.md`, with the
+  >   positioning half of the 2026-09-18 review, so that it can grow with
+  >   W14's comparison testing. Decision 3 is amended to match: the roadmap
+  >   carries no competitor analysis, and the positioning document does.
+  > - PROTOCOL.md kept its section numbers, so every `§` reference in the
+  >   code still holds, and gained §13, the changelog. §12's odds now use
+  >   the vendored list's 7,772 words, not 7,776.
+  > - `scratch-trials.js` had no outcome for `ERR_DECLINED`,
+  >   `ERR_DROP_TAKEN`, `ERR_NO_SPACE` or `ERR_EXISTS`, so each would
+  >   have read as a generic `transfer-error`. They have outcomes now. The
+  >   measuring doc's outcome table had been split by an earlier edit,
+  >   and it is whole again.
+  > - Both packages gained `"files": ["src"]`. A dry-run pack ships
+  >   `src/` only, so no `scratch-*` file can be published by accident.
+  > - The historical documents keep the names they were written under.
+  >
+  > Typecheck clean. The full suite passed 504 of 505, with 1 skipped on
+  > this platform. Every relative link and anchor in the docs resolves. The rule from here on: **every security claim in a doc
+  names the work item that makes it true** (Q-20), which is how the
+  Q-01 overclaim would have been caught.
+
+  **Decisions, 2026-10-07**, settled before any W16 edit:
+
+  | # | Question | Decision |
+  |---|---|---|
+  | 1 | The name in prose | **Adhal.** It is introduced once, where the name is explained (the README's opening, SECURITY.md), as Ad-ḫal, from the Sumerian *ad-ḫal*, "secret". This supersedes the "Ad-ḫal everywhere" row below. Identifiers and wire labels are unchanged (`ad-hal`, `ADHAL_*`, `adhal`). |
+  | 2 | How to report a vulnerability | **GitHub private vulnerability reporting.** No email address is published. It had to be enabled in the repository's settings before SECURITY.md was accurate, and it was, on 2026-10-14, when the repository went public. |
+  | 3 | Whether this plan stays public | **Yes, as a roadmap.** The competitor analysis is removed, and the detail of finished work items moves to `docs/history/`. |
+
+  | Doc | Change |
+  |---|---|
+  | `README.md` | Rewrite Status and Quickstart to match the code: accept gate, streaming, resume, and the prompt. Say that the code is a bearer capability, that Ad-ḫal is not anonymous, and that Windows is not supported for security purposes. Fix the Node floor (≥ 24, not ≥ 18). Drop the development narrative. |
+  | `PROTOCOL.md` | Spec only. Move the W10/W11 amendment history into a changelog section at the end. Fix the §7.3/§7.4 order. Mark §9 (v1) as historical. Replace the `quay send -` examples with real commands. Remove competitor remarks. |
+  | `THREAT-MODEL.md` | Rewrite §9 to present reality. Add the consent prompt, resume `.part` handling (`O_NOFOLLOW`, link-count check, PREFIX's one-bit oracle), the large-list entropy numbers, the DoS posture, secret memory handling, and the relay merge gates. |
+  | `ARCHITECTURE.md` | Split into a current design doc and an engineering log under `docs/history/`. Fix the error-code table and the stale "code proof" and cancel-latency passages. Document `stream-handshake.js`. |
+  | `IMPLEMENTATION-PLAN.md` | Fix the stale W11 and competitor-table status. Before publication, decide whether it stays public; if so, it becomes a roadmap without the competitor analysis. |
+  | `REVIEW-SECURITY-AND-POSITIONING.md` | Move to `docs/history/`. It describes a code state that no longer exists. |
+  | `SETUP.md`, `MEASURING-TRANSFER-RELIABILITY.md` | Fix the Node floor, the references to the deleted plan ("Phase A", "Section 8"; the same references are in `scratch-trials.js`), and the missing outcome rows. |
+  | New `SECURITY.md` | Disclosure contact and response targets (Q-20). |
+  | New `docs/SECURITY-REVIEW.md` | The 21 findings with their final status, framed as an AI-assisted review. The raw transcripts in `docs/audit/` stay untracked (decision 7). |
+  | The name, everywhere in prose | Quay and Ad-ḫal become Adhal (decision 1). Where the name is introduced it is Ad-ḫal, in NFC (precomposed U+1E2B). Commands and identifiers in the docs use the ASCII forms from W15a item 5. |
+  | Source comments and strings | Remove the remaining "item N" references, including the user-facing "pre-item-5 build" error string in `message.js`. Keep `scratch-*` out of any published package (Q-20). |

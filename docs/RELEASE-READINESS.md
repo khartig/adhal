@@ -93,11 +93,12 @@ Ordered by how expensive each gets to fix later.
   scope on npm, and claim the obvious variants (`adhal`, `ad-hal-cli`)
   before the project is announced. Name one install source in the README
   and in SECURITY.md, and say that anything else is not Adhal.
-- [ ] **Turn on GitHub private vulnerability reporting.** SECURITY.md is
-  not accurate until it is, and it cannot be enabled while the repository
-  is private (W16).
-- [ ] **Confirm SECURITY.md's response targets.** They are a commitment
-  (W16).
+- [x] **Turn on GitHub private vulnerability reporting.** SECURITY.md was
+  not accurate until it was, and it could not be enabled while the
+  repository was private (W16). Done on 2026-10-14, when the repository
+  went public.
+- [x] **Confirm SECURITY.md's response targets.** They are a commitment
+  (W16). Confirmed on 2026-10-14: 7, 14 and 90 days.
 - [ ] **RR-4 / Q-08 — Make the supply chain gating.** Fail CI on an
   advisory at a chosen level. Publish an SBOM, publish with npm provenance
   or signed artifacts, and publish release checksums.
