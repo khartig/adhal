@@ -119,7 +119,7 @@ Ordered by how expensive each gets to fix later.
   suite and the typecheck on macOS and Linux, holds at `5c5029e`
   (2026-10-14), whose code `8bc808a` shares.
 - [ ] **Q-05 — Independent review** of the cryptographic composition,
-  after W17, against PROTOCOL §12.
+  after W17, against PROTOCOL §12. Possibly too expensive.
 
 ## 8. Worth considering, not blocking
 
