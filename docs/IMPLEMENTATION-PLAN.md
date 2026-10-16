@@ -99,57 +99,20 @@ project's story.
 | | **W15c**: consent and what the user is told | The accept prompt, codes off argv by default, contention warnings, the not-anonymous notice | `9d46439` |
 | | **W15d**: tests that pin the argument | Security-property tests, the state machine, negative vectors, a fuzz harness, the security claims; the testnet pairing stall found and mitigated | `6154994`, `42f2cf7`, `550ea47`, `a09a387`, `dfc5b3f` |
 | | **W16**: release documentation pass | The docs rewritten to match the code; SECURITY.md and SECURITY-REVIEW.md; this plan made a public roadmap, its finished items moved to [`history/WORK-RECORD.md`](history/WORK-RECORD.md); GitHub private vulnerability reporting on, 2026-10-14 | `7e403a0`, `6a1877e`, `15956c4`, `7269725`, `9aa0589`, `4075fc8`, `25cd39f`, `668bab4` |
+| | **W17**: the freeze gate | Every line checked by running it, the last 40 drops between macOS and Linux on the public DHT at `8bc808a`, all confirmed on both sides; the Q-01 nonce test's fsync race found on Linux and fixed; PROTOCOL.md tagged `v2-final`, 2026-10-15 | `5c5029e`, `8bc808a` |
 
 The security review's 21 findings and their status are in
 [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md).
 
 ---
 
-## 5. Stage 1, finishing: the freeze
+## 5. Stage 1, finished: the freeze
 
-- **W17 — Freeze gate.** PROTOCOL.md is tagged v2-final only when every
-  line below is true and was checked by running something, not by
-  reading:
-
-  1. W15a's five wire changes are in the spec, the code and the vectors.
-     Every protocol label and the QR scheme use the ASCII identifier
-     `adhal`. `grep -ri quay` over the code finds nothing.
-  2. Every post-CONFIRM frame is sealed with its length bound. No
-     plaintext frame is written after CONFIRM, checked by a test.
-  3. The consent prompt is the default on both receivers. A late peer
-     gets `ERR_DROP_TAKEN` end to end.
-  4. Only implemented capabilities are advertised, checked by a test.
-  5. The state-machine section exists and its table-driven test passes.
-  6. The negative vectors are published and pass. The fuzz harness runs
-     in the fast tier and is green.
-  7. The security claims section exists.
-  8. `pnpm test` and `pnpm typecheck` are green on macOS and Linux. A real
-     two-machine drop (macOS ↔ Linux) on the public DHT succeeds on the
-     frozen wire.
-  9. W16 is done, and `docs/SECURITY-REVIEW.md` shows no finding without
-     a status.
-
-  After W17, a change to the wire is a v3 break, and Q-05 can begin.
-
-  > **Status, 2026-10-14.** Gates 1–7 and 9 hold, checked on macOS at
-  > `1736d1c`: `pnpm typecheck` clean; `pnpm test` 523 passed, 1
-  > skipped, 0 failed, the gate tests among them; no tracked file
-  > outside the docs mentions `quay`; every finding in SECURITY-REVIEW.md
-  > has a status.
-  >
-  > Gate 8's first half holds at `5c5029e`: `pnpm typecheck` clean and
-  > `pnpm test` green on macOS and on Linux. The first Linux run failed
-  > one test, Q-01's nonce test, which assumed a CHECKPOINT always lands
-  > before a resumed transfer ends. A CHECKPOINT waits on an fsync, and an
-  > fsync slower than about 20 ms let the transfer finish first. The code
-  > was right: a short transfer may send no CHECKPOINT. `5c5029e` makes
-  > the test hold the transfer until one is heard.
-  >
-  > Left: the second half of gate 8, the macOS ↔ Linux trial run on the
-  > build to be tagged, with its commit in the logs. The 2026-10-13 drops
-  > ([`trials/20261013`](trials/20261013/starlink-cgnat-to-comcast-eero/ENVIRONMENT.md))
-  > ran on an earlier build with no commit recorded, so they do not
-  > count. Then the tag.
+Stage 1 ended with W17 on 2026-10-15: PROTOCOL.md is tagged `v2-final`,
+and a change to the wire from here on is a v3 break. The freeze gate and
+how each line of it was checked are in
+[`history/WORK-RECORD.md`](history/WORK-RECORD.md). Q-05, the
+independent review, can begin.
 
 ---
 

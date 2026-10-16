@@ -109,15 +109,15 @@ Ordered by how expensive each gets to fix later.
   advisories and release notes. Any in-client update check has to be
   weighed against the privacy properties: it would contact a server, and
   that is a design decision rather than a default.
-- [ ] **W17 gate 8 — A real two-machine drop** (macOS ↔ Linux) on the
-  public DHT, on the frozen wire. Done before the freeze on 2026-10-13:
-  40 trials of 10 MB between macOS on eero/Xfinity and Linux on
-  Starlink, 20 each way. 38 of 40 were confirmed on both sides, and every
-  file that landed was verified ([`ARCHITECTURE.md`](ARCHITECTURE.md),
-  "Measured on real networks"). It stays open until it is repeated on
-  the frozen build, with the commit recorded. Gate 8's other half, the
+- [x] **W17 gate 8 — A real two-machine drop** (macOS ↔ Linux) on the
+  public DHT, on the frozen wire. Done on 2026-10-15 at `8bc808a`, logged
+  clean on both sides: 40 trials of 10 MB between macOS on eero/Xfinity
+  and Linux on Starlink, 20 each way, and all 40 were confirmed on both
+  sides with matching hashes ([`ARCHITECTURE.md`](ARCHITECTURE.md),
+  "Measured on real networks"). An earlier run on 2026-10-13, with no
+  commit recorded, had confirmed 38 of 40. Gate 8's other half, the
   suite and the typecheck on macOS and Linux, holds at `5c5029e`
-  (2026-10-14).
+  (2026-10-14), whose code `8bc808a` shares.
 - [ ] **Q-05 — Independent review** of the cryptographic composition,
   after W17, against PROTOCOL §12.
 

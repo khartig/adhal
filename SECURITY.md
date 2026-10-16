@@ -57,8 +57,8 @@ vulnerabilities in this sense:
 
 ## Supported versions
 
-There are no releases yet. The wire format is v2, and it is not yet
-frozen (W17, [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md)).
+There are no releases yet. The wire format is v2, frozen at the tag
+`v2-final` (W17, [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md)).
 Until the first release, only the default branch is supported.
 
 ## Status of earlier findings
@@ -66,4 +66,4 @@ Until the first release, only the default branch is supported.
 An AI-assisted review of the v2 implementation found 21 issues. Each one
 has a status in [`docs/SECURITY-REVIEW.md`](docs/SECURITY-REVIEW.md). That
 review was not independent; an independent review of the cryptographic
-composition is planned once the wire format is frozen.
+composition is planned now that the wire format is frozen.

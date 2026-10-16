@@ -33,7 +33,7 @@ rather than a custom NAT-traversal stack.
 
 **A drop works end to end, over the public DHT and across ISPs. Protocol
 v2 is implemented, and a security review of it has been worked through
-(W15). The wire format is not yet frozen (W17), and there are no releases
+(W15). The wire format is frozen as v2 (W17), and there are no releases
 yet.**
 
 What a drop does today:

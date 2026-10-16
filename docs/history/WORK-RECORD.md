@@ -1,4 +1,4 @@
-# Work record: Stage 0 to W16
+# Work record: Stage 0 to W17
 
 The full record of the finished work items, as the plan held them when
 each was done: what was planned, what was found, where the result
@@ -634,3 +634,51 @@ them change the wire and the freeze is defined by them.
   | New `docs/SECURITY-REVIEW.md` | The 21 findings with their final status, framed as an AI-assisted review. The raw transcripts in `docs/audit/` stay untracked (decision 7). |
   | The name, everywhere in prose | Quay and Ad-ḫal become Adhal (decision 1). Where the name is introduced it is Ad-ḫal, in NFC (precomposed U+1E2B). Commands and identifiers in the docs use the ASCII forms from W15a item 5. |
   | Source comments and strings | Remove the remaining "item N" references, including the user-facing "pre-item-5 build" error string in `message.js`. Keep `scratch-*` out of any published package (Q-20). |
+
+- **W17 — Freeze gate. Done.** PROTOCOL.md is tagged v2-final only when every
+  line below is true and was checked by running something, not by
+  reading:
+
+  1. W15a's five wire changes are in the spec, the code and the vectors.
+     Every protocol label and the QR scheme use the ASCII identifier
+     `adhal`. `grep -ri quay` over the code finds nothing.
+  2. Every post-CONFIRM frame is sealed with its length bound. No
+     plaintext frame is written after CONFIRM, checked by a test.
+  3. The consent prompt is the default on both receivers. A late peer
+     gets `ERR_DROP_TAKEN` end to end.
+  4. Only implemented capabilities are advertised, checked by a test.
+  5. The state-machine section exists and its table-driven test passes.
+  6. The negative vectors are published and pass. The fuzz harness runs
+     in the fast tier and is green.
+  7. The security claims section exists.
+  8. `pnpm test` and `pnpm typecheck` are green on macOS and Linux. A real
+     two-machine drop (macOS ↔ Linux) on the public DHT succeeds on the
+     frozen wire.
+  9. W16 is done, and `docs/SECURITY-REVIEW.md` shows no finding without
+     a status.
+
+  After W17, a change to the wire is a v3 break, and Q-05 can begin.
+
+  > **Done, 2026-10-15.** Every line held, each checked by running it.
+  > Gates 1–7 and 9 on macOS at `1736d1c`: `pnpm typecheck` clean;
+  > `pnpm test` 523 passed, 1 skipped, 0 failed, the gate tests among
+  > them; no tracked file outside the docs mentions `quay`; every finding
+  > in SECURITY-REVIEW.md has a status.
+  >
+  > Gate 8's first half at `5c5029e`: `pnpm typecheck` clean and
+  > `pnpm test` green on macOS and on Linux. The first Linux run failed
+  > one test, Q-01's nonce test, which assumed a CHECKPOINT always lands
+  > before a resumed transfer ends. A CHECKPOINT waits on an fsync, and an
+  > fsync slower than about 20 ms let the transfer finish first. The code
+  > was right: a short transfer may send no CHECKPOINT. `5c5029e` makes
+  > the test hold the transfer until one is heard.
+  >
+  > Gate 8's second half at `8bc808a`, whose code is `5c5029e`'s: 40
+  > trials of 10 MB between macOS and Linux on the public DHT, 20 each
+  > way, all 40 confirmed on both sides with matching hashes, and both
+  > sides logged the commit, clean
+  > ([`../trials/20261015`](../trials/20261015/starlink-cgnat-to-comcast-eero/ENVIRONMENT.md)).
+  > The 2026-10-13 run, with no commit recorded, did not count. A first
+  > attempt on 2026-10-15 found no peer, because the two machines were
+  > given different seeds; it was stopped and restarted, and is not in
+  > the record.

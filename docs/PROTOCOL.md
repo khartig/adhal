@@ -9,9 +9,9 @@ error vocabulary, §11 the conformance material, §12 what v2 claims and
 does not, and §13 how this text has changed.
 
 **Status.** v2 is implemented in full in `engine/src/`, and every frame
-after the handshake is sealed. It is not yet frozen: it is tagged
-v2-final at W17 ([`IMPLEMENTATION-PLAN.md`](IMPLEMENTATION-PLAN.md)).
-Until then the wire can still change; after it, a change is v3.
+after the handshake is sealed. It is frozen: this text is tagged
+`v2-final` (W17, [`IMPLEMENTATION-PLAN.md`](IMPLEMENTATION-PLAN.md)). A
+change to the wire from here on is v3.
 
 A published specification with test vectors and a conformance suite is
 what lets a second implementation exist, and that is what this document
@@ -1777,3 +1777,9 @@ and identified the right candidate.
 The sender now reserves an attempt before each REPLY and counts it as
 `ERR_REPLY_UNANSWERED` unless a valid CONFIRM arrives (§4.4, §6). The
 wire did not change.
+
+### W17 — frozen
+
+Tagged `v2-final` on 2026-10-15, once every line of the freeze gate had
+been checked by running it, the last being 40 drops between macOS and
+Linux on the public DHT. The wire did not change in W17.
