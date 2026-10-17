@@ -557,6 +557,11 @@ test('the receiver reports fsynced offsets periodically, and not while nothing i
     send(TYPE_CHUNK, body.subarray(offset, offset + 8192))
     await tick(30)
   }
+  // A CHECKPOINT is sent when its fsync returns, and on Windows that can
+  // outlast the loop above: one still in flight here would land during the
+  // idle wait below and look like a timer fsync. Wait until everything
+  // written is reported, so the idle check sees only what the timer does.
+  await until(() => checkpoints().at(-1) === body.length / 2, 'the checkpoint covering every byte sent')
   const seen = checkpoints()
   assert.ok(seen.length >= 2, `expected periodic checkpoints, got ${JSON.stringify(seen)}`)
   assert.deepEqual(seen, [...seen].sort((a, b) => a - b), 'offsets only move forward')

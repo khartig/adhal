@@ -255,16 +255,25 @@ test('a file swapped at its path after hashing is not what gets sent', async (t)
 
   const [txSocket, rxSocket] = duplexPair()
   const keys = channelKeys()
+  let swapped = false
   const [sent, received] = await Promise.all([
     sendFile(txSocket, sourcePath, { ...keys.sender }),
     receiveFile(rxSocket, outputDir, {
       ...keys.receiver,
       onOffer: async () => {
-        await fs.promises.rename(decoy, sourcePath)
+        try {
+          await fs.promises.rename(decoy, sourcePath)
+          swapped = true
+        } catch (err) {
+          // Windows refuses to rename over a file the sender holds open,
+          // so the swap cannot happen there. The bytes are still checked.
+          if (process.platform !== 'win32' || /** @type {any} */ (err).code !== 'EPERM') throw err
+        }
         return true
       }
     })
   ])
+  assert.equal(swapped, process.platform !== 'win32', 'the swap happens where the OS allows it')
 
   const expected = crypto.createHash('sha256').update(original).digest('hex')
   assert.equal(sent.sha256, expected)
