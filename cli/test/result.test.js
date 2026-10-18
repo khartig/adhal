@@ -178,7 +178,7 @@ test('RESULT{error} fails the send with the receiver\'s own reason', async (t) =
   const outcome = await sent
   assert.equal(outcome.ok, false)
   assert.equal(outcome.error.code, 'ERR_RECEIVER_FAILED')
-  // Printed into the sender's terminal, so it is sanitised like a CANCEL
+  // Printed into the sender's terminal, so it is sanitized like a CANCEL
   // reason.
   assert.equal(outcome.error.peerReason, 'disk full [2J')
 })

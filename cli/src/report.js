@@ -11,7 +11,7 @@
 //
 // The distinction each line is protecting: before the failure-reporting
 // work, every one of these arrived as `error: <something>` and several
-// arrived as nothing at all. "The peer cancelled", "the bytes are wrong"
+// arrived as nothing at all. "The peer cancelled", "the bytes are wrong",
 // and "the punch died" are three different situations with three
 // different responses, and telling them apart is the whole point.
 //
@@ -109,7 +109,7 @@ function describeUnescaped (err) {
       // THE OLD WORDING WAS A GUESS, AND USUALLY THE WRONG ONE. It said
       // the name "points outside the output directory" for every
       // refusal, when traversal is only one of the reasons: a NUL byte,
-      // control characters, a bidi override, an over-long name and an
+      // control characters, a bidi override, an over-long name, and an
       // empty one all arrive here too, and telling someone their
       // 300-character filename escaped the directory sends them looking
       // for an attack that did not happen. The engine already computes
@@ -126,7 +126,7 @@ function describeUnescaped (err) {
     case 'ERR_DECLINED':
       // Two sides of one event. The receiver declined (its own check, or
       // a person or policy through onOffer) and knows why; the sender was
-      // told, and prints the receiver's sentence -- sanitised by the
+      // told, and prints the receiver's sentence -- sanitized by the
       // engine, since the other end chose it.
       if (err.local) {
         return `declined the offer${err.reason ? `: ${err.reason}` : ''}. The sender was told, and nothing was written.`

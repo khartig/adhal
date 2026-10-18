@@ -6,9 +6,9 @@
 // WHY THIS FILE EXISTS. Both receivers used to end the socket and wait a
 // flat 5s for the sender's close. On 2026-10-12 a 10 MB drop took 63s on
 // a degraded path: the receiver saved the file, sent RESULT, gave up on
-// the close after 5s and destroyed its swarm, and the sender -- still
+// the close after 5s, and destroyed its swarm, and the sender -- still
 // waiting for RESULT -- reported "connection reset by peer". The wait now
-// follows the transport's acknowledgement instead of a timer, so the
+// follows the transport's acknowledgment instead of a timer, so the
 // fakes below control `flush()` directly: when it resolves is most of the
 // subject. The rest is telling the sender's end of stream, the only
 // reply that means it read RESULT, from a connection that merely closed.
@@ -45,7 +45,7 @@ test('a sender that ends in reply ends the wait at once', async () => {
   assert.ok(ms < 1000, `took ${ms}ms`)
 })
 
-test('an acknowledgement slower than the old 5s window is still waited for', async () => {
+test('an acknowledgment slower than the old 5s window is still waited for', async () => {
   // The 2026-10-12 trial, scaled down: delivery is confirmed only after a
   // delay longer than the grace window, and the sender then ends. A fixed
   // timer of `grace` would have given up first.

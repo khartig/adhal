@@ -142,7 +142,7 @@ The two ends are on different machines with **no channel between them**.
    told the codes" property survives.
 2. **Trials are pinned to wall-clock slots, not to each other's progress.**
    If each side advanced when *its own* trial finished, a fast failure on
-   one side against a slow timeout on the other would desynchronise them,
+   one side against a slow timeout on the other would desynchronize them,
    and every later trial would fail on mismatched topics — reporting 0% for
    a working path. Slot alignment makes that drift impossible.
 
@@ -188,7 +188,7 @@ before this wait on both sides.
   - `acked`: the sender's transport acknowledged RESULT, but the sender
     did not end. Harmless.
   - **`lost`**: the connection closed with neither an end nor an
-    acknowledgement. The sender probably never got RESULT.
+    acknowledgment. The sender probably never got RESULT.
   - **`timeout`**: nothing happened within 60 s. Same meaning as `lost`.
 
   After `lost` or `timeout`, the sender's record for that trial is
@@ -243,12 +243,12 @@ note: eero firewall on
 - **`vpn`** says whether that route goes through a tunnel, and on macOS
   lists the configured VPN services and their state.
 - **`host firewall`** is this machine's own firewall, read without root:
-  the application firewall on macOS; ufw, firewalld and nftables on
+  the application firewall on macOS; ufw, firewalld, and nftables on
   Linux. The router's firewall is not visible from the host. Put it in a
   `--note`.
 - **`isp`** appears only with `--lookup-isp`.
 
-These were added on 2026-10-14. All of them, and the slot start, file and
+These were added on 2026-10-14. All of them, and the slot start, file, and
 start and end times, are also in the JSON's `environment` block.
 
 ### Writing up a run: `ENVIRONMENT.md`
@@ -265,7 +265,7 @@ so `grep 'FILL IN'` lists what is left to write by hand. It groups files
 into runs by seed and calls the receiver of the first run Machine 1,
 which is [`TESTING.md`](TESTING.md)'s convention. A **Checks** section
 lists what would make the run hard to read: the two sides' seeds, trial
-counts, slots or start times disagreeing, different commits, uncommitted
+counts, slots, or start times disagreeing, different commits, uncommitted
 changes, a NAT that changed, a same-LAN connection, two randomized NATs.
 `--write` does not replace an existing `ENVIRONMENT.md` without `--force`.
 For JSON from before 2026-10-14 it reads what it can from the logs.
@@ -299,7 +299,7 @@ flags a NAT that changed during the run.
 | `connection-lost` | The socket closed or reset before the transfer finished | A punch that died mid-transfer. Before the failure-reporting work this hung forever instead of being counted. A reset carries the transport's own error as `cause`; on the sender, `phase: 'result'` means every byte went out and the receiver's record is the only one that knows whether the file landed. Until 2026-10-12 a reset arrived uncoded and was counted as `transfer-error`. |
 | `unsafe-name` / `manifest-invalid` / `protocol-error` | The peer's manifest or framing was refused | On a private topic, almost always a build-version skew between the two hosts |
 | `cancelled-by-peer` / `cancelled-locally` | Someone stopped the drop deliberately | Not a failure of the path. Should be zero in an unattended run. |
-| `timeout-other` | Timed out without a recognised reason | Read the `error` field in the JSON. A coded engine error should never land here or in `transfer-error`; if one does, give it a row. |
+| `timeout-other` | Timed out without a recognized reason | Read the `error` field in the JSON. A coded engine error should never land here or in `transfer-error`; if one does, give it a row. |
 | `skipped` | The slot was already over when the trial began | Clock skew, or `--slot` too short |
 
 **`bad-proof` is gone, and its removal is worth recording** because it was
@@ -311,7 +311,7 @@ reports `ERR_NO_HANDSHAKE`, which the table above catches first.
 
 Failed PAKE confirmations are **per-candidate events, not trial
 outcomes** — a trial can succeed having rejected several peers first, which
-is the behaviour the attempt cap relies on. So they are counted where they
+is the behavior the attempt cap relies on. So they are counted where they
 happen, off the code `ERR_PAKE_CONFIRMATION`, and reported separately as a
 `badConfirmations` total per trial plus one summary line. On a private
 topic that total should be zero; a non-zero one means peers reached the
@@ -351,7 +351,7 @@ loudest output this tool has — `>> N HASH MISMATCH(ES) ... stop feature
 work` — would never have fired again. That is an easy failure to miss,
 because nothing would look broken; the alarm would simply be silent.
 
-The harness's own comparison is kept, now as a labelled cross-check
+The harness's own comparison is kept, now as a labeled cross-check
 reported as `hash-crosscheck-disagreed`. Reaching it means the engine
 verified the file and an independent comparison disagrees, which cannot be
 a corrupt transfer — the engine would have rejected it — and can only be a
@@ -408,5 +408,5 @@ change the default in `swarm.js` on anything less than this.
 ## Recording results
 
 Keep the JSON. `docs/ARCHITECTURE.md` records measured network findings, and
-a rate with a date, a network pair and a trial count is worth far more than
+a rate with a date, a network pair, and a trial count is worth far more than
 "it worked when I tried it" — which is what this tool exists to replace.

@@ -34,7 +34,7 @@ const { TransferError } = require('./errors')
 //
 // THE THIRD ONE IS NOT NETWORK NOISE, although it can look like it. REPLY
 // carries confirmS, which lets whoever reads it test one candidate secret
-// offline. A run that read REPLY and then hung up, went quiet or was reset
+// offline. A run that read REPLY and then hung up, went quiet, or was reset
 // has been handed that test whatever happened next, and before this was
 // counted a guesser could repeat it with no limit and no backoff
 // (PROTOCOL.md section 12.5, step 4). The receiver has no equivalent: it
@@ -69,7 +69,7 @@ const MAX_ATTEMPTS = 100
 // roundness: it must stay below HANDSHAKE_TIMEOUT_MS (15 s, so a delayed
 // candidate still has time to finish) and comfortably below the receiver's
 // 30 s join budget (so a legitimate sender arriving mid-attack is not
-// timed out by our own defence). 5 s satisfies both.
+// timed out by our own defense). 5 s satisfies both.
 //
 // Reaching the cap takes about seven failures; 100 attempts then cost an
 // attacker on the order of eight minutes of wall clock, on top of a hole
@@ -158,7 +158,7 @@ class AttemptCap {
   /**
    * @param {{ max?: number, baseDelayMs?: number, maxDelayMs?: number, maxSids?: number }} [options]
    *   Overridable for tests only. The defaults are section 6's, and a
-   *   caller that lowers `max` in production has removed the defence.
+   *   caller that lowers `max` in production has removed the defense.
    */
   constructor ({
     max = MAX_ATTEMPTS,

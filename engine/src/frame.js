@@ -10,7 +10,7 @@
 // channel. That never happened: Hyperswarm landed and this framing was
 // carried over onto the encrypted stream unchanged. W10 then settled the
 // question rather than leaving it forward-looking -- protomux@3.12.0 has
-// no priority, preempt or urgent path, so a CANCEL on a second channel
+// no priority, preempt, or urgent path, so a CANCEL on a second channel
 // would queue behind already-written chunk bytes exactly as it does here,
 // and under v2's AEAD channel it would double-frame. The dependency is
 // gone; see PROTOCOL.md section 8.2. This module stays transport-agnostic

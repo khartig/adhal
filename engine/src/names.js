@@ -94,7 +94,7 @@ const MAX_NAME_BYTES = 255
  * throws, always returns a string, for any input at all.
  *
  * Control and bidi characters are ESCAPED rather than stripped, which is
- * the one judgement call in here. Stripping produces a clean-looking
+ * the one judgment call in here. Stripping produces a clean-looking
  * string and destroys the evidence -- `evil\nverified: ok` would print as
  * `evilverified: ok`, which is tidy and tells the reader nothing. The
  * escape shows that something was there and what it was.
@@ -128,7 +128,7 @@ function escapeForTerminal (value, maxLength) {
 
   const escape = (/** @type {string} */ ch) => {
     const code = ch.codePointAt(0) || 0
-    // The three a reader recognises on sight are worth naming; the rest
+    // The three a reader recognizes on sight are worth naming; the rest
     // are unambiguous as hex and would only be noise as mnemonics.
     if (ch === '\n') return '\\n'
     if (ch === '\r') return '\\r'

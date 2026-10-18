@@ -188,7 +188,7 @@ function checkKey (key, what) {
 // Two keys, never one. k_r2s and k_s2r are derived separately from the ISK
 // (section 3.2), so the two directions cannot be confused for each other:
 // a frame sealed by the receiver cannot be replayed back at it, because the
-// receiver only ever opens under the other key. That is the same defence
+// receiver only ever opens under the other key. That is the same defense
 // v1's "s"/"r" role tags provided for its proof, moved to where the traffic
 // is. With a single shared key, direction-independent counters would
 // collide on frame 0 and reuse a nonce immediately.
@@ -238,7 +238,7 @@ class Channel {
 
     // Reuses ./frame.js unchanged, which is the point of that module
     // having no opinion about its contents: the length bound, the
-    // buffering and the "an absurd header costs one comparison" behaviour
+    // buffering, and the "an absurd header costs one comparison" behavior
     // are all already correct and already tested.
     this._decoder = new FrameDecoder((sealed) => {
       const { type, body } = this._open(sealed)
@@ -379,7 +379,7 @@ class Channel {
       // and because a peer that can choose between those outcomes must not
       // learn which one it achieved.
       //
-      // Note this is also where a desynchronised stream now surfaces. v1
+      // Note this is also where a desynchronized stream now surfaces. v1
       // reserved type 0x00 as its desync sentinel and could catch a
       // mis-framed payload by its tag; under v2 the tag is inside the seal,
       // so desync presents here first -- earlier and less ambiguously than
@@ -408,7 +408,7 @@ class Channel {
       // inexpressible rather than merely discouraged (see Nonces), and
       // this is the same standard applied to the same class of mistake.
       //
-      // Offering a resynchronisation window would be the other way to go
+      // Offering a resynchronization window would be the other way to go
       // and is worse: it means holding state an attacker can aim at, and
       // under UDX/Noise (reliable and ordered) there is no benign reason
       // to need one.

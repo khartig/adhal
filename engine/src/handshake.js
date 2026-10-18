@@ -29,7 +29,7 @@ const {
 //
 // WHAT REPLACED WHAT. v1 proved knowledge of the code with an HMAC over
 // nonces, bound to the Noise session's public keys (the deleted
-// ./proof.js). That was sound as a proof and useless as a defence, because
+// ./proof.js). That was sound as a proof and useless as a defense, because
 // v1's topic was hash(code || salt): the topic is public the moment a
 // receiver announces, so an attacker holding it could grind candidate codes
 // offline and never touch a peer. And the Noise binding made the engine's
@@ -41,12 +41,12 @@ const {
 // THE FOUR THINGS SECTION 3.2 SAYS AN IMPLEMENTATION MUST GET RIGHT, and
 // where each one is handled:
 //
-//   1. ya, yb and sid are per CONNECTION, never per drop. Sampled in the
+//   1. ya, yb, and sid are per CONNECTION, never per drop. Sampled in the
 //      Initiator/Responder constructors, so there is nowhere to cache them
 //      -- see the note on those classes, which is the trap this engine is
 //      most exposed to.
 //   2. caps has a byte-exact canonical encoding, fixed here and not left
-//      to a serialiser. See encodeCaps.
+//      to a serializer. See encodeCaps.
 //   3. Each side binds what it sent and what it received, verbatim. See
 //      the note on parseCaps.
 //   4. PRS is the secret's canonical form -- not the nameplate, which is
@@ -100,7 +100,7 @@ const CAPS_TOKEN = /^[a-z0-9]([a-z0-9-]{0,14}[a-z0-9])?$/
 // A TOKEN HERE IS A PROMISE (Q-03). Advertising one says this build acts on
 // it, so a token is added here in the same change as its handler, never
 // ahead of it. security-properties.test.js fails if a token has no row
-// showing it changes behaviour when negotiated and is refused when not.
+// showing it changes behavior when negotiated and is refused when not.
 const KNOWN_CAPS = ['resume', 'stream']
 
 // The domain-separation labels. Every one is distinct and every one is
@@ -188,7 +188,7 @@ function handshakeError (message, code = 'ERR_PROTOCOL') {
  * zero bytes.
  *
  * SECTION 3.2 TRAP #2. This has to be byte-exact and fixed by the spec
- * rather than left to a serialiser, because two implementations that order
+ * rather than left to a serializer, because two implementations that order
  * the same set differently derive different keys and fail EVERY handshake
  * -- and the failure is indistinguishable from an attack, which is the
  * worst way for an interoperability bug to present. Sorting makes the
@@ -225,15 +225,15 @@ function encodeCaps (tokens) {
  * Parses a peer's capability bytes, refusing anything non-canonical.
  *
  * SECTION 3.2 TRAP #3, AND THE RULE THAT MAKES IT HOLD: the caller hashes
- * the peer's bytes **verbatim as received**, never a re-serialisation of
+ * the peer's bytes **verbatim as received**, never a re-serialization of
  * this function's output. That is what keeps an unknown future token bound
- * into the transcript while being ignored behaviourally -- which is also
+ * into the transcript while being ignored behaviorally -- which is also
  * what lets v2.1 add a capability without breaking a v2 peer. A party that
  * negotiated down from a received value while MACing the original would
  * have reintroduced exactly the downgrade the transcript exists to
  * prevent.
  *
- * Non-canonical input is refused rather than normalised, and that is the
+ * Non-canonical input is refused rather than normalized, and that is the
  * point of having a canonical form at all: if unsorted or duplicated bytes
  * were accepted and re-sorted, the transcript would contain bytes no
  * encoder produces and a second implementation could not reproduce it.
@@ -327,7 +327,7 @@ function deriveAll (sid, K, transcript) {
   // it is reflection-safe for the reason section 3.2 gives: the two are
   // computed over the same bytes under the same key but with different
   // prefixes, so neither can stand in for the other. It is the same
-  // defence v1's "s"/"r" tags provided.
+  // defense v1's "s"/"r" tags provided.
   const confirmS = hmac(macKey, CONFIRM_S_LABEL, transcript)
   const confirmR = hmac(macKey, CONFIRM_R_LABEL, transcript)
 
@@ -455,7 +455,7 @@ function takeLengthPrefixed (reader, min, max, what) {
 // that reason, and there is deliberately no way to inject a scalar or a
 // sid from outside.
 // Zeroes handshake intermediates once nothing needs them (Q-18): the
-// private scalar, K, the ISK, the MAC key, the password bytes and the
+// private scalar, K, the ISK, the MAC key, the password bytes, and the
 // generator derived from them. Best effort, for the reason Channel#wipe
 // gives: it shortens how long they sit in memory, and it cannot reach
 // copies made inside @noble or OpenSSL. The channel keys are not wiped
@@ -613,7 +613,7 @@ class Responder {
     const capsR = body.subarray(HELLO_FIXED)
     const theirTokens = parseCaps(capsR)
 
-    // HELLO is read once, so the scalar, the generator, K and the password
+    // HELLO is read once, so the scalar, the generator, K, and the password
     // bytes are finished with here, on success or on an abort (see wipe).
     const yb = sampleScalar()
     let g = null

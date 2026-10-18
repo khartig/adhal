@@ -15,7 +15,7 @@
 // The other half of this file is the receiver's liveness. Before that work the
 // only socket listeners were 'data' and 'error', so a sender that vanished
 // mid-transfer -- the routine outcome of a half-failed punch, which the Hyperswarm work
-// spent a week learning to recognise -- left the receive promise pending
+// spent a week learning to recognize -- left the receive promise pending
 // forever. No error, no timeout, no exit.
 
 const test = require('node:test')
@@ -109,7 +109,7 @@ test('a partial is visible only under .part, never under the final name, until i
   await waitFor(() => fs.existsSync(partPath), 'the .part file to appear')
   assert.equal(fs.existsSync(finalPath), false, 'an unverified file must not be visible under its real name')
 
-  // `.part` is predictable rather than randomised on purpose: resume (W11) has
+  // `.part` is predictable rather than randomized on purpose: resume (W11) has
   // to find this exact file again to resume it.
   assert.equal(path.basename(partPath), 'payload.bin.part')
 

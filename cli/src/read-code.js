@@ -6,7 +6,7 @@
 // code in two places nobody thinks about: the shell's history file, where
 // it persists indefinitely, and the process table, where `ps` shows it to
 // every other user on the machine for as long as the drop runs. The code
-// is the *only* secret in the system -- it is the topic, the drop key and
+// is the *only* secret in the system -- it is the topic, the drop key, and
 // the proof -- so those two are a full compromise of a drop, available to
 // anyone with a shell on either box.
 //

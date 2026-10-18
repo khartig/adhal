@@ -213,7 +213,7 @@ async function startLoopbackReceiver (t, outputDir, flags) {
 const exitCodeOf = (child) => new Promise((resolve) => child.on('exit', resolve))
 
 test('with no terminal and no --yes, the receiver declines and the sender is told why (W15c)', slow, async (t) => {
-  // The deliberate behaviour change: an unattended receiver used to take
+  // The deliberate behavior change: an unattended receiver used to take
   // any file from anyone holding the code. Now it neither hangs on a
   // prompt nobody can see nor accepts silently.
   const tmpDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-loopback-consent-'))

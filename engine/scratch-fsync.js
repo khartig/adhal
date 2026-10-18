@@ -11,11 +11,11 @@
 // (PROTOCOL.md section 4.1).
 //
 // So the answer is not a latency. It is a ratio: fsync cost as a fraction
-// of the transfer time it is amortised over, set against the work a crash
+// of the transfer time it is amortized over, set against the work a crash
 // would discard. This script measures the first and tabulates the second.
 //
 // WHY IT WRITES REAL BYTES TO A REAL DIRECTORY. fsync latency is a
-// property of the filesystem, the device and the OS's write cache, not of
+// property of the filesystem, the device, and the OS's write cache, not of
 // Node. Measuring it on a tmpfs and applying the number to an APFS volume
 // would be measuring the wrong machine. Point --dir at where the receiver
 // actually writes; the default is the OS temp directory, which on macOS
@@ -98,7 +98,7 @@ function main () {
   const results = []
 
   try {
-    // One untimed pass so the file exists, the extent is allocated and the
+    // One untimed pass so the file exists, the extent is allocated, and the
     // first-write cost does not land in the first measurement.
     for (let i = 0; i < 16; i++) fs.writeSync(fd, chunk)
     fs.fsyncSync(fd)
@@ -134,7 +134,7 @@ function main () {
   // The write throughput measured above is local disk, which is faster
   // than any network this will run over. Quoting the overhead against it
   // is therefore the PESSIMISTIC reading -- over a real link the same
-  // fsync is amortised over more wall-clock time, so the true fraction is
+  // fsync is amortized over more wall-clock time, so the true fraction is
   // smaller. Both are shown, because a checkpoint policy chosen only
   // against a fast LAN is wrong on a slow one and vice versa.
   const diskMiBps = 1000 / (quantile(results[0].write, 0.5) / (results[0].interval / 1024 / 1024))

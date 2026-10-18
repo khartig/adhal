@@ -8,7 +8,7 @@ built; this says why those choices matter against the alternatives.
 
 **Provenance, stated first because it sets how much weight this
 deserves.** Everything here about other tools comes from their own READMEs,
-as summarised in September 2026: in the review of 2026-09-18
+as summarized in September 2026: in the review of 2026-09-18
 ([`history/REVIEW-SECURITY-AND-POSITIONING.md`](history/REVIEW-SECURITY-AND-POSITIONING.md))
 and in the plan's competitor section, which corrected it a week later.
 The Hushdrop profile is from its sites and READMEs, read on 2026-10-10.
@@ -61,7 +61,7 @@ before it can address it, so it cannot send a stream of unknown length.
 A framed stream with a trailing digest can:
 `tar c dir | ad-hal-send <code> -` works today. A receive that writes to
 stdout and stable `--json` events built on the error codes are W13. That
-serves developers, CI, headless servers and machines without SSH, which
+serves developers, CI, headless servers, and machines without SSH, which
 GUI-first tools ignore, and it lands naturally on macOS and Linux first.
 
 **5. Published, reproducible reliability numbers.** "Lead with
@@ -80,7 +80,7 @@ available. If it wins, it is the case for using it.
 - **Trusted-device auto-accept.** It contradicts #3.
 - **Content-addressed multi-file sharing.** That is the other design.
 - **Two devices in the same room.** The built-in share sheets (§2a) are
-  preinstalled, need no code and work with no internet connection. Adhal
+  preinstalled, need no code, and work with no internet connection. Adhal
   has no LAN discovery yet, and even with it, "install this on both
   phones first" loses to a button that is already there.
 - **Public, one-to-many distribution.** BitTorrent and IPFS (§2a) serve a
@@ -102,8 +102,8 @@ available. If it wins, it is the case for using it.
 | Version / traction | v1.0.14, ~1 star, MIT | v0.7.1, ~9.6k stars, AGPL-3.0 | 0.1.0, unreleased |
 
 **MeshDrop, corrected.** An earlier plan called it "Android only",
-"fragile" and "a tiny same-stack competitor, not the market". Per its own
-README it ships on four platforms with a relay, resume and an approval
+"fragile", and "a tiny same-stack competitor, not the market". Per its own
+README it ships on four platforms with a relay, resume, and an approval
 gate, and its drop-code design is close to Adhal's data path. "Not the
 market" is true of *traction* and false of *feature parity*. On features
 it was ahead of Adhal when this was written, and on platforms and
@@ -119,7 +119,7 @@ scripting position (§1, #4), and was missing from the earlier review. This
 profile is from general knowledge, not even a README read, so it is
 weaker than the two above. As understood: a Go CLI, MIT-licensed and
 widely used, that pairs two sides with a PAKE-protected code, resumes
-interrupted transfers, accepts piped input and runs on every desktop OS.
+interrupted transfers, accepts piped input, and runs on every desktop OS.
 Both sides meet at a relay, a public one run by its author by default or a
 self-hosted one, and the data appears to travel through that relay rather
 than over a punched direct path. If that holds, croc is the cleanest
@@ -139,8 +139,8 @@ the recipient is not nearby.
 
 - **hushdrop.dev** ([maxtechera/hushdrop](https://github.com/maxtechera/hushdrop),
   MIT, about 8 stars) is a link-sharing tool for output from AI agents:
-  HTML, Markdown, PDFs and static sites, published from a CLI
-  (`npx hushdrop`), an MCP server or a Claude Code plugin. A locked drop is
+  HTML, Markdown, PDFs, and static sites, published from a CLI
+  (`npx hushdrop`), an MCP server, or a Claude Code plugin. A locked drop is
   encrypted in the browser with StatiCrypt (AES-256; no mode or KDF is
   stated) behind a password, and the ciphertext is stored in Vercel Blob.
   Its tiers are anonymous (24-hour links, 512 KB), a free account, and
@@ -149,7 +149,7 @@ the recipient is not nearby.
   security page says locked ciphertext "is downloadable, so use long
   passwords" and calls it "strong against casual access, not a vault".
 - **hushdrop.vercel.app** ([zaidmukaddam/hushdrop](https://github.com/zaidmukaddam/hushdrop),
-  no licence shown, one commit) is a burn-after-reading secret sharer: a
+  no license shown, one commit) is a burn-after-reading secret sharer: a
   Next.js app that encrypts text with a password in the browser, stores
   the ciphertext in Redis, and deletes it after the first decryption or
   when its chosen lifetime expires. A captcha guards uploads, and the
@@ -212,7 +212,7 @@ better.
 ### Built-in proximity sharing
 
 Quick Share (Google and Samsung, also on Windows), AirDrop, Huawei Share,
-and Xiaomi's share feature (with the Xiaomi, OPPO and vivo interoperability
+and Xiaomi's share feature (with the Xiaomi, OPPO, and vivo interoperability
 alliance). As understood: devices find each other over Bluetooth LE and
 move data over Wi-Fi Direct or the local network, with no internet
 connection needed. Each works best, or only, within its vendor's
@@ -245,7 +245,7 @@ their absence is not read as avoiding them.
 
 SHAREit and similar apps are widely installed, particularly where
 built-in sharing is missing between vendors. Their reputation includes
-heavy advertising, bundled extras and published security findings. The
+heavy advertising, bundled extras, and published security findings. The
 contrast with §1 #3 is real, but any specific security claim must cite
 its source and its date, and must say whether the problem was fixed. An
 unsourced swipe at a competitor would cost more credibility than it
@@ -338,7 +338,7 @@ much the relay matters.
 - home NAT ↔ home NAT, and CGNAT ↔ home NAT (the one path measured so far);
 - **CGNAT ↔ CGNAT**, for example two phones on hotspots from different
   carriers;
-- a symmetric or port-randomising NAT;
+- a symmetric or port-randomizing NAT;
 - same NAT (hairpinning) and VLAN-isolated networks;
 - a mobile hotspot and a corporate network.
 

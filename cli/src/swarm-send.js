@@ -189,10 +189,10 @@ async function main () {
     // transfer completes, while tearing down) throws as an uncaught
     // exception instead of something we can handle gracefully.
     //
-    // Silent once we are cancelling, and that is the whole point of item
-    // 5 rather than tidiness: tearing down a cancelled transfer reliably
+    // Silent once we are canceling, and that is the whole point of item
+    // 5 rather than tidiness: tearing down a canceled transfer reliably
     // produces "connection reset by peer", which is byte for byte what a
-    // dead hole punch looks like. Printing it right after "cancelled"
+    // dead hole punch looks like. Printing it right after "canceled"
     // would hand back exactly the ambiguity the CANCEL frame was added to
     // remove.
     //
@@ -200,7 +200,7 @@ async function main () {
     // how a deliberate cancel ended up followed by "connection reset by
     // peer" -- byte for byte what a dead hole punch looks like, and the
     // exact ambiguity the CANCEL frame exists to remove. A socket that
-    // dies while a cancelled or completed transfer tears down explains
+    // dies while a canceled or completed transfer tears down explains
     // nothing; one that dies during a transfer that then failed for an
     // unclear reason explains a great deal, so it is reported there.
     socket.on('error', (err) => { socketError = err })
@@ -228,7 +228,7 @@ async function main () {
       : await sendFile(socket, filePathArg, { ...options, caps })
     progress.close()
     // Our own file's name, not a peer-supplied one -- but printed
-    // through the same sanitiser anyway, so there is one rule for names
+    // through the same sanitizer anyway, so there is one rule for names
     // reaching a terminal rather than one rule and an exception.
     console.log(`[swarm-send] done: ${displayName(result.name)}`)
     if (result.resumedFrom > 0) {

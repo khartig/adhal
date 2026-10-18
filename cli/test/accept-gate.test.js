@@ -129,7 +129,7 @@ test('a DECLINE fails the send with the receiver\'s reason, before any file byte
 
   const sent = settle(sendFile(txSocket, sourcePath, { ...keys }))
   await manifest
-  // Printed into the sender's terminal, so sanitised like a CANCEL reason.
+  // Printed into the sender's terminal, so sanitized like a CANCEL reason.
   answer(TYPE_DECLINE, declineBody('too big for this disk\u001b[2J'))
 
   const outcome = await sent
@@ -145,7 +145,7 @@ test('a DECLINE code reaches the sender as .declineCode, and only in a safe shap
   // nothing may match on prose). A code this build does not know still
   // passes, so a later receiver's new one is not lost; one that is not
   // shaped like a code is dropped to null, because a CLI may print it and
-  // the peer chose it. The decline itself is honoured in every case.
+  // the peer chose it. The decline itself is honored in every case.
   const { sourcePath } = await fixture(t, 'gate-decline-code')
 
   for (const [body, expected] of [
@@ -495,7 +495,7 @@ test('end to end: a receiver that declines is reported by the sender with its re
   assert.equal(describeError(received.error), 'declined the offer: only photos, please. The sender was told, and nothing was written.')
 })
 
-test('end to end: an empty file is offered, accepted and confirmed', async (t) => {
+test('end to end: an empty file is offered, accepted, and confirmed', async (t) => {
   const { sourcePath, outputDir, sha256 } = await fixture(t, 'gate-e2e-empty', 0)
   const [txSocket, rxSocket] = duplexPair()
   const keys = channelKeys()

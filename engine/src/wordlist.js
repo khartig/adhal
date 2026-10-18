@@ -28,7 +28,7 @@
 // not to use BIP39.
 //
 // FOUR DEVIATIONS FROM UPSTREAM: the entries "drop-down", "felt-tip",
-// "t-shirt" and "yo-yo" are the only ones that are not pure [a-z], and
+// "t-shirt", and "yo-yo" are the only ones that are not pure [a-z], and
 // they are dropped here -- leaving 7772 words. A hyphen is the separator
 // between words in a code (acid-acorn-acre-...), so a word containing a
 // hyphen would make the encoding ambiguous: "yo-yo-acid" could be two

@@ -11,7 +11,7 @@
 // because three plausible-looking approaches are provably wrong.
 //
 // 1. `child.kill('SIGINT')` cannot work. libuv's uv__kill maps SIGINT,
-//    SIGTERM, SIGKILL and SIGQUIT alike onto TerminateProcess and returns
+//    SIGTERM, SIGKILL, and SIGQUIT alike onto TerminateProcess and returns
 //    ENOSYS for anything else; it never generates a console control
 //    event. The child dies before a handler runs, which is why these
 //    tests saw exit code `null`. That is the probe failing, not the
@@ -37,7 +37,7 @@
 //    way for the sender to spare itself -- SetConsoleCtrlHandler(NULL,
 //    TRUE) -- "causes the calling process to ignore CTRL+C signals", C
 //    only. Sending a break into a console we are attached to would run
-//    our own default handler, i.e. ExitProcess, and a signaller killed by
+//    our own default handler, i.e. ExitProcess, and a signaler killed by
 //    its own signal reports failure for a delivery that worked. So
 //    CTRL_C_EVENT it is, which is what a human presses anyway, arrives as
 //    SIGINT, and makes the Windows expectations identical to POSIX.
@@ -46,7 +46,7 @@
 // child land in a console of its own, or in the one the test runner is
 // sitting in? A console process whose parent has no console gets a fresh
 // console; otherwise it inherits its parent's. Firing into a shared
-// console would hit the runner, pnpm and the shell as well and take the
+// console would hit the runner, pnpm, and the shell as well and take the
 // suite down, so this helper *measures* instead of assuming -- it borrows
 // the child's console, enumerates it with GetConsoleProcessList, and only
 // fires when nothing but the child is in there.

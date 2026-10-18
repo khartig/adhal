@@ -6,7 +6,7 @@
 // message and the transfer carries on -- or the error code the transfer
 // must fail with.
 //
-// WHY A TABLE. accept-gate.test.js, resume.test.js and stream.test.js each
+// WHY A TABLE. accept-gate.test.js, resume.test.js, and stream.test.js each
 // test the refusals someone thought of. This tests the refusals nobody
 // had to think of: a state and a message type with no cell is a failure
 // here (see "every cell is specified"), so a gap is a missing row rather

@@ -51,7 +51,7 @@
 // 2. Trials are pinned to absolute wall-clock slots, NOT to each other's
 //    progress. If each side simply advanced when its own trial ended, a
 //    fast failure on one side and a slow timeout on the other would
-//    desynchronise them, and every subsequent trial would fail because the
+//    desynchronize them, and every subsequent trial would fail because the
 //    two were on different topics -- turning a working path into a 0%
 //    result. Slot alignment makes drift impossible on NTP-synced hosts.
 
@@ -147,7 +147,7 @@ const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, 
 //
 // Rejection sampled rather than plain modulo, for the same reason
 // generateCode uses crypto.randomInt: 7772 is not a power of two, so
-// reducing a 16-bit window modulo 7772 would favour the front of the list.
+// reducing a 16-bit window modulo 7772 would favor the front of the list.
 // It does not matter much for a rendezvous label on a private topic, but a
 // harness that quietly draws from a skewed distribution is not the thing to
 // leave lying around in a repo whose codes are its security argument.
@@ -302,13 +302,13 @@ function interfaceSummary () {
 // --- What the machine itself looked like -----------------------------------
 //
 // Added on 2026-10-14, after writing up the 2026-10-13 run left the OS
-// version, access type, VPN and firewall as "not recorded". Everything here
+// version, access type, VPN, and firewall as "not recorded". Everything here
 // is read without root and without sending a packet; anything a command
 // cannot tell is recorded as null rather than guessed. The router's own
 // configuration is not visible from the host at all: that is what --note
 // is for.
 
-// stdout of a command, or null if it is missing, fails or hangs. `anyExit`
+// stdout of a command, or null if it is missing, fails, or hangs. `anyExit`
 // keeps the output of a command whose exit status is itself an answer, as
 // `systemctl is-active` is: it exits 3 when a unit is inactive.
 /** @param {string} cmd @param {string[]} args */
@@ -481,7 +481,7 @@ function hostFirewallSnapshot () {
 // Opt-in (--lookup-isp): the network this side's public address belongs to,
 // by Team Cymru's IP-to-ASN DNS service. This SENDS the DHT-observed public
 // address off the machine, to the DNS resolver and to Cymru, which is why it
-// is off by default. Only the AS number, name and country are recorded.
+// is off by default. Only the AS number, name, and country are recorded.
 // The address is the one the DHT saw, so behind CGNAT or a VPN this is the
 // carrier's or the VPN provider's network, which is the one that matters.
 /** @param {string | null} host */
@@ -746,7 +746,7 @@ async function runReceiverTrial (i, budgetMs, dialBaselineMs) {
     // is unconditional, so reaching this line at all means the engine
     // already compared these two digests and was satisfied.
     //
-    // It is kept anyway, and labelled differently, because it now tests
+    // It is kept anyway, and labeled differently, because it now tests
     // something else: that the engine's verification agrees with an
     // independent comparison. A disagreement cannot be a corrupt transfer
     // (the engine would have rejected it); it can only be a bug in the
@@ -931,7 +931,7 @@ function summarise (results, startNat) {
 
   // Reported separately from the failure buckets, because a failed
   // confirmation is not a trial outcome: a trial can succeed having
-  // rejected several peers first, which is the behaviour section 6 relies
+  // rejected several peers first, which is the behavior section 6 relies
   // on. On a private topic this should be zero, and a non-zero total is
   // worth a line of its own -- it means peers reached the nameplate
   // without the secret, i.e. a version skew between the two hosts or

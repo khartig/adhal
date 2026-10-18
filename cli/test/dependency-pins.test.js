@@ -5,7 +5,7 @@
 // WHY A VERSION NUMBER IS A SECURITY PROPERTY HERE. engine/src/cpace.js
 // imports the Elligator2 map as `_map_to_curve_elligator2_curve25519`, an
 // export @noble/curves marks experimental: underscored, and free to be
-// renamed or to change behaviour in any release. The CFRG vectors in
+// renamed or to change behavior in any release. The CFRG vectors in
 // cpace-vectors.test.js catch a change in what the map computes. They do
 // not catch the pin itself being loosened -- "2.4.0" edited to "^2.4.0"
 // passes every test on the day it lands, because the lockfile still

@@ -83,7 +83,7 @@ function within (promise, ms, what) {
   const timeout = new Promise((_resolve, reject) => {
     timer = setTimeout(() => reject(new Error(
       `${what} did not happen within ${ms}ms. On a testnet this is most likely the pairing race ` +
-      'UNANSWERED_CONNECTION_MS describes (engine/src/swarm.js), not the behaviour under test'
+      'UNANSWERED_CONNECTION_MS describes (engine/src/swarm.js), not the behavior under test'
     )), ms)
   })
   return /** @type {Promise<T>} */ (Promise.race([promise, timeout]).finally(() => clearTimeout(timer)))

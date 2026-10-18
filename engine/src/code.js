@@ -53,7 +53,7 @@ const SEPARATOR = '-'
 //
 // ONE SCHEME IS KNOWN, so a scheme that is not this one cannot be placed
 // as older or newer and the message does not guess. A future ADHAL3 build
-// is the first that will have an older scheme to recognise, and the place
+// is the first that will have an older scheme to recognize, and the place
 // to add that direction is schemeSkewMessage: telling the holder of an
 // older payload that it came from "a newer version" sends them looking
 // for an upgrade when the fix is to update the other machine.
@@ -229,7 +229,7 @@ function isValidCode (input) {
  * later.
  *
  * Uppercase is not cosmetic. QR's "alphanumeric" encoding mode covers only
- * 0-9, A-Z, space and $%*+-./: -- both ':' and '-' qualify, but lowercase
+ * 0-9, A-Z, space, and $%*+-./: -- both ':' and '-' qualify, but lowercase
  * letters do not, and falling back to byte mode costs about 40% more
  * capacity for the same text. Uppercased, a five-word code is at most 56
  * characters, which fits a version-5 symbol (37x37 modules) at ECC level

@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Node.js >= 24, which is what CI runs. Check with `node -v`. 22.x is not
-  enough: six stall-timer and size-cap tests are reported cancelled there
+  enough: six stall-timer and size-cap tests are reported canceled there
   rather than run (PROTOCOL.md §8.1).
 - [pnpm](https://pnpm.io) (pinned to 12.11.2 by `packageManager` in `package.json`; with
   `corepack enable`, the `pnpm` command runs exactly that version). Install with
@@ -81,7 +81,7 @@ pnpm run typecheck
 ```
 
 `hyperswarm`, `hyperdht`, and `hypercore-crypto` ship no type
-declarations at all (`b4a`, `@noble/curves` and `@noble/hashes` do).
+declarations at all (`b4a`, `@noble/curves`, and `@noble/hashes` do).
 `engine/src/swarm.js` imports them anyway, and they type-check as `any`,
 because `tsconfig.json` leaves `noImplicitAny` off. So nothing that goes
 through those packages is checked. If it ever needs to be, add a small

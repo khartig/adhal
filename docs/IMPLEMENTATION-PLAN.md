@@ -1,7 +1,7 @@
 # Roadmap
 
 Where Adhal is going, in what order, and what has to be true before each
-step counts as done. The finished work items are summarised in §4; their
+step counts as done. The finished work items are summarized in §4; their
 full record, with the measurements and the findings along the way, is in
 [`history/WORK-RECORD.md`](history/WORK-RECORD.md). How the code is built
 is in [`ARCHITECTURE.md`](ARCHITECTURE.md), and the protocol is specified
@@ -46,7 +46,7 @@ cannot be retrofitted once linkage exists in records other people hold.
 
 **4. Streaming and scripting.** `tar c dir | ad-hal-send <code> -` works
 today; a receive that writes to stdout and stable `--json` events are W13.
-It serves developers, CI and headless machines, and it lands naturally on
+It serves developers, CI, and headless machines, and it lands naturally on
 macOS and Linux first (§3).
 
 **5. Published, reproducible reliability numbers.** Evidence, not a
@@ -77,7 +77,7 @@ gates):
   operate is none.
 
 **Platform order: macOS + Linux → Windows → Android → iOS.** macOS and
-Linux are where development, testing and every measurement so far have
+Linux are where development, testing, and every measurement so far have
 run, and where #4 lands. Windows is not supported for security purposes
 until it is a required CI leg (Q-07). **iOS is worth sizing early:**
 Holepunch's Bare runtime *may* make it reachable, which is unverified, and
@@ -93,7 +93,7 @@ project's story.
 | Stage 0 | **W1–W8**: security hardening with no wire change | Leaked IPs purged from history; the threat model; overwrite protection, `O_EXCL`, size cap, free-space check, stall timers, per-candidate deadline; CI with a fast tier. Three bugs found by probing rather than reading | |
 | Stage 1 | **W9**: the specification | [`PROTOCOL.md`](PROTOCOL.md), including the three resume traps | |
 | | **W10**: PAKE selection | CPace over `@noble/curves`, checked against the CFRG vectors; hand-rolled framing kept; a checkpoint every 5 s | |
-| | **W11**: v2 implemented | The handshake, the sealed channel, the full message set, the attempt cap, streaming and resume | |
+| | **W11**: v2 implemented | The handshake, the sealed channel, the full message set, the attempt cap, streaming, and resume | |
 | | **W15a**: five wire changes from the security review | The length bound into the tag, the topic via `lv_cat`, the EFF large wordlist, `ERR_DROP_TAKEN`, the `adhal` identifier | `f22e517`, `14c8bea`, `93d99de`, `2937f9a`, `88148a7` |
 | | **W15b**: engine and CLI hardening | Terminal escaping, a fresh announce key per swarm, one descriptor per sent file, best-effort key wiping, validated environment | `2e8004a` |
 | | **W15c**: consent and what the user is told | The accept prompt, codes off argv by default, contention warnings, the not-anonymous notice | `9d46439` |
@@ -147,7 +147,7 @@ has all 21).
   file-transfer tools, on identical network pairs, including
   **CGNAT↔CGNAT** and symmetric NAT. Reuse `scratch-trials.js`. **This
   single experiment tests the central thesis and decides how much the
-  relay matters.** The method, the tools and the network pairs are in
+  relay matters.** The method, the tools, and the network pairs are in
   [`POSITIONING.md`](POSITIONING.md) §5, and so will the results be.
 
 ---

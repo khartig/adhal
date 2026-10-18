@@ -26,7 +26,7 @@ const { TYPE_DECLINE, declineBody, ERR_DROP_TAKEN } = require('./message')
 //
 // WHAT THIS REPLACED, AND WHY. v1 exchanged HMACs over nonces, keyed by
 // the whole code and bound to the Noise session. Both halves of that were
-// wrong for v2. Keying on the whole code was useless as a defence, because
+// wrong for v2. Keying on the whole code was useless as a defense, because
 // v1's topic was hash(code || salt) and a receiver must announce it --
 // so an attacker could grind candidate codes offline and never touch a
 // peer. Binding to the Noise session made security depend on which
@@ -216,7 +216,7 @@ function createSwarm (options = {}) {
   // This hides nothing. Extra 'error' listeners do not displace the
   // application's own, so anything that wants to report an error still
   // receives it; both CLIs attach one and both still print what they
-  // get. What it removes is the default behaviour of letting one dead
+  // get. What it removes is the default behavior of letting one dead
   // candidate socket kill the process -- which is the same lesson
   // acceptOnce/connectOnce already learned about discarding a failed
   // candidate rather than treating it as fatal.
@@ -561,7 +561,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       //
       // The attempt cap's backoff is added to the budget rather than
       // spent out of it. Without that, a delayed HELLO could be dropped
-      // before it was even written -- the defence would be timing out its
+      // before it was even written -- the defense would be timing out its
       // own handshakes and reporting them as peers that never confirmed.
       const candidateBudget = handshakeTimeout
         ? handshakeTimeout + attemptCap.delayMs()
@@ -709,7 +709,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       // client starts writing before the server-side confirmation is
       // truly done, the server never sees the connection at all). Signal
       // readiness so connectOnce's sender knows it's now safe to write,
-      // and carry Ya, the sid and our capabilities in the same message.
+      // and carry Ya, the sid, and our capabilities in the same message.
       //
       // Delayed by the attempt cap's backoff once anything has failed. A
       // DELAY, not a refusal: declining to talk during a backoff window
@@ -1009,7 +1009,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
               return
             }
 
-            // REPLY carries Yb, our confirmation and our capabilities in
+            // REPLY carries Yb, our confirmation, and our capabilities in
             // one message, so this stays the same number of round trips as
             // the v1 handshake it replaces.
             //
@@ -1093,7 +1093,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
     // THIS REGISTRATION WAS MISSING, and nothing caught it for four
     // items. `onAbort` was written, `finish()` removed it, the `signal`
     // option was documented in the JSDoc, and swarm-send.js passed one in
-    // with a comment explaining why cancelling here matters -- but no
+    // with a comment explaining why canceling here matters -- but no
     // line ever attached it, so the signal was inert. acceptOnce (above)
     // had the equivalent line all along, which is exactly why the gap was
     // invisible: the receiver's Ctrl-C worked, so the feature looked
@@ -1103,7 +1103,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
     // budget: acceptOnce rejected at 502ms, connectOnce ran the full
     // 5001ms and then reported ERR_NO_PEER. For a sender that is up to
     // two minutes of a Ctrl-C doing nothing at all -- and README.md,
-    // ARCHITECTURE.md and swarm-send.js all described the opposite as
+    // ARCHITECTURE.md, and swarm-send.js all described the opposite as
     // working. There is now a test on the sender side (cancel.test.js),
     // which is the thing whose absence let this survive.
     if (signal) {

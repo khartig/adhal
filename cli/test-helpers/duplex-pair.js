@@ -6,7 +6,7 @@
 // WHY NOT A REAL SOCKET. Everything the failure-reporting work added -- hash verification,
 // name safety, over-read, early close, cancel -- is decided entirely by
 // what arrives on the stream, so a real transport would add a DHT, a
-// hole punch and a Noise session to tests whose subject is none of those.
+// hole punch, and a Noise session to tests whose subject is none of those.
 // It would also add flake: the network tests in this suite already need
 // retries and 30-second budgets. These run in milliseconds and cannot
 // fail intermittently.

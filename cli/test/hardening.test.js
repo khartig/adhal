@@ -60,7 +60,10 @@ function offer (outputDir, manifest, body = null, options = {}) {
   return { received, answer, peer: sender.peer, socket: sender.socket }
 }
 
-/** @param {any} promise */
+/** @param {any} promise
+ * @param code
+ * @param extra
+ */
 async function rejectsWith (promise, code, extra = null) {
   const err = await promise.then(
     (value) => { throw new Error(`expected a rejection, resolved with ${JSON.stringify(value)}`) },
@@ -77,7 +80,7 @@ test('a name carrying terminal control or bidi characters is refused', () => {
   // None of these traverse a directory, so the resolved-path assertion
   // that guarded this function waves them all through. They were all
   // ACCEPTED UNCHANGED before Stage 0 -- verified by running the probe,
-  // not inferred: newline, ESC, BEL and the RLO override each landed on
+  // not inferred: newline, ESC, BEL, and the RLO override each landed on
   // disk and in the log exactly as the peer wrote them.
   const dir = path.join(os.tmpdir(), 'adhal-hostile-names')
   const refused = [
@@ -132,7 +135,7 @@ test('characters that are illegal or dangerous in a filename are transformed, no
 })
 
 test('displayName escapes rather than strips, and never throws', () => {
-  // Escaping over stripping is the one judgement call in names.js.
+  // Escaping over stripping is the one judgment call in names.js.
   // Stripping produces a clean-looking string and destroys the evidence:
   // `evil\nverified: ok` would print as `evilverified: ok`, which looks
   // fine and tells the reader nothing.
@@ -162,7 +165,7 @@ test('an existing file is never replaced; the drop lands beside it', async (t) =
 
   // WHAT THIS PREVENTS. The output directory defaults to process.cwd(),
   // and `fs.rename` overwrites -- so any code-holder could replace the
-  // `.zshrc`, `package.json` or `id_rsa` in whatever directory the
+  // `.zshrc`, `package.json`, or `id_rsa` in whatever directory the
   // receiver happened to be launched from. That was written down as a
   // deliberate deferral ("overwrite/suffix/prompt is an accept-screen
   // question"), which treated destroying a file as one acceptable
@@ -248,7 +251,7 @@ test('opting out of the size cap is possible but has to be written down', async 
   })
 
   // Getting as far as a stall is the assertion: a manifest that was
-  // going to be refused never reaches onManifest, never opens a file and
+  // going to be refused never reaches onManifest, never opens a file, and
   // never arms the progress timer.
   await rejectsWith(received, 'ERR_STALLED')
   assert.ok(sawManifest, 'the oversize manifest must be accepted once the cap is explicitly disabled')
@@ -354,8 +357,8 @@ test('a receiver slower than its sender pauses the socket instead of buffering w
   const result = await received
 
   // THE ASSERTION. `writeStream.write()`'s return value was discarded, so
-  // a sender on a fast link outran a slow disk and the difference piled
-  // up in memory, unbounded. The sender has honoured this since the Hyperswarm work;
+  // a sender on a fast link outran a slow disk, and the difference piled
+  // up in memory, unbounded. The sender has honored this since the Hyperswarm work;
   // the receiver never did.
   assert.ok(pauses > 0, 'the receiver must pause the socket when its disk falls behind')
 
@@ -370,14 +373,16 @@ test('a receiver slower than its sender pauses the socket instead of buffering w
 // Filenames were already printed through displayName. These are the paths
 // that bypassed it: a peer that passed the PAKE could put raw ESC or a bidi
 // override into the receiver's terminal through an error message rather
-// than a name. Each case checks both layers -- the engine's message, and the
+// than a name. Each case checks both layers -- the engine's message and the
 // line report.js prints -- because either alone is one missed branch away
 // from the bug coming back.
 
 const ESC = '\u001b'
 const RLO = '‮'
 
-/** @param {string} text */
+/** @param {string} text
+ * @param what
+ */
 function assertPrintable (text, what) {
   assert.ok(!text.includes(ESC), `${what} contains a raw ESC: ${JSON.stringify(text)}`)
   assert.ok(!text.includes(RLO), `${what} contains a raw U+202E: ${JSON.stringify(text)}`)
@@ -396,7 +401,7 @@ test('a manifest that is not JSON is reported by length, not by echoing it', asy
 test('a hostile manifest key or value is escaped in the message and in .field', async (t) => {
   const outputDir = await tmpDir(t, 'q11-field')
 
-  // An unknown key is the peer's choice, and becomes both part of the
+  // An unknown key is the peer's choice and becomes both part of the
   // message and err.field, which report.js prints.
   {
     const manifest = { ...manifestFor(Buffer.alloc(8)), [`x${RLO}${ESC}[2J`]: 1 }

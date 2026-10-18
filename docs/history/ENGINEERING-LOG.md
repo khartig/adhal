@@ -19,7 +19,7 @@ The ones most likely to mislead:
   2–6.5× on the sender's side ([`../PROTOCOL.md`](../PROTOCOL.md) §8.2).
 - *The error-code table* mirrors [`../PROTOCOL.md`](../PROTOCOL.md) §10
   as it was in W15. §10 is the normative list.
-- *"Shipped today"*, *"not yet built"* and the like are as of the section
+- *"Shipped today"*, *"not yet built"*, and the like are as of the section
   they appear in. D7 and LAN discovery are still not built; resume is.
 - References to `ARCHITECTURE.md` sections mean this file.
 
@@ -74,7 +74,7 @@ See [`THREAT-MODEL.md`](../THREAT-MODEL.md) §4.
 5. **D5** Stream chunks. **Resume is a durable offset, not a per-chunk
    ack** — this step used to read "ack by index", which is the wrong
    primitive: UDX under Noise is already reliable and ordered, so
-   per-chunk acknowledgement re-implements a guarantee the transport
+   per-chunk acknowledgment re-implements a guarantee the transport
    gives for free and costs a round trip to do it. v2 uses a periodic
    post-fsync `CHECKPOINT{offset}`, every 5 s on a transfer that negotiated
    resume; see [`PROTOCOL.md`](../PROTOCOL.md) §7.4.
@@ -107,7 +107,7 @@ secret half of it un-grindable -- see
 [The PAKE handshake](#the-pake-handshake-d3). The manifest/progress/cancel work
 makes every failure path say what it was, and adds the two things a human
 needs while a transfer is running -- see
-[Manifest, progress and cancel](#manifest-progress-and-cancel). Stage 0
+[Manifest, progress, and cancel](#manifest-progress-and-cancel). Stage 0
 then hardened all of it against a peer that knows the code and is hostile
 anyway -- see [Stage 0 hardening](#stage-0-hardening). The security review
 that followed v2 changed the wire in five places and hardened the engine
@@ -379,7 +379,7 @@ That makes it the right tool to reach for during a skewed rollout.
 > break as well. A second copy of a handshake is how a diagnostic starts
 > quietly lying about what the product does.
 >
-> The generalisation worth keeping: a tool is insulated from a wire break
+> The generalization worth keeping: a tool is insulated from a wire break
 > by not implementing the wire, not by not reading frames.
 
 ### Error codes
@@ -392,8 +392,8 @@ instrument was coupled to prose.
 
 | `.code` | Meaning |
 | --- | --- |
-| `ABORT_ERR` (`name: 'AbortError'`) | we cancelled, locally |
-| `ERR_CANCELLED_PEER` | the peer cancelled, with its reason |
+| `ABORT_ERR` (`name: 'AbortError'`) | we canceled, locally |
+| `ERR_CANCELLED_PEER` | the peer canceled, with its reason |
 | `ERR_HASH_MISMATCH` | the digest does not match the manifest's |
 | `ERR_SIZE_MISMATCH` | over-read, a file that shrank mid-send, or a stream past the receiver's limit |
 | `ERR_UNSAFE_NAME` | the manifest's name is not one the receiver will write |
@@ -464,7 +464,7 @@ several acceptable outcomes should the UI present — when the status quo
 while waiting for that UI was **destroying an existing file**. And the
 output directory defaults to `process.cwd()`, so "inside the output
 directory" was never a synonym for safe: any peer holding the drop code
-could name its file `.zshrc`, `package.json` or `id_rsa` and replace
+could name its file `.zshrc`, `package.json`, or `id_rsa` and replace
 whatever sat in the directory the receiver happened to be launched from.
 A future accept screen could not have fixed that for headless or scripted
 callers, who have no screen.
@@ -477,7 +477,7 @@ still offer it.
 
 See [Stage 0 hardening](#stage-0-hardening).
 
-The sender was hardened for the same reason: `stat`, `hashFile` and
+The sender was hardened for the same reason: `stat`, `hashFile`, and
 `createReadStream` are three separate reads of a file that can change
 underneath them. The read is capped at `{ end: size - 1 }` and bytes sent
 are asserted to equal the declared size -- before this, a file that shrank
@@ -488,7 +488,7 @@ mid-send resolved *successfully* having sent short.
 `onProgress({ bytes, total })`, one event per chunk, unthrottled, with a
 guaranteed first call at `bytes: 0` and a final call at `bytes === total`.
 No rate, ETA, or percentage: those are derivable, and the engine cannot know
-whether its consumer is a 10 Hz bar, a test or a log. Presentation lives in
+whether its consumer is a 10 Hz bar, a test, or a log. Presentation lives in
 `cli/src/progress.js` -- an in-place bar on a TTY, whole lines at fixed 25%
 milestones otherwise (milestones rather than a timer, so the line count is
 not load-sensitive and tests asserting on it are not flaky).
@@ -517,7 +517,7 @@ Latency is bounded by roughly one chunk plus the high-water mark, not
 instantaneous.
 
 First settle wins on each side, so on a simultaneous cancel each end
-reports its own and the two logs cannot disagree about who cancelled. The
+reports its own and the two logs cannot disagree about who canceled. The
 peer's `reason` is untrusted -- it goes straight into a terminal -- so it
 is capped at 256 bytes with control characters stripped.
 
@@ -585,7 +585,7 @@ covered by `cli/test/hardening.test.js`.
 | NTFS alternate data stream (`foo:stream`) | `<>:"\|?*` transformed on every platform |
 | Invisible trailing dot or space (`a.exe. `) | Stripped |
 | Declare 9 PB | 8 GiB default cap (`null` to opt out) plus a free-space check before anything opens |
-| Outrun the disk and grow memory without bound | `writeStream.write()`'s return value honoured; the socket pauses |
+| Outrun the disk and grow memory without bound | `writeStream.write()`'s return value honored; the socket pauses |
 | Prove, then send nothing, forever | `ERR_STALLED` on a manifest deadline and a no-progress deadline |
 | Hold a connection slot without handshaking | 15s per-candidate handshake deadline |
 
@@ -715,7 +715,7 @@ Two details are load-bearing rather than cosmetic:
   `parseCode` is case-insensitive, so a scan still round-trips.
 
   **Re-measured for the large wordlist (W15a).** The worst case is 56
-  characters: the 7-character `ADHAL2:` scheme, five 9-letter words and
+  characters: the 7-character `ADHAL2:` scheme, five 9-letter words, and
   four separators.
 
   | ECC | worst case alnum (56) | worst case byte (56) |
@@ -725,7 +725,7 @@ Two details are load-bearing rather than cosmetic:
   | Q | 33x33 | 37x37 |
   | H | **37x37** | 41x41 |
 
-  Over 20,000 generated codes at H, 90.6% are 33x33, 9.2% are 37x37 and
+  Over 20,000 generated codes at H, 90.6% are 33x33, 9.2% are 37x37, and
   0.2% are 29x29. ECC level H (~30% recovery) is kept. Under the short
   list every code fit 29x29 at H, and the longer words gave that back;
   level Q would hold the worst case at 33x33 for ~25% recovery, which is
@@ -739,7 +739,7 @@ Two details are load-bearing rather than cosmetic:
   prints the QR from inside `onAnnounced`.
 
 Input is normalized hard, because a code is read off another device's
-screen: case, and any run of `-`, `_`, `.` or whitespace as a separator, all
+screen: case, and any run of `-`, `_`, `.`, or whitespace as a separator, all
 collapse to one canonical lowercase hyphenated form, which is the only
 thing that reaches `splitCode` and `topicFromNameplate`. Getting that
 wrong is a real footgun with two different failure modes: an unnormalized
@@ -760,7 +760,7 @@ site, because the code looks identical to the word-code path and every
 module downstream behaves the same way.
 
 `cli/src/code.js` (`ad-hal-code`) prints a code, its two halves, its payload,
-its topic and the symbol -- the drop code's screenshottable artifact, and the quickest way to
+its topic, and the symbol -- the drop code's screenshottable artifact, and the quickest way to
 get a topic argument for `engine/scratch-lookup.js`.
 
 Verified by `cli/test/code.test.js`, which decodes the printed matrix with
@@ -844,8 +844,8 @@ Four things the implementation has to get right, and where each lives:
 | Requirement | Where |
 | --- | --- |
 | `ya`, `yb`, `sid` per *connection*, never per drop | Constructed inside `swarm.js`'s per-connection handler; no way to inject a scalar or a sid, because a caller that could supply one could reuse one |
-| `caps` byte-exact canonical encoding | `encodeCaps` — deduplicated, sorted bytewise, comma-joined, 128-byte cap. Non-canonical input from a peer is *refused*, not normalised |
-| Bind what you sent and what you received, verbatim | Each side hashes the peer's caps bytes as received, never a re-serialisation of its parsed view |
+| `caps` byte-exact canonical encoding | `encodeCaps` — deduplicated, sorted bytewise, comma-joined, 128-byte cap. Non-canonical input from a peer is *refused*, not normalized |
+| Bind what you sent and what you received, verbatim | Each side hashes the peer's caps bytes as received, never a re-serialization of its parsed view |
 | `PRS` is the secret's canonical form | `splitCode` produces it; `handshake.js` refuses uppercase or whitespace |
 
 That third row is what lets v2.1 add a capability without breaking a v2
@@ -953,14 +953,14 @@ code.
   [The drop code](#the-drop-code-d1).
 - **The protocol identifier is `adhal`**, in every label and in the QR
   scheme (`ADHAL2:`), and it is ASCII: nothing hashed depends on how the ḫ
-  in the product name is normalised.
+  in the product name is normalized.
 - **A late peer is told the drop is taken.** This is the one structural
   change to `engine/src/swarm.js`. `acceptOnce` and `connectOnce` used to
   remove their connection listener the moment they paired. Now pairing
   settles the promise and keeps the listener: every per-candidate check
   keys on a `listening` flag rather than `settled`. A candidate that
   confirms after pairing runs through the same handshake, deadline,
-  backoff, sid check and attempt counting as the one that paired, and is
+  backoff, sid check, and attempt counting as the one that paired, and is
   sent `DECLINE{ERR_DROP_TAKEN}` as its only sealed frame (`declineLate`).
   The resolved value gains `stopAnswering()`; destroying the swarm stops it
   too. `connectOnce` now pauses the socket before resolving, as
@@ -995,7 +995,7 @@ code.
 - **The DHT announce key is generated by `createSwarm`**, which refuses a
   caller's. See [Key hierarchy](#key-hierarchy).
 - **`publish()` says how it landed the file**, as `link`,
-  `check-then-rename` or `replace`, and `receiveFile` returns it as
+  `check-then-rename`, or `replace`, and `receiveFile` returns it as
   `published`. The receivers warn when the racy fallback was used.
 - **CLI environment parsing lives in `cli/src/env.js`.** `ADHAL_BOOTSTRAP`
   is validated there instead of being passed to HyperDHT unchecked. The

@@ -55,7 +55,7 @@ function matrixOf (payload) {
   return qr
 }
 
-// Renders the symbol to greyscale RGBA at 8 px per module, quiet zone
+// Renders the symbol to grayscale RGBA at 8 px per module, quiet zone
 // included, which is what a decoder expects to be handed.
 function rasterize (qr, scale = 8) {
   const count = qr.getModuleCount()
@@ -438,7 +438,7 @@ test('opaque codes are off unless the insecure opt-in is named, and the old name
 test('the hand-typed diagnostic secrets still resolve as opaque codes when asked', () => {
   // The engine/scratch-*.js tools and several tests name a topic by hand,
   // and these are the shapes they use. A six-part string is one of them:
-  // with no v1 code format left to recognise, it is an opaque secret like
+  // with no v1 code format left to recognize, it is an opaque secret like
   // any other, and refused unless opaque codes are allowed.
   for (const diagnostic of ['adhal-test-3', 'a3f9c2b18d7e4056', 'acid-acorn', 'trial-deadbeefdeadbeef', 'one-two-three-four-five-zzzzz']) {
     assert.equal(resolveCode(diagnostic, { allowOpaque: true }).kind, 'opaque', diagnostic)
@@ -448,7 +448,7 @@ test('the hand-typed diagnostic secrets still resolve as opaque codes when asked
 
 test('no refusal echoes the drop secret back to the terminal', () => {
   // cli/src/read-code.js exists to keep a code off the screen, out of
-  // shell history and out of `ps` -- it reads from a TTY with echo off and
+  // shell history, and out of `ps` -- it reads from a TTY with echo off and
   // warns when a code arrives in argv. Three error messages undid that by
   // echoing the input verbatim, and they fired on exactly the shapes that
   // mode is for: a stray separator, a pasted QR payload, a code pasted out
@@ -497,7 +497,7 @@ test('no refusal echoes the drop secret back to the terminal', () => {
   assert.match(badWord, /word 3 of 5, "zzzzz", is not in the word list/)
 })
 
-test('an opaque code is canonicalised, so the PAKE can actually use it', () => {
+test('an opaque code is canonicalized, so the PAKE can actually use it', () => {
   // A real bug, not tidying. The opaque code becomes the PAKE password and
   // engine/src/handshake.js requires a canonical secret -- so a mixed-case
   // opaque code resolved cleanly here and then threw a bare TypeError out
@@ -508,7 +508,7 @@ test('an opaque code is canonicalised, so the PAKE can actually use it', () => {
   for (const variant of ['Adhal-Test-3', 'ADHAL-TEST-3', '  adhal-TEST-3  ']) {
     const resolved = resolveCode(variant, { allowOpaque: true })
     assert.equal(resolved.kind, 'opaque')
-    assert.equal(resolved.secret, 'adhal-test-3', `${variant} must canonicalise`)
+    assert.equal(resolved.secret, 'adhal-test-3', `${variant} must canonicalize`)
     // Same topic, which also removes v1's footgun here: v1 hashed exactly
     // what it was given, so two machines disagreeing on case landed on
     // unrelated topics and presented as a discovery timeout.
@@ -557,7 +557,7 @@ test('code generation draws on the whole word list without favoring its start', 
   assert.ok(Math.abs(meanIndex - 3885.5) < 40, `mean index was ${meanIndex.toFixed(1)}`)
 })
 
-test('the code.js CLI prints a code, its payload, its topic and a scannable symbol', async () => {
+test('the code.js CLI prints a code, its payload, its topic, and a scannable symbol', async () => {
   const { stdout } = await execFileAsync(process.execPath, [CODE_SCRIPT], { env: { ...process.env, NO_COLOR: '1' } })
 
   const codeLine = stdout.match(/^ {2}code: {4}(\S+)$/m)

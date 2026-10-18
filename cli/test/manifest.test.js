@@ -163,7 +163,7 @@ test('trailing dots and spaces cannot be used to smuggle a device name past the 
   // check even runs -- a trailing dot or space is invisible in every file
   // manager ever written, so it exists only to make two different names
   // look like one. That makes the evasion impossible rather than merely
-  // detected, and `CON.` now normalises to `CON` before being renamed.
+  // detected, and `CON.` now normalizes to `CON` before being renamed.
   const dir = path.join(os.tmpdir(), 'adhal-names')
   const win = { platform: 'win32' }
   assert.equal(safeOutputName(dir, 'CON.', win).name, '_CON')

@@ -47,7 +47,7 @@ What a drop does today:
 - **Every byte after the handshake is sealed**, with ChaCha20-Poly1305
   under keys from the PAKE and the frame length authenticated, so security
   does not depend on the transport that carried the bytes (W11, W15a).
-- **The receiver is asked.** Each offer is shown with its name, size and
+- **The receiver is asked.** Each offer is shown with its name, size, and
   SHA-256 before anything is written, and a name that would run when
   opened is warned about (W15c).
 - **The file is verified, and nothing is overwritten.** The receiver
@@ -70,7 +70,7 @@ What to know before using it:
   other, and to the DHT nodes near the drop's topic. Both CLIs say so
   when they start.
 - **Windows is not supported for security purposes** until it is a
-  required CI leg. Some of the filesystem defences fall back to weaker,
+  required CI leg. Some of the filesystem defenses fall back to weaker,
   racy checks there (Q-07).
 
 Not built yet: LAN discovery, the optional relay, and a receive that
@@ -131,7 +131,7 @@ reports a cancellation with your reason rather than a dropped connection.
   instead of a generated code. It is for diagnostics only, because such a
   string can be guessed offline by anyone watching the DHT.
 - **`ADHAL_QR_WIDE=1`** draws a double-width symbol for console fonts
-  that lack the half-block glyphs. **`NO_COLOR`** drops the colours, at
+  that lack the half-block glyphs. **`NO_COLOR`** drops the colors, at
   the cost of relying on a light terminal background, since a QR only
   scans dark-on-light.
 
@@ -159,5 +159,5 @@ the printed symbol really scans.
 ## License
 
 MIT; see [`LICENSE`](LICENSE). The engine and CLI are licensed
-permissively to maximise forkability. A future GUI app's licence is a
+permissively to maximize forkability. A future GUI app's license is a
 separate question, not yet decided.

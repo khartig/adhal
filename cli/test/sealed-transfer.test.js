@@ -11,7 +11,7 @@
 // the other way before the channel was wired in: tampering in transit
 // surfaced as a hash mismatch at the END of the file, and the wire carried
 // the file name and digest in the clear. Each assertion below states the
-// v2 behaviour and names the v1 behaviour it replaces.
+// v2 behavior and names the v1 behavior it replaces.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')

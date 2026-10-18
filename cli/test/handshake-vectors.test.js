@@ -1,8 +1,8 @@
 'use strict'
 
 // Frozen vectors for the v2 handshake's parameter mapping: nameplate,
-// secret, sid, both scalars and both capability sets in; generator, Ya, Yb,
-// K, transcript, ISK, mac_key, both confirmations and both channel keys
+// secret, sid, both scalars, and both capability sets in; generator, Ya, Yb,
+// K, transcript, ISK, mac_key, both confirmations, and both channel keys
 // out. PROTOCOL.md section 11 asks for exactly this set.
 //
 // HONEST ABOUT WHAT THESE PROVE, because it is not the same thing
@@ -22,8 +22,8 @@
 // here and nowhere else) and it is not conformance.
 //
 // SO EVERY DERIVATION IS RECOMPUTED A SECOND WAY. The block at the bottom
-// rebuilds the ISK, the MAC key, both confirmations and both channel keys
-// from Node's own SHA-512, HMAC-SHA256 and HKDF over byte strings this file
+// rebuilds the ISK, the MAC key, both confirmations, and both channel keys
+// from Node's own SHA-512, HMAC-SHA256, and HKDF over byte strings this file
 // assembles by hand -- not by calling cpace.js's lvCat or handshake.js's
 // deriveAll. Where correctness can be checked here rather than pinned, it
 // is; the curve arithmetic is the part that cannot be, and that is what the
@@ -137,7 +137,7 @@ test('the capability encodings and associated data match the vector', () => {
   assert.notEqual(V.ADa, V.ADb)
 })
 
-test('the generator, both public points and the shared K match the vector', () => {
+test('the generator, both public points, and the shared K match the vector', () => {
   const CI = channelIdentifier(V.nameplate)
   const PRS = utf8(V.secret)
 
@@ -186,7 +186,7 @@ test('the transcript matches the vector, and is ordered initiator-first', () => 
   assert.notEqual(hex(transcriptIR(Yb, ADb, Ya, ADa)), V.transcript)
 })
 
-test('the ISK, MAC key, both confirmations and both channel keys match the vector', () => {
+test('the ISK, MAC key, both confirmations, and both channel keys match the vector', () => {
   const K = Buffer.from(V.K, 'hex')
   const transcript = Buffer.from(V.transcript, 'hex')
 

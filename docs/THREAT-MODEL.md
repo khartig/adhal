@@ -32,7 +32,7 @@ scanned. Everything else is derived from it.
 | --- | --- |
 | **Passive network observer** | Sees packets between the two peers, and to/from the DHT. |
 | **DHT node near the topic** | Answers lookups for that topic; sees who announces and who asks. |
-| **Active network attacker** | Can inject, drop and replay; can announce on any topic. |
+| **Active network attacker** | Can inject, drop, and replay; can announce on any topic. |
 | **Code guesser** | Has the topic (it is public) and wants the code. |
 | **A peer who has the code** | Proved the handshake, and is hostile anyway. |
 | **Relay operator** (when a relay is used at all) | Sees and can withhold whatever passes through it. |
@@ -89,7 +89,7 @@ to needs a relay (§8) or a different tool.
 
 Packet sizes and timing. The transport is Noise-encrypted end to end,
 and since W11 every frame is independently sealed again under keys from
-the PAKE ([`PROTOCOL.md`](PROTOCOL.md) §3.4), so filenames, contents and
+the PAKE ([`PROTOCOL.md`](PROTOCOL.md) §3.4), so filenames, contents, and
 hashes are not visible. **Length is not
 hidden**: a 4.2 MB transfer looks like 4.2 MB on the wire. No padding, no
 cover traffic. See §7.
@@ -203,7 +203,7 @@ unless `--insecure-opaque-code` or `ADHAL_INSECURE_OPAQUE_CODE=1` names it
 Shipped in W11: `engine/src/topic.js` derives the topic from the nameplate
 alone, `engine/src/handshake.js` feeds the secret to CPace, and
 `engine/src/proof.js` — v1's HMAC proof — is deleted. §5.1 is kept because
-a v2 build still has to recognise a v1 peer and say so
+a v2 build still has to recognize a v1 peer and say so
 ([`PROTOCOL.md`](PROTOCOL.md) §9), and because the reasoning is what
 justifies the break.
 
@@ -268,10 +268,10 @@ and is covered by tests in `cli/test/hardening.test.js`.
 | NTFS alternate data stream (`foo:stream`) | Written as given | `<>:"\|?*` transformed, on every platform |
 | Invisible trailing dot/space (`a.exe. ` vs `a.exe`) | Written as given | Stripped |
 | Declare 9 PB and exhaust the disk | No cap by default; both CLIs passed none | 8 GiB default cap, explicit `null` to opt out, plus a free-space check before anything opens |
-| Outrun the disk and grow memory without bound | `writeStream.write()`'s return value discarded | Honoured; the socket pauses |
+| Outrun the disk and grow memory without bound | `writeStream.write()`'s return value discarded | Honored; the socket pauses |
 | Prove, then send nothing, forever | No timer once the socket was handed over | `ERR_STALLED` on a manifest deadline and a no-progress deadline |
 | Hold a connection slot without handshaking | Candidate sockets lived until the swarm died | 15 s per-candidate handshake deadline |
-| Deliver a file the receiver never agreed to | Both CLIs accepted any valid offer | Both receiver CLIs show the name, size, digest and any resume, and ask (W15c, Q-02). `--yes` skips the question; with no terminal and no `--yes` the offer is declined. A name that would run when opened — an executable, a script, an installer, an archive, a double extension such as `.pdf.exe` — is warned about even with `--yes` |
+| Deliver a file the receiver never agreed to | Both CLIs accepted any valid offer | Both receiver CLIs show the name, size, digest, and any resume, and ask (W15c, Q-02). `--yes` skips the question; with no terminal and no `--yes` the offer is declined. A name that would run when opened — an executable, a script, an installer, an archive, a double extension such as `.pdf.exe` — is warned about even with `--yes` |
 | Lift the code from shell history or `ps` | Codes were taken on the command line | A code on argv is refused unless `--code-on-argv` says so; the prompt and stdin are the normal paths (W15c, Q-17) |
 | Race the intended peer with a forwarded or overheard code | First handshake won silently; the loser timed out with no reason and the winner's human never knew | Still first-handshake-wins, but a late peer that proves the code is told `ERR_DROP_TAKEN`, and the side that paired reports that someone else holds the code (PROTOCOL.md §4.0, W15a). Guesses during the transfer still count toward the attempt cap |
 
@@ -320,16 +320,16 @@ something a reasonable person might assume.
 - **No traffic-analysis resistance.** Transfer size and timing are
   visible to anyone on the path. No padding, no cover traffic, no constant
   rate.
-- **No defence against a Sybil DHT operator.** Someone running many nodes
+- **No defense against a Sybil DHT operator.** Someone running many nodes
   across the keyspace sees a large share of announces: topics, IPs, timing.
   They still cannot read content or join a drop without the code, but they
   can observe that a drop happened, between which addresses, and when.
 - **No protection against a compromised endpoint.** Malware on either
   machine reads the file and the code.
 - **No guarantee that secrets leave memory.** The code, the PAKE's
-  intermediates and the channel keys live in a Node.js process, which
+  intermediates, and the channel keys live in a Node.js process, which
   cannot reliably erase memory. As a best effort (W15b, Q-18), the
-  handshake zeroes its private scalar, K, the ISK, the MAC key and the
+  handshake zeroes its private scalar, K, the ISK, the MAC key, and the
   password bytes as soon as it is done with them, and each transfer zeroes
   its channel keys when it ends. The code itself is a JavaScript string and
   cannot be wiped, and copies made inside the crypto libraries are out of

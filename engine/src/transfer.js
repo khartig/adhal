@@ -99,7 +99,7 @@ const DEFAULT_MAX_SIZE = 8 * 1024 * 1024 * 1024
 const MANIFEST_TIMEOUT_MS = 30000
 const PROGRESS_TIMEOUT_MS = 60000
 
-// How long a cancelling side waits for its CANCEL to reach the wire before
+// How long a canceling side waits for its CANCEL to reach the wire before
 // it gives up and rejects locally.
 //
 // It is a window rather than a fixed sleep: `write`'s callback fires when
@@ -133,7 +133,7 @@ const RESULT_TIMEOUT_MS = 2 * PROGRESS_TIMEOUT_MS
 
 // How long the sender waits, after its MANIFEST, for ACCEPT or DECLINE.
 //
-// The receiver answers as soon as it has checked the name, the size and
+// The receiver answers as soon as it has checked the name, the size, and
 // the free space and opened the partial, which is milliseconds -- unless a
 // caller's onOffer hook is asking a person, and that is the case this
 // budget is sized for. The receiver does not time itself out while its own
@@ -208,7 +208,7 @@ function hashFile (filePath) {
 // per MiB: 256 KB at the 8 GiB default cap.
 //
 // A read chunk does not respect the boundaries, so it is split at them;
-// `hash.copy()` finalises a snapshot without disturbing the running state.
+// `hash.copy()` finalizes a snapshot without disturbing the running state.
 //
 // Given a FileHandle and a size, exactly that many bytes are hashed through
 // that handle -- see sendFile for why. Given a path, the whole file is.
@@ -306,7 +306,7 @@ function writeFlushed (socket, frame) {
 // retransmissions on a lossy one -- and then CLOSE_GRACE_MS for the
 // sender to read RESULT and end. A transport with no flush() (plain TCP,
 // the in-memory pairs in tests) skips straight to the grace window, which
-// is the old 5s behaviour.
+// is the old 5s behavior.
 //
 // The file is already verified and saved before any of this, so a timeout
 // here can cost the sender its confirmation but never the receiver its
@@ -450,7 +450,7 @@ function openChannel ({ sendKey, receiveKey }, onMessage) {
 //
 // THE CONTRACT: one event per chunk, unthrottled, plus a guaranteed first
 // call at `bytes: 0` and a guaranteed final call at `bytes === total`.
-// `bytes` never decreases. Nothing is throttled here and no rate, ETA or
+// `bytes` never decreases. Nothing is throttled here and no rate, ETA, or
 // percentage is computed, because the engine cannot know whether the
 // consumer is a 10 Hz terminal bar, an assertion in a test, or a log line
 // -- all three are real consumers today, and only the first wants
@@ -493,9 +493,9 @@ function progressReporter (onProgress, total) {
 // Four phases, in order, and every inbound message is judged against the
 // one we are in:
 //
-//   offer    MANIFEST sent; only ACCEPT, DECLINE or CANCEL may arrive
+//   offer    MANIFEST sent; only ACCEPT, DECLINE, or CANCEL may arrive
 //   prefix   the receiver proposed a resume and we sent PREFIX (section
-//            7.5); only its final ACCEPT, DECLINE or CANCEL may arrive.
+//            7.5); only its final ACCEPT, DECLINE, or CANCEL may arrive.
 //            Skipped when the first ACCEPT says 0
 //   send     accepted; only CANCEL may arrive
 //   result   every byte handed off; only RESULT or CANCEL may arrive
@@ -545,7 +545,7 @@ function progressReporter (onProgress, total) {
 async function sendFile (socket, filePath, options = /** @type {any} */ ({})) {
   const { chunkSize = DEFAULT_CHUNK_SIZE } = options
   return offerAndSend(socket, options, async () => {
-    // ONE OPEN, ONE DESCRIPTOR, for the size, the hash and every byte sent
+    // ONE OPEN, ONE DESCRIPTOR, for the size, the hash, and every byte sent
     // (Q-16). These were three separate opens of a path -- stat, then a read
     // stream to hash, then another to send -- so a file swapped at that
     // path between them (a rename over it, a symlink retargeted) was
@@ -647,7 +647,7 @@ async function sendStream (socket, readable, options) {
 
 // The sender's half of every transfer: the offer, the accept gate, the
 // chunks, END for a stream, and RESULT. `describe` supplies what is being
-// sent, and is called only after the keys, the chunk size and the abort
+// sent, and is called only after the keys, the chunk size, and the abort
 // signal have been checked, so a caller that got one of those wrong is told
 // so before the file is hashed or the stream is touched.
 /**
@@ -685,7 +685,7 @@ async function offerAndSend (socket, {
       throw new RangeError(`chunkSize must be 1..${MAX_CHUNK_SIZE}, got ${chunkSize}`)
     }
 
-    // Before any filesystem work, so an already-cancelled transfer costs
+    // Before any filesystem work, so an already-canceled transfer costs
     // nothing and cannot half-open a file.
     if (signal && signal.aborted) throw abortError(0, signal.reason)
 
@@ -784,7 +784,7 @@ async function offerSource (socket, channel, source, {
     }
 
     // First settle wins, so a simultaneous cancel has each side reporting
-    // its own -- two logs that cannot disagree about who cancelled.
+    // its own -- two logs that cannot disagree about who canceled.
     const fail = (err) => {
       if (settled) return
       settled = true
@@ -801,7 +801,7 @@ async function offerSource (socket, channel, source, {
     // A socket error is a close that came with a reason, and is reported as
     // one. It used to be passed through raw, so a reset beat the 'close'
     // below to `fail` and the caller got a bare "connection reset by peer"
-    // with no code, no phase and no byte count -- on 2026-10-12, a sender
+    // with no code, no phase, and no byte count -- on 2026-10-12, a sender
     // whose receiver had the file reported exactly that, and the harness
     // could only bucket it as a generic transfer error. The transport's
     // own error is kept as `.cause`.
@@ -852,7 +852,7 @@ async function offerSource (socket, channel, source, {
       }
 
       // A non-zero offset is the receiver saying it already holds that
-      // prefix (PROTOCOL.md section 7). Honoured only where resume can
+      // prefix (PROTOCOL.md section 7). Honored only where resume can
       // mean something, and refused -- never ignored -- everywhere else:
       // starting at 0 against a receiver that kept a prefix would append
       // the whole file to it.
@@ -1229,7 +1229,7 @@ function validateManifest (manifest, maxSize) {
 // or refuses. Layered deliberately: shape first, then a resolved-path
 // assertion, because neither alone is convincing.
 //
-// The shape checks now live in ./names.js, with the display sanitiser
+// The shape checks now live in ./names.js, with the display sanitizer
 // that has to agree with them -- the two were separate concerns right up
 // until the moment a name was refused, at which point the refusal message
 // printed the hostile name raw. The resolved-path assertion stays here,
@@ -1281,7 +1281,7 @@ function safeOutputName (outputDir, declaredName, options = {}) {
 // while waiting for the UI was *destroying an existing file*. And the
 // output directory defaults to `process.cwd()`, so "inside the output
 // directory" was never a synonym for "safe": a peer holding the drop code
-// could name its file `.zshrc`, `package.json` or `id_rsa` and replace
+// could name its file `.zshrc`, `package.json`, or `id_rsa` and replace
 // whatever was in the directory the receiver happened to be launched
 // from. A UI cannot fix that later for every headless and scripted
 // caller, so the safe default belongs in the engine and the accept screen
@@ -1412,7 +1412,7 @@ async function openPartial (outputPath) {
 
 /**
  * Finds a partial worth resuming, or says there is none. Never throws: a
- * partial that is absent, unreadable or suspect is simply not resumed,
+ * partial that is absent, unreadable, or suspect is simply not resumed,
  * and the caller opens a fresh one beside it.
  *
  * THE PARTIAL IS NOT TRUSTED, and PROTOCOL.md section 7.2 is the reason.
@@ -1566,7 +1566,7 @@ async function checkFreeSpace (dir, size) {
 //     the write. See `openPartial`.
 //   - A declared size is capped and checked against free space before
 //     anything is opened.
-//   - `writeStream.write()`'s return value is honoured. It was discarded,
+//   - `writeStream.write()`'s return value is honored. It was discarded,
 //     so a sender faster than the receiver's disk grew an unbounded queue
 //     in memory -- the sender has had this treatment since the Hyperswarm work and the
 //     receiver never did.
@@ -1777,7 +1777,7 @@ function receiveFile (socket, outputDir, {
       if (!partPath) return
       // NOT OURS TO DELETE YET. Before ACCEPT, a reopened partial is still
       // the earlier, interrupted attempt's: this offer only opened it to
-      // re-hash. Deleting it here meant a sender that cancelled, or a
+      // re-hash. Deleting it here meant a sender that canceled, or a
       // connection that dropped, while the prefix was being hashed
       // destroyed exactly the bytes resume exists to keep. Close it and
       // leave it. After ACCEPT the transfer has adopted it, and a failure
@@ -1844,7 +1844,7 @@ function receiveFile (socket, outputDir, {
     //
     // `interrupted` marks the failures that leave a resumable partial; see
     // keepsPartial. It is passed by the three call sites that mean it --
-    // a close, a socket error and a stall -- rather than inferred from an
+    // a close, a socket error, and a stall -- rather than inferred from an
     // error code, so a new failure path discards unless it says otherwise.
     function fail (err, notice = null, interrupted = false) {
       if (settled) return
@@ -1914,7 +1914,7 @@ function receiveFile (socket, outputDir, {
 
     // Paired with the pause in handleMessage: the receiver's disk is now
     // allowed to push back on the network, which is the same contract the
-    // sender has honoured since the Hyperswarm work and the receiver never did.
+    // sender has honored since the Hyperswarm work and the receiver never did.
     function onWriteDrain () {
       if (settled) return
       if (typeof socket.resume === 'function') socket.resume()
@@ -1933,7 +1933,7 @@ function receiveFile (socket, outputDir, {
       }
 
       // Everything is checked before a single filesystem call, so a
-      // manifest we are going to refuse never creates, truncates or
+      // manifest we are going to refuse never creates, truncates, or
       // touches anything.
       validateManifest(parsed, maxSize)
       // A stream (size: null) is taken only if the handshake negotiated

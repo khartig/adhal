@@ -68,7 +68,7 @@ test('a warning prints the name through displayName, never raw', () => {
 
 // --- what the prompt shows ------------------------------------------------
 
-test('the offer is described with its name, size, digest and any resume', () => {
+test('the offer is described with its name, size, digest, and any resume', () => {
   const plain = describeOffer(offerFor())
   assert.match(plain[0], /offer: "report\.pdf" \(2\.0 MB, 2097152 bytes\)/)
   assert.match(plain.join('\n'), new RegExp(`sha256: ${'ab'.repeat(32)}`))
@@ -125,7 +125,7 @@ test('at a terminal, only a yes accepts; an empty line or anything else declines
 })
 
 test('a question taken down by close() is never answered, and ends its line', async () => {
-  // The transfer ended some other way -- the sender cancelled -- while the
+  // The transfer ended some other way -- the sender canceled -- while the
   // question was up. Answering now would put a DECLINE behind the CANCEL.
   const term = fakeTerminal()
   const consent = createConsent({ yes: false, label: 'rx', log: () => {}, input: term.input, output: term.output })

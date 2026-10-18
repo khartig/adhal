@@ -1,10 +1,10 @@
-# Quay: security, positioning and plan review
+# Quay: security, positioning, and plan review
 
 > **Historical.** This review describes the code as it was on 2026-09-18,
 > before the v2 protocol, under the product's old name, Quay. Nothing in
 > it describes the current code. It is kept because the plan's Stage 0
 > work answered it point by point. For the current security position, see
-> [`../PROTOCOL.md`](../PROTOCOL.md) §12, [`../THREAT-MODEL.md`](../THREAT-MODEL.md)
+> [`../PROTOCOL.md`](../PROTOCOL.md) §12, [`../THREAT-MODEL.md`](../THREAT-MODEL.md),
 > and [`../SECURITY-REVIEW.md`](../SECURITY-REVIEW.md).
 
 Reviewed 2026-09-18 at the state "section 4 items 1-5 done". Working tree
@@ -15,7 +15,7 @@ below). Fetched the READMEs of MeshDrop and DashBeam.
 
 **What I did not do:** read MeshDrop's or DashBeam's source, run a network
 capture, or read `hyperswarm`/`hyperdht` internals beyond what the repo's own
-docs say. Competitor facts below come from a summarised README fetch, and
+docs say. Competitor facts below come from a summarized README fetch, and
 claims about DHT-node visibility are from protocol knowledge, marked
 *(verify)*.
 
@@ -36,7 +36,7 @@ claims about DHT-node visibility are from protocol knowledge, marked
    and print attacker-controlled bytes to your terminal**, for any peer who
    holds the code. Verified by probe. Section 1.2.
 4. **The wire protocol has no accept step and no receiver→sender result
-   message.** Item 6 (resume), item 10 (accept screen) and "hash shown before
+   message.** Item 6 (resume), item 10 (accept screen), and "hash shown before
    success" all need the same missing messages. Design them once, now, or
    you take a third wire break. Section 3.1.
 5. **Security is currently welded to Hyperswarm's transport.** When the
@@ -49,7 +49,7 @@ claims about DHT-node visibility are from protocol knowledge, marked
 7. **Recommended positioning:** magic-wormhole for the serverless age.
    Protocol-first, CLI/stream-first, ephemeral-by-construction, with
    *published, reproducible* reliability numbers. Do not fight DashBeam on
-   GUI, browser receive or trusted devices. Section 2.3.
+   GUI, browser receive, or trusted devices. Section 2.3.
 
 ---
 
@@ -152,7 +152,7 @@ in front of topic and key derivation so grinding costs 10^5-10^6× more, and
 silently. The doc records this as a deliberate deferral to the accept screen.
 Combined with the default output directory being `process.cwd()`
 (`cli/src/swarm-receive.js:115`) and no accept step, **any code-holder can
-replace `.bashrc`, `.zshrc`, `.npmrc`, `package.json` or a script** in
+replace `.bashrc`, `.zshrc`, `.npmrc`, `package.json`, or a script** in
 wherever the receiver was launched. That is arbitrary code execution on next
 shell start if the user runs it from `$HOME`. The path check is sound; the
 problem is that "the name is inside the directory" is different from "safe to
@@ -175,7 +175,7 @@ local-attacker only, low).
 ```
 
 The CLI prints `manifest.name` and `result.name` raw
-(`swarm-receive.js:194,199`). The cancel-reason path is sanitised
+(`swarm-receive.js:194,199`). The cancel-reason path is sanitized
 (`sanitizeReason`); the filename, which is the *more* obviously hostile
 field, is not. It matters doubly because plan item 10 (executable warning)
 will key off the extension, and bidi/trailing-dot tricks defeat exactly that.
@@ -267,7 +267,7 @@ plainly (each *verify* against hyperdht source):
   structurally the opposite; this is a real differentiator if you protect it.
 - The refresh loop re-announces every 4 s for up to 30-120 s. Fine for a
   drop. Multiply by a "Keep" mode or a busy relay fleet and you are a noisy
-  neighbour on a shared public DHT; budget for it.
+  neighbor on a shared public DHT; budget for it.
 
 ### 1.10 Minor
 
@@ -313,7 +313,7 @@ Consequences:
 
 - **The plan's competitor table is out of date or wrong about MeshDrop**
   ("Android only", "store-ready: weak", "Yes, fragile"). Per its README it
-  ships on four platforms with a relay, resume and an approval gate, and its
+  ships on four platforms with a relay, resume, and an approval gate, and its
   drop-code design is almost the plan's data path. "Tiny same-stack
   competitor, not the market" is true for *traction*, false for *feature
   parity*. Quay is currently behind it. I have not run it, so "fragile" may
@@ -324,7 +324,7 @@ Consequences:
   two networks. That single experiment tests your central thesis.
 - DashBeam is a different beast: real traction, Iroh's mature relay and
   path-migration story, a browser client. Do not compete on those.
-- Licence hygiene: DashBeam is AGPL-3.0. Do not copy from it; treat it as a
+- License hygiene: DashBeam is AGPL-3.0. Do not copy from it; treat it as a
   black box. MeshDrop is MIT (its name and logo are separately protected).
 
 ### 2.2 Name
@@ -368,10 +368,10 @@ match it without abandoning a design decision.
    choices (1.9) must be made now or you cannot make the claim later.
    Be honest that DHT nodes still see topic and IP.
 4. **Streaming and scripting.** Blob-based designs (Iroh) want to hash a file
-   before they can address it. A framed stream can send stdin, a tarball or a
+   before they can address it. A framed stream can send stdin, a tarball, or a
    build artifact of unknown size with a trailing hash:
    `tar c dir | quay send -`, `quay recv | tar x`. That serves developers,
-   CI, headless servers and SSH-less boxes, which GUI-first tools ignore.
+   CI, headless servers, and SSH-less boxes, which GUI-first tools ignore.
    DashBeam has a CLI; the pipe/stream contract and a stable machine-readable
    output mode (`--json` events built on your error codes) are the gap.
 5. **Published reliability numbers.** "Lead with reliability" is only a
@@ -501,7 +501,7 @@ own risk is dual hard NAT. Before believing "the relay is not on the critical
 path":
 
 - Measure **CGNAT ↔ CGNAT** (two phones/hotspots on different carriers) and
-  a symmetric/port-randomising NAT; these are where punching fails.
+  a symmetric/port-randomizing NAT; these are where punching fails.
 - Sample across time of day and across DHT churn; the transient the docs
   call "unexplained" deserves a per-hour series, not a lucky rerun.
 - Test **same-NAT / hairpin** (already noted) and **VLAN-isolated** networks.
@@ -511,7 +511,7 @@ path":
 - Add a hostile-peer test suite: oversize manifest, huge `size`, slow
   loris after the proof, filenames from 1.2, disk-full, receiver slower than
   sender. Your current tests cover proof attacks well and post-proof
-  misbehaviour thinly.
+  misbehavior thinly.
 
 ### 3.5 Relay design (before writing it)
 
@@ -565,7 +565,7 @@ path":
   test-suite result, the numbering inconsistency in 3.3.
 - Medium (read the code, did not execute the scenario): 1.2a overwrite,
   1.3 backpressure, 1.4, 1.7.
-- Design judgement, not defects: 1.1, 3.1, 3.2. The grinding cost estimate
+- Design judgment, not defects: 1.1, 3.1, 3.2. The grinding cost estimate
   is order-of-magnitude with an assumed 10^9 H/s per GPU.
 - Unverified: DHT-node visibility details, Holepunch blind-relay and Bare/iOS
   capability, and all competitor claims beyond their READMEs (I could not

@@ -19,15 +19,15 @@
 // So the attacker model is different in a way worth stating, because it
 // changes what a test can assert. v1 had four distinguishable failures
 // (wrong code, reflected, replayed, relayed) because its proof had four
-// separable defences. v2 has one: the transcript either matches or it does
-// not. What is worth testing is therefore not "which defence fired" but
+// separable defenses. v2 has one: the transcript either matches or it does
+// not. What is worth testing is therefore not "which defense fired" but
 // that every distinct attack collapses into that single outcome, and that
 // the transcript really does cover everything section 3.2 says it covers.
 //
 // The unit tests come first and drive both roles over a duplex pair; the
 // network tests then show the whole thing holding up inside a real swarm --
 // which the duplex pair cannot do, because it cannot reproduce Hyperswarm's
-// several-candidates-per-drop and two-connections-per-peer behaviour, and
+// several-candidates-per-drop and two-connections-per-peer behavior, and
 // that is exactly what section 3.2's trap #1 is about.
 
 const test = require('node:test')
@@ -226,7 +226,7 @@ test('the sender rejects a CONFIRM of the wrong length rather than throwing', ()
   })
 })
 
-test('ya, yb and sid are per connection, never per drop', () => {
+test('ya, yb, and sid are per connection, never per drop', () => {
   // SECTION 3.2 TRAP #1, and the one this engine is most exposed to: a
   // receiver gets several candidate peers per drop and TWO connections per
   // peer, so reuse would be the ordinary case rather than an exotic slip.
@@ -300,9 +300,9 @@ test('caps encode canonically: deduplicated, sorted bytewise, comma-joined', () 
   /over the 128-byte cap/)
 })
 
-test('a non-canonical caps field from a peer is refused, not normalised', () => {
+test('a non-canonical caps field from a peer is refused, not normalized', () => {
   // Refusing rather than re-sorting is the point of having a canonical
-  // form: if unsorted bytes were accepted and normalised, the transcript
+  // form: if unsorted bytes were accepted and normalized, the transcript
   // would contain bytes no encoder produces, and a second implementation
   // could not reproduce it.
   assert.deepEqual(parseCaps(Buffer.from('resume,stream', 'utf8')), ['resume', 'stream'])
@@ -324,7 +324,7 @@ test('a non-canonical caps field from a peer is refused, not normalised', () => 
 
 test('an unknown capability stays bound in the transcript and is merely ignored', () => {
   // SECTION 3.2 TRAP #3, AND THE RULE THAT MAKES IT HOLD: each side hashes
-  // the peer's caps bytes VERBATIM as received, never a re-serialisation of
+  // the peer's caps bytes VERBATIM as received, never a re-serialization of
   // its own parsed view. That is what lets v2.1 add a capability without
   // breaking a v2 peer -- and what stops a party negotiating down from a
   // received value while MACing the original, which would reintroduce the
@@ -721,7 +721,7 @@ test('a peer with the nameplate but not the secret is rejected, and the receiver
   // Every sid the receiver used across those candidates must differ --
   // section 3.2 trap #1, checked against a REAL swarm because the duplex
   // pair cannot produce several candidates per drop, and per-drop caching
-  // is precisely the optimisation the draft forbids.
+  // is precisely the optimization the draft forbids.
   //
   // Read off the HELLOs the attackers received, so this measures what the
   // receiver actually put on the wire rather than what it says it did.
@@ -791,7 +791,7 @@ test('a REPLY captured off a real exchange cannot be replayed at a receiver', sl
     const body = await read(prefix.readUInt16BE(0))
     captured = Buffer.concat([prefix, body])
     // Never answer: the honest sender discards us and keeps looking, which
-    // is the behaviour handshake.test.js covers from the other side.
+    // is the behavior handshake.test.js covers from the other side.
     socket.destroy()
     return { captured: true }
   })

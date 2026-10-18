@@ -78,7 +78,7 @@ const median = (xs) => {
 const kib = (n) => Number.isFinite(n) ? (n / 1024).toFixed(0) + ' KiB' : '    n/a'
 
 /**
- * One transfer, cancelled from one side at `cancelAt` bytes.
+ * One transfer, canceled from one side at `cancelAt` bytes.
  *
  * Both ends run in this process so the *other* side's live byte counter
  * can be read at the instant of the abort. That is the only way to get

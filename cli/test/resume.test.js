@@ -436,7 +436,7 @@ test('a whole-file proposal is proven with the manifest\'s own digest', async (t
   assert.equal(rx.received.filter((f) => f.type === TYPE_CHUNK).length, 0)
 })
 
-test('the sender refuses any answer to its PREFIX but the proposed offset, 0, DECLINE or CANCEL', async (t) => {
+test('the sender refuses any answer to its PREFIX but the proposed offset, 0, DECLINE, or CANCEL', async (t) => {
   const { sourcePath } = await fixture(t, 'prefix-sender-refuses', 3 * MiB)
 
   for (const [what, answer, code, why] of [
@@ -511,7 +511,7 @@ test('a cancel discards the partial, and so does an interruption where resume wa
     assert.equal(received.error.name, 'AbortError')
     assert.equal(received.error.partial, undefined)
     await d.sent
-    assert.deepEqual(await fs.promises.readdir(outputDir), [], 'a cancelled receive keeps nothing')
+    assert.deepEqual(await fs.promises.readdir(outputDir), [], 'a canceled receive keeps nothing')
   }
 
   // Without resume negotiated there is nobody to resume it, so an

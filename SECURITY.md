@@ -9,7 +9,7 @@ what it claims, this page says how to tell us and what happens next.
 **Use GitHub's private vulnerability reporting:** on this repository's
 **Security** tab, choose **Report a vulnerability**. That opens a private
 advisory that only the maintainer can see. Please do not open a public
-issue, pull request or discussion for a vulnerability.
+issue, pull request, or discussion for a vulnerability.
 
 A useful report says:
 
@@ -27,7 +27,7 @@ guarantees:
 
 | | Within |
 |---|---|
-| Acknowledgement that the report arrived | 7 days |
+| Acknowledgment that the report arrived | 7 days |
 | A first assessment: confirmed, not reproduced, or out of scope | 14 days |
 | A fix, or an agreed plan for one, for a confirmed issue | 90 days |
 
@@ -40,7 +40,7 @@ not to be.
 
 The claims in [`docs/PROTOCOL.md`](docs/PROTOCOL.md) §12.2 are the target.
 Anything that breaks one of them is in scope, against the latest commit
-on the default branch: the engine (`engine/src/`), the CLIs (`cli/src/`)
+on the default branch: the engine (`engine/src/`), the CLIs (`cli/src/`),
 and the specification.
 
 Some properties are **deliberately not claimed**, and §12.3 lists them.

@@ -13,7 +13,7 @@ against the docs. On that tree:
 - the fast tier passed: 474 passed, 31 skipped, 0 failed;
 - the security test files, including their testnet cases, passed 146 of
   146: `manifest`, `hardening`, `security-properties`, `negative-vectors`,
-  `cpace-vectors`, `attempts`, `channel`, `sealed-transfer`, `drop-taken`
+  `cpace-vectors`, `attempts`, `channel`, `sealed-transfer`, `drop-taken`,
   and `announce-key`;
 - `pnpm audit --audit-level low` reported no known vulnerabilities.
 
@@ -67,7 +67,7 @@ that the review did not are `RR-n`, and they are numbered only here.
 
 | Check | Status | Evidence, and what remains |
 |---|---|---|
-| Path traversal in filenames | Covered | `safeWriteName` refuses `/` and `\` on every platform, plus `.`, `..`, NUL, control characters and bidi overrides. `safeOutputName` checks that the resolved path stays inside the output directory. Existing files are never replaced, and partials are opened `O_EXCL` or `O_NOFOLLOW` with a link-count check (THREAT-MODEL §6). Tested with `../`, `..\..\` and `/etc/passwd` (`manifest.test.js`). Windows is not supported for security purposes (Q-07). See RR-6 for the display spoofs that remain. |
+| Path traversal in filenames | Covered | `safeWriteName` refuses `/` and `\` on every platform, plus `.`, `..`, NUL, control characters, and bidi overrides. `safeOutputName` checks that the resolved path stays inside the output directory. Existing files are never replaced, and partials are opened `O_EXCL` or `O_NOFOLLOW` with a link-count check (THREAT-MODEL §6). Tested with `../`, `..\..\`, and `/etc/passwd` (`manifest.test.js`). Windows is not supported for security purposes (Q-07). See RR-6 for the display spoofs that remain. |
 | Memory safety in parsing and chunking | Partial | The engine is JavaScript, and its parsers are fuzzed: the fast tier runs the harness, and `pnpm fuzz` runs 100,000 iterations. The C code it inherits, `sodium-native` and `udx-native`, is not fuzzed by this project. |
 | Resource exhaustion from a declared size | Covered | Frames are capped at 1 MiB before buffering, and handshake messages are capped too. Files are capped at 8 GiB by default, and the cap applies to streams. Backpressure runs in both directions, the stall timers run, and the set of seen `sid`s is bounded. The free-space check is advisory where `statfs` is missing. Pinned by `hardening.test.js`. |
 | Vulnerable dependencies | Partial | Every dependency is pinned exactly, CI installs with `--frozen-lockfile`, and the audit is clean as of this checklist. But the CI audit job is advisory, and there is no SBOM (Q-08). |
@@ -77,11 +77,11 @@ that the review did not are `RR-n`, and they are numbered only here.
 
 | Check | Status | Evidence, and what remains |
 |---|---|---|
-| Social engineering around the code | Partial | The receiver is asked before accepting, and is shown the name, size, digest and any resume. Executables and double extensions are warned about even with `--yes`. Codes stay off argv by default, and both sides are told when someone else holds the code (W15c, W15a). See RR-5. |
+| Social engineering around the code | Partial | The receiver is asked before accepting, and is shown the name, size, digest, and any resume. Executables and double extensions are warned about even with `--yes`. Codes stay off argv by default, and both sides are told when someone else holds the code (W15c, W15a). See RR-5. |
 | Compromised endpoint | Accepted | Not claimed (§12.3.4). Key wiping is best effort (Q-18). |
 | Outdated clients | Open | There are no releases, there is no support policy beyond "the default branch", and a client cannot learn that it is out of date. The wire version byte stops cross-version sessions from proceeding silently. See RR-2 and RR-3. |
-| Supply chain | Open | The pinning above is in place. Gating, an SBOM and signed artifacts are not (Q-08; RR-4). pnpm ≥ 10 blocks dependency install scripts by default, and this repository allows none. |
-| Clones and typosquatted packages | Open | **`ad-hal`, `adhal`, `@ad-hal/cli` and `@ad-hal/engine` were all unregistered on npm** on 2026-10-10. Each returned 404 from the registry. See RR-1. |
+| Supply chain | Open | The pinning above is in place. Gating, an SBOM, and signed artifacts are not (Q-08; RR-4). pnpm ≥ 10 blocks dependency install scripts by default, and this repository allows none. |
+| Clones and typosquatted packages | Open | **`ad-hal`, `adhal`, `@ad-hal/cli`, and `@ad-hal/engine` were all unregistered on npm** on 2026-10-10. Each returned 404 from the registry. See RR-1. |
 
 ---
 
@@ -98,7 +98,7 @@ Ordered by how expensive each gets to fix later.
   repository was private (W16). Done on 2026-10-14, when the repository
   went public.
 - [x] **Confirm SECURITY.md's response targets.** They are a commitment
-  (W16). Confirmed on 2026-10-14: 7, 14 and 90 days.
+  (W16). Confirmed on 2026-10-14: 7, 14, and 90 days.
 - [ ] **RR-4 / Q-08 — Make the supply chain gating.** Fail CI on an
   advisory at a chosen level. Publish an SBOM, publish with npm provenance
   or signed artifacts, and publish release checksums.
@@ -129,7 +129,7 @@ Ordered by how expensive each gets to fix later.
   holds the code" being reported and the transfer having already started.
   It changes the wire, so before W17 or in v3.
 - [ ] **RR-6 — Names that display as something else.** Names are not
-  Unicode-normalised, and zero-width characters (U+200B, U+FEFF) and
+  Unicode-normalized, and zero-width characters (U+200B, U+FEFF) and
   homoglyphs are not refused. These are display spoofs, not traversal:
   `safeOutputName` still keeps the write inside the output directory.
 - [ ] **Q-04** per-source and per-key throttling, after W14.

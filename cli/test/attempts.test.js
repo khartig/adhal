@@ -63,7 +63,7 @@ test('the backoff is exponential, starts at zero, and is capped against real bud
   const cap = new AttemptCap()
 
   // Nothing has failed, so a legitimate peer is answered immediately.
-  // This is the case that matters most: the defence must be invisible
+  // This is the case that matters most: the defense must be invisible
   // until there is something to defend against.
   assert.equal(cap.delayMs(), 0)
 
@@ -347,7 +347,7 @@ test('failed confirmations are counted, and the drop is burned with ERR_ATTEMPT_
 
 test('the backoff actually delays the receiver\'s HELLO, measured', slow, async (t) => {
   // THE SCHEDULE IS UNIT-TESTED ABOVE; THIS TESTS THE WIRING, which is a
-  // different claim and was the one security behaviour here that would
+  // different claim and was the one security behavior here that would
   // otherwise rest on reading the code. `delayMs()` returning 1500 proves
   // nothing if swarm.js never consults it.
   //
@@ -399,9 +399,9 @@ test('the backoff actually delays the receiver\'s HELLO, measured', slow, async 
   t.diagnostic(`connection -> HELLO: ${clean}ms clean, ${delayed}ms after one failure`)
 
   // Nothing has failed, so a legitimate peer is answered at once. This is
-  // the half that matters most: the defence must be invisible until there
+  // the half that matters most: the defense must be invisible until there
   // is something to defend against.
-  assert.ok(clean < 500, `an unpenalised peer waited ${clean}ms for HELLO`)
+  assert.ok(clean < 500, `an unpenalized peer waited ${clean}ms for HELLO`)
 
   // And after one failure it waits, by about the configured amount. The
   // band is generous on the upper side (timers overshoot under load) and

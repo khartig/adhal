@@ -7,7 +7,7 @@
 // going backwards, guaranteed to start at 0 and to end at total. Anything
 // built on it -- a bar, a test, Phase B's UI -- depends on those four
 // promises and on nothing else, which is why the engine computes no
-// percentage, rate or ETA.
+// percentage, rate, or ETA.
 //
 // The CLI half is about not corrupting the output it shares. This suite
 // already matches on exact line shapes (`/\[receive\] sha256: ([0-9a-f]{64})/`
@@ -145,7 +145,7 @@ test('a TTY stream gets one line redrawn in place, throttled, but always rendere
   reporter.close()
 
   const redraws = stream.writes.filter((w) => w.startsWith('\r'))
-  assert.equal(redraws.length, 3, 'expected the first, one post-throttle and the final render')
+  assert.equal(redraws.length, 3, 'expected the first, one post-throttle, and the final render')
   assert.match(redraws[redraws.length - 1], /100%/)
   assert.equal(stream.writes[stream.writes.length - 1], '\n', 'close() must end the line so the next log starts clean')
 })
@@ -234,7 +234,7 @@ test('ADHAL_NO_PROGRESS=1 silences it completely', () => {
 })
 
 test('close() is safe to call twice and on a reporter that never drew', () => {
-  // Both happen on real paths: a transfer cancelled before its first
+  // Both happen on real paths: a transfer canceled before its first
   // event, and a catch block that closes after the success path already
   // did.
   const stream = fakeStream(true)

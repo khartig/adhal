@@ -2,8 +2,8 @@
 
 // Turns the engine's progress events into something a human can read,
 // which is the only thing this file does: the engine emits `{ bytes,
-// total }` per chunk and computes no percentage, rate or ETA, because it
-// cannot know whether its consumer is a terminal, a test or a log. Same
+// total }` per chunk and computes no percentage, rate, or ETA, because it
+// cannot know whether its consumer is a terminal, a test, or a log. Same
 // split as engine/src/code.js owning the code value while cli/src/qr.js
 // owns the drawing.
 //
@@ -26,7 +26,7 @@
 //
 //   1. No '\r' is ever written to a non-TTY stream. A carriage return in
 //      piped output corrupts whatever a test or a log reader does next.
-//   2. Progress never shares a line with 'done:', 'sha256:' or 'saved
+//   2. Progress never shares a line with 'done:', 'sha256:', or 'saved
 //      to:'. On a TTY that is what close() is for; off one, every
 //      progress write is already a whole line.
 //
@@ -80,7 +80,7 @@ function percentOf (bytes, total) {
  * @returns {{ onProgress: (p: { bytes: number, total: number | null }) => void, close: () => void, log: (text: string) => void }}
  */
 function createProgressReporter ({ label, stream = process.stdout, env = process.env, now = Date.now }) {
-  // An escape hatch that costs nothing to honour and saves anyone piping
+  // An escape hatch that costs nothing to honor and saves anyone piping
   // this into a log from having to filter it.
   if (env.ADHAL_NO_PROGRESS === '1') {
     return { onProgress: () => {}, close: () => {}, log: (/** @type {string} */ text) => { stream.write(`${text}\n`) } }

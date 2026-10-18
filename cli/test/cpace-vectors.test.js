@@ -141,7 +141,7 @@ test('the zero padding fills the first hash block after DSI and PRS', () => {
   const zpad = 172 - prefixLength - prependLen(CI).length - prependLen(SID).length
   assert.equal(zpad, 110, 'one length byte plus 109 zero bytes')
   assert.equal(prefixLength + zpad, S_IN_BYTES,
-    'DSI, PRS and the padding together are exactly one SHA-512 input block')
+    'DSI, PRS, and the padding together are exactly one SHA-512 input block')
 })
 
 test('the generator g reproduces the draft, which exercises Elligator2', () => {

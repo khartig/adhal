@@ -16,7 +16,7 @@
 // in seconds rather than minutes.
 //
 // WHY A PER-TEST MARKER RATHER THAN SPLITTING FILES. Four files mix the
-// tiers -- cancel, progress, code-proof and handshake each pair fast unit
+// tiers -- cancel, progress, code-proof, and handshake each pair fast unit
 // assertions with a slow end-to-end one, and the pairing is the point:
 // `code-proof.test.js` asserts that a relayed proof fails as a unit AND
 // that a real receiver survives three rejected peers. Splitting them

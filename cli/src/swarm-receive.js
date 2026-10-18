@@ -172,7 +172,7 @@ async function main () {
   /** @type {Error | null} */
   let socketError = null
   // The topic is a commitment to the nameplate, and this line lands in
-  // scrollback, CI logs and bug reports. It is shown only when asked for
+  // scrollback, CI logs, and bug reports. It is shown only when asked for
   // (Q-17); the nameplate itself is already on screen in the code.
   console.log(`[swarm-receive] joining topic${parsed.verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
   // Q-09: before anything connects, so nobody learns it afterwards.
@@ -251,10 +251,10 @@ async function main () {
     // transfer completes, while tearing down) throws as an uncaught
     // exception instead of something we can handle gracefully.
     //
-    // Silent once we are cancelling, and that is the whole point of item
-    // 5 rather than tidiness: tearing down a cancelled transfer reliably
+    // Silent once we are canceling, and that is the whole point of item
+    // 5 rather than tidiness: tearing down a canceled transfer reliably
     // produces "connection reset by peer", which is byte for byte what a
-    // dead hole punch looks like. Printing it right after "cancelled"
+    // dead hole punch looks like. Printing it right after "canceled"
     // would hand back exactly the ambiguity the CANCEL frame was added to
     // remove.
     //
@@ -262,7 +262,7 @@ async function main () {
     // how a deliberate cancel ended up followed by "connection reset by
     // peer" -- byte for byte what a dead hole punch looks like, and the
     // exact ambiguity the CANCEL frame exists to remove. A socket that
-    // dies while a cancelled or completed transfer tears down explains
+    // dies while a canceled or completed transfer tears down explains
     // nothing; one that dies during a transfer that then failed for an
     // unclear reason explains a great deal, so it is reported there.
     socket.on('error', (err) => { socketError = err })
@@ -282,7 +282,7 @@ async function main () {
       onProgress: progress.onProgress,
       // Off unless asked for. The engine now refuses to replace a file it
       // did not create, and lands `report (1).pdf` beside the original
-      // instead -- so the flag is the only way back to the old behaviour.
+      // instead -- so the flag is the only way back to the old behavior.
       replace: parsed.replace,
       // Explicit rather than relying on the engine's default, so the
       // number a receiver enforces is visible at the call site and one

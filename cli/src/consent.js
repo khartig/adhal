@@ -132,7 +132,7 @@ function describeOffer (offer) {
  *   than as a signal; the CLIs route it back to their cancel handler.
  * @returns {{ onOffer: (offer: any) => Promise<boolean | string>, close: () => void }}
  *   `close` takes down a question still waiting once the transfer has
- *   ended some other way -- the sender cancelled or gave up -- so that it
+ *   ended some other way -- the sender canceled or gave up -- so that it
  *   does not hold the process open.
  */
 function createConsent ({
@@ -163,7 +163,7 @@ function createConsent ({
   }
   // A verdict that never comes. The transfer is already ending some other
   // way, and answering now would put a DECLINE on the wire behind a
-  // CANCEL, and report "declined" for something that was cancelled.
+  // CANCEL, and report "declined" for something that was canceled.
   /** @returns {Promise<never>} */
   const unanswered = () => new Promise(() => {})
 

@@ -226,7 +226,7 @@ test('handshake vector: a reflected confirmation -- the sender\'s own confirmS r
 })
 
 test('handshake vector: over the fixed transcript, neither confirmation verifies as the other', () => {
-  // handshake-vectors.test.js's transcript, sid and K. The confirmations
+  // handshake-vectors.test.js's transcript, sid, and K. The confirmations
   // share a key and a transcript and differ only by role label, which is
   // what makes reflection fail rather than succeed.
   const sid = bytes('0123456789abcdef0123456789abcdef')
@@ -257,8 +257,8 @@ test('handshake vector: capabilities stripped from REPLY in transit fail the rec
   refuses(() => initiator.readReply(reading(withCaps(reply, REPLY_FIXED, 'stream'))), ERR_CONFIRMATION)
 })
 
-// Every one is a set some serialiser could produce and the canonical form
-// (section 3.2, trap #2) forbids. Refused, never normalised.
+// Every one is a set some serializer could produce, and the canonical form
+// (section 3.2, trap #2) forbids. Refused, never normalized.
 const NON_CANONICAL = ['stream,resume', 'resume,resume', 'resume,', ',resume', 'resume,,stream', 'Resume', 'resume stream']
 
 for (const caps of NON_CANONICAL) {

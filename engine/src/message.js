@@ -19,7 +19,7 @@ const { TransferError } = require('./errors')
 //
 // (This comment used to name those further messages as "ack-by-index,
 // resume-from". PROTOCOL.md section 4.1 refuted the first half: UDX under
-// Noise is already reliable and ordered, so a per-chunk acknowledgement
+// Noise is already reliable and ordered, so a per-chunk acknowledgment
 // re-implements a guarantee the transport gives for free and costs a round
 // trip per chunk to do it. What resume needs is a durable offset, which is
 // CHECKPOINT{offset} below, sent periodically after an fsync rather than
@@ -47,7 +47,7 @@ const { TransferError } = require('./errors')
 const TAG_SIZE = 1
 
 // 0x00 is reserved and always invalid. That is the point of it: a stream
-// that has desynchronised, or been truncated mid-frame, most often
+// that has desynchronized, or been truncated mid-frame, most often
 // presents as a length header read out of the middle of a payload, and
 // zero bytes are what padding and lengths are full of. Reserving it makes
 // that fail loudly on the first frame rather than parse as garbage and
@@ -142,7 +142,7 @@ function decodeMessage (payload) {
   throw new TransferError('ERR_PROTOCOL', `unknown message type 0x${type.toString(16).padStart(2, '0')}`)
 }
 
-// A cancelling peer's reason is printed straight into a terminal, so it is
+// A canceling peer's reason is printed straight into a terminal, so it is
 // untrusted input in the one place that is easy to forget: cap it, and
 // strip anything that could move the cursor, clear the screen, or forge a
 // second log line.
@@ -194,7 +194,7 @@ function cancelBody (reason = '') {
 }
 
 /**
- * Never throws: a peer that is cancelling has already told us what we
+ * Never throws: a peer that is canceling has already told us what we
  * needed to know, and refusing to act on a malformed reason string would
  * turn a clean cancel back into the mystery disconnect this item exists to
  * eliminate.

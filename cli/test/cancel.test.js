@@ -88,7 +88,7 @@ test('a receiver that cancels makes the sender report a cancellation, not a netw
   assert.equal(sent.error.peerReason, 'the human changed their mind')
   assert.equal(typeof sent.error.bytes, 'number')
 
-  // And the cancelling side reports its own cancellation as Node's
+  // And the canceling side reports its own cancellation as Node's
   // standard abort, so generic AbortSignal handling elsewhere works.
   assert.equal(received.ok, false)
   assert.equal(received.error.name, 'AbortError')
@@ -184,7 +184,7 @@ test('a simultaneous cancel settles both sides, each reporting its own', async (
   // fails on a loaded CI box. So the invariant is stated as what it
   // actually is: first settle wins, locally, on each side.
   const cancellations = [sent, received].map((outcome) => {
-    assert.equal(outcome.ok, false, 'a cancelled transfer must not resolve')
+    assert.equal(outcome.ok, false, 'a canceled transfer must not resolve')
     return outcome.error
   })
   for (const err of cancellations) {
@@ -197,7 +197,7 @@ test('a simultaneous cancel settles both sides, each reporting its own', async (
   // It read: "the side that aborted first cannot possibly have seen the
   // other's CANCEL yet, so it reports its own", and required
   // `sent.error.name === 'AbortError'`. It passed for a reason that had
-  // nothing to do with ordering: the receiver did not honour
+  // nothing to do with ordering: the receiver did not honor
   // `writeStream.write()`'s backpressure, so its socket was never paused,
   // so the sender's CANCEL was always delivered into a flowing stream and
   // settled the receiver before `rxController.abort()` could do anything.
@@ -262,7 +262,7 @@ test('a cancel landing while the partial is still opening leaves nothing behind'
     setTimeout(() => controller.abort('receiver quit'), 0)
 
     const outcome = await received
-    assert.equal(outcome.ok, false, `attempt ${attempt}: a cancelled receive must not resolve`)
+    assert.equal(outcome.ok, false, `attempt ${attempt}: a canceled receive must not resolve`)
     assert.ok(
       outcome.error.name === 'AbortError' || outcome.error.code === 'ERR_CANCELLED_PEER',
       `attempt ${attempt}: expected a cancellation, got ${outcome.error.code}: ${outcome.error.message}`
@@ -301,7 +301,7 @@ test('a cancel reason chosen by the peer cannot smuggle escape sequences into a 
   assert.ok(Buffer.byteLength(reason, 'utf8') <= 256, 'the reason must be capped')
 })
 
-test('a transfer that is never cancelled is unaffected by having been given a signal', async (t) => {
+test('a transfer that is never canceled is unaffected by having been given a signal', async (t) => {
   const { sourcePath, outputDir } = await fixture(t, 'cancel-none', 512 * 1024)
   const [txSocket, rxSocket] = duplexPair()
   const keys = channelKeys()
@@ -318,7 +318,7 @@ test('a transfer that is never cancelled is unaffected by having been given a si
   assert.deepEqual(await fs.promises.readdir(outputDir), ['source.bin'])
 })
 
-// --- cancelling while still waiting for a peer ---------------------------
+// --- canceling while still waiting for a peer ---------------------------
 
 test('acceptOnce aborted while waiting rejects and leaves the swarm as it found it', slow, async (t) => {
   const testnet = await createTestnet(3)
@@ -430,7 +430,7 @@ test('Ctrl-C while the receiver CLI waits for a peer exits promptly, cleanly, an
   // so a script can tell "the human stopped this" from "it failed".
   assert.equal(exitCode, 130, `expected 130, got ${exitCode}\n${out.stdout}\n${out.stderr}`)
 
-  // It must say it is cancelling, rather than dying silently or, worse,
+  // It must say it is canceling, rather than dying silently or, worse,
   // reporting the DHT timeout it never reached.
   assert.match(out.stdout, /\[swarm-receive\] cancelled \(SIGINT\)/)
   assert.doesNotMatch(out.stdout + out.stderr, /no peer ever connected/, 'this was a cancellation, not a timeout')

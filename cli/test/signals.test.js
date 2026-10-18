@@ -27,7 +27,7 @@ const { EventEmitter } = require('node:events')
 const { installCancelHandler, EXIT_CODES } = require('../src/signals')
 
 // An EventEmitter is a good enough process for this: `on`,
-// `removeListener` and `listenerCount` are the only process APIs the
+// `removeListener`, and `listenerCount` are the only process APIs the
 // handler touches, and exit/exitCode are what we want to observe.
 function fakeProc () {
   const emitter = /** @type {any} */ (new EventEmitter())

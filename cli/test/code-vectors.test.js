@@ -64,7 +64,7 @@ const { WORDS } = require('@ad-hal/engine/src/wordlist')
 // function the topic is built on is the one section 2 names. Node's own
 // crypto cannot supply a second opinion -- it ships blake2b512 and
 // blake2s256, and BLAKE2b-256 is not blake2b512 truncated, because the
-// digest length is mixed into the initialisation vector.
+// digest length is mixed into the initialization vector.
 const BLAKE2B_256_OF_ABC =
   'bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319'
 
@@ -150,7 +150,7 @@ const VECTORS = [
   }
 ]
 
-test('every code vector reproduces its canonical form, halves, topic and payload', () => {
+test('every code vector reproduces its canonical form, halves, topic, and payload', () => {
   for (const v of VECTORS) {
     assert.equal(parseCode(v.input), v.code, `code for ${v.what}`)
     assert.deepEqual(
@@ -199,7 +199,7 @@ test('each vector topic is the hash of the spec byte string, built explicitly', 
   // byte (the pre-W15a concatenation), a separator, a trailing NUL, or
   // hashing the whole code instead of the nameplate would each produce a
   // self-consistent set of vectors and fail only here. The last of those
-  // is the one that matters, because it is v1's behaviour and it is what
+  // is the one that matters, because it is v1's behavior and it is what
   // v2 exists to stop.
   const field = (/** @type {string} */ text) => {
     const bytes = Buffer.from(text, 'utf8')
@@ -248,7 +248,7 @@ test('the vectors cover the cases a wrong split would still satisfy', () => {
   assert.ok(bySecret.size >= 4, 'several distinct secrets')
 
   // Two vectors that share a topic but arrive in different input styles:
-  // catches a normalisation that is applied to one path and not the other.
+  // catches a normalization that is applied to one path and not the other.
   const sharing = VECTORS.filter((v) => v.nameplate === 'acid-acorn')
   assert.ok(new Set(sharing.map((v) => v.input)).size >= 3, 'at least three input styles for one code')
 

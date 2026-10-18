@@ -114,7 +114,7 @@ async function main () {
   let refresher = null
 
   if (USE_CONNECT_ONCE) {
-    // Let the engine's own code own the join, the listener and the
+    // Let the engine's own code own the join, the listener, and the
     // handshake, so a failure here is a failure of the real sender.
     log('MODE: using the REAL connectOnce() from engine/src/swarm.js')
     connectOnce(swarm, topic, {

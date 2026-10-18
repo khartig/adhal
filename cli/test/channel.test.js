@@ -251,7 +251,7 @@ test('a replayed frame is refused, because the counter has already moved', () =>
 
   // The same bytes again. Nothing about the frame changed; what changed is
   // that the receiver's counter is now 1, so the nonce it will try does not
-  // match the one the frame was sealed under. This is the defence v1 got
+  // match the one the frame was sealed under. This is the defense v1 got
   // from per-attempt nonces, made structural.
   assert.throws(() => receiver.push(Buffer.from(frame)), /failed to authenticate/)
   assert.equal(atReceiver.length, 1, 'a replay must not be delivered')

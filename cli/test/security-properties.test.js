@@ -81,15 +81,15 @@ async function settle (promise) {
 // --- Q-03: every advertised capability has a handler ----------------------
 
 // One row per capability, and a row is two transfers: one where the
-// handshake negotiated the capability and the behaviour it names happens,
-// and one where it did not and that behaviour is refused. "Has a handler"
+// handshake negotiated the capability and the behavior it names happens,
+// and one where it did not and that behavior is refused. "Has a handler"
 // means both halves -- a capability that changed nothing when negotiated
 // would pass the second half alone, and one that was acted on without
 // being negotiated would pass the first.
 //
 // A GAP IS A MISSING ROW. The test below fails if KNOWN_CAPS names a token
 // this table does not, so adding a capability to the handshake without a
-// behaviour to go with it cannot land quietly. That is how Q-03 was found:
+// behavior to go with it cannot land quietly. That is how Q-03 was found:
 // both tokens were advertised in W11 before either was acted on.
 const CAPABILITY_ROWS = {
   /** @param {any} t */
@@ -189,7 +189,7 @@ for (const cap of Object.keys(CAPABILITY_ROWS)) {
   // Broken on purpose: for `stream`, dropping the caps check in consider()
   // (transfer.js) fails the receiver half; for `resume`, making beginFile
   // ignore caps fails the "not negotiated" half.
-  test(`Q-03: "${cap}" changes behaviour when negotiated, and is refused when not`, (t) => CAPABILITY_ROWS[cap](t))
+  test(`Q-03: "${cap}" changes behavior when negotiated, and is refused when not`, (t) => CAPABILITY_ROWS[cap](t))
 }
 
 // --- Q-01: channel nonces never repeat -----------------------------------
@@ -261,7 +261,7 @@ const nonceFor = (n) => {
 test('Q-01: no (key, nonce) pair is ever sealed twice, in either direction, across a whole resumed transfer', async (t) => {
   // A resumed transfer, so that every message type either side seals is on
   // the wire at least once: MANIFEST, ACCEPT twice, PREFIX, CHUNKs,
-  // CHECKPOINTs and RESULT.
+  // CHECKPOINTs, and RESULT.
   //
   // Broken on purpose: removing `this._counter++` from Nonces#next
   // (channel.js) fails this test and nothing else here -- both sides then

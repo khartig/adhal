@@ -6,7 +6,7 @@ a real drop between two machines on different networks.
 There are two kinds of testing here, and they answer different questions:
 
 - **On one machine**, the test suite checks the code. Peers talk over
-  in-memory streams, loopback TCP or a DHT testnet on localhost. Nothing
+  in-memory streams, loopback TCP, or a DHT testnet on localhost. Nothing
   touches the public network.
 - **Across two machines**, the CLIs and `engine/scratch-trials.js` check
   the network: discovery and hole punching on the public DHT, between two
@@ -16,7 +16,7 @@ There are two kinds of testing here, and they answer different questions:
 ## Before you start
 
 - Node.js 24 or later (`node -v`). On 22.x six timer tests are reported
-  cancelled rather than run.
+  canceled rather than run.
 - pnpm, at the version pinned by `packageManager` in `package.json`. With
   `corepack enable`, the `pnpm` command runs exactly that version. See
   [`SETUP.md`](SETUP.md).
@@ -197,7 +197,7 @@ head -c 10485760 /dev/urandom > /tmp/test.bin    # a 10 MB test file
 node cli/src/swarm-send.js - /tmp/test.bin       # type the code at the prompt
 ```
 
-The receiver shows the offer, with its name, size and SHA-256, and asks
+The receiver shows the offer, with its name, size, and SHA-256, and asks
 before writing anything. Accept it. A good drop ends like this on each
 side:
 
@@ -215,7 +215,7 @@ when debugging discovery.
 One drop says that a path can work, not how often it does. For a success
 rate, use `engine/scratch-trials.js`: it runs N drops back to back,
 derives each trial's code from a shared seed, and classifies every
-failure. Its flags, failure classes and output are documented in
+failure. Its flags, failure classes, and output are documented in
 [`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md).
 
 The commands below run 20 trials in each direction as one unattended
@@ -290,7 +290,7 @@ How the schedule works:
   Run B starts 3,000 seconds after run A, five minutes after A's last
   slot. The whole sequence takes about 95 minutes.
 - **The two sides never talk to each other.** They agree because they
-  share the seed, the trial count and the start time, so all three must
+  share the seed, the trial count, and the start time, so all three must
   be identical on both machines. The harness waits for a start time in
   the future.
 - **`;` joins the two runs, not `&&`**, so run B still starts if run A

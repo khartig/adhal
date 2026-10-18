@@ -13,8 +13,8 @@
 //
 // The codes, and what each one means for whoever is reading the log:
 //
-//   ABORT_ERR             we cancelled, locally. Not a failure.
-//   ERR_CANCELLED_PEER    they cancelled. Also not a failure, and above
+//   ABORT_ERR             we canceled, locally. Not a failure.
+//   ERR_CANCELLED_PEER    they canceled. Also not a failure, and above
 //                         all not a network error -- telling those two
 //                         apart is the headline of the failure-reporting work.
 //   ERR_HASH_MISMATCH     the bytes are wrong. A correctness bug or a

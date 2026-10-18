@@ -2,13 +2,13 @@
 
 // A seeded random-mutation fuzz harness over every parser that reads peer
 // bytes (W15d and its decision 6, docs/history/WORK-RECORD.md): the framer, the channel,
-// every message decoder, manifest validation, filename handling and the
+// every message decoder, manifest validation, filename handling, and the
 // three handshake readers.
 //
 // ONE PROPERTY, checked on every input: it is either accepted, or refused
 // with an error from the protocol's vocabulary -- a `.code` in PROTOCOL.md
 // section 10's table, or one of the handshake's two per-candidate codes.
-// Never a TypeError, a RangeError or anything else that means the parser
+// Never a TypeError, a RangeError, or anything else that means the parser
 // met a case it did not handle; never a hang (each target is synchronous,
 // so a hang is a test timeout); and never buffering past a declared cap.
 //
@@ -118,7 +118,7 @@ const VALUES = [
 const KEYS = ['v', 'name', 'size', 'sha256', 'blockSize', 'ok', 'error', 'reason', 'code', 'resumeFrom', 'offset', '__proto__', 'constructor', 'extra']
 
 /**
- * A mutation that keeps the input JSON: a field replaced, removed or
+ * A mutation that keeps the input JSON: a field replaced, removed, or
  * added. Byte mutations alone almost never produce a well-formed object
  * with a hostile value, and those are what field checks exist for.
  * @param {ReturnType<typeof rng>} r @param {Buffer} input

@@ -23,10 +23,10 @@ the protocol lives in one place.
 | Module | Owns |
 | --- | --- |
 | `code.js`, `wordlist.js` | The drop code as a value: generating one, parsing what a human typed or scanned, splitting it into nameplate and secret, the QR payload |
-| `resolve-code.js` | The one place user input becomes a nameplate, a secret and a topic. Five-word-shaped input is held to the strict parse; opaque codes only with the opt-in |
+| `resolve-code.js` | The one place user input becomes a nameplate, a secret, and a topic. Five-word-shaped input is held to the strict parse; opaque codes only with the opt-in |
 | `topic.js` | `topic = BLAKE2b-256(lv_cat("adhal-v2:topic", nameplate))` |
 | `cpace.js` | CPace (CPACE-X25519-SHA512) over `@noble/curves`, checked against the CFRG vectors |
-| `handshake.js` | The parameter mapping (PROTOCOL §3.2): `Initiator` (the receiver) and `Responder` (the sender), the capability encoding, the confirmations and the channel keys |
+| `handshake.js` | The parameter mapping (PROTOCOL §3.2): `Initiator` (the receiver) and `Responder` (the sender), the capability encoding, the confirmations, and the channel keys |
 | `reader.js` | `MessageReader`: reassembles handshake messages by byte count |
 | `attempts.js` | `AttemptCap`: counted failures, the backoff, and the sender's memory of `sid` values (PROTOCOL §6) |
 | `swarm.js` | Hyperswarm: `createSwarm`, and `acceptOnce` / `connectOnce`, which find a peer and run the handshake with each candidate |
@@ -34,7 +34,7 @@ the protocol lives in one place.
 | `frame.js` | Length-prefixed framing with a size cap, and nothing else |
 | `message.js` | The type tags, and the encoding and decoding of every message body |
 | `channel.js` | The AEAD channel: seals and opens every frame after the handshake |
-| `transfer.js` | `sendFile`, `sendStream` and `receiveFile`: the offer, the accept gate, chunks, resume, verification and publishing |
+| `transfer.js` | `sendFile`, `sendStream`, and `receiveFile`: the offer, the accept gate, chunks, resume, verification, and publishing |
 | `names.js` | Peer-supplied names, for the terminal and for the filesystem |
 | `errors.js` | `TransferError` and its codes |
 
@@ -43,7 +43,7 @@ the protocol lives in one place.
 | Module | Owns |
 | --- | --- |
 | `swarm-receive.js`, `swarm-send.js` | The `ad-hal-receive` and `ad-hal-send` bins |
-| `code.js` | The `ad-hal-code` bin: prints a code, its halves, its payload, its topic and the QR symbol |
+| `code.js` | The `ad-hal-code` bin: prints a code, its halves, its payload, its topic, and the QR symbol |
 | `read-code.js` | Getting the code in from the prompt or stdin, and refusing it on argv without `--code-on-argv` |
 | `consent.js` | Asking before a file is written, and warning about names that run when opened |
 | `contention.js` | One line when candidates keep failing confirmation or going silent |
@@ -124,7 +124,7 @@ shape:
   the sender so do a reused `sid`, and any run it sent REPLY that did not
   answer with a valid CONFIRM: the sender reserves an attempt before each
   REPLY and settles it when the run ends (PROTOCOL §6). A close, a reset,
-  a silent candidate or a dead connection that was never sent REPLY is
+  a silent candidate, or a dead connection that was never sent REPLY is
   never counted. After a failure, the next HELLO (receiver) or REPLY
   (sender) is delayed by the backoff, and refused by nobody.
 - **Pairing.** The first candidate to complete is resolved with its socket
@@ -132,7 +132,7 @@ shape:
   past the handshake as `pending`, the channel keys, and the negotiated
   capabilities.
 - **After pairing, it keeps answering.** A late candidate runs the same
-  handshake, deadline, backoff and counting. One that confirms is sent
+  handshake, deadline, backoff, and counting. One that confirms is sent
   `DECLINE{ERR_DROP_TAKEN}` as its only sealed frame and closed
   (`declineLate`). `stopAnswering()`, or destroying the swarm, ends this.
 - **The two timeouts say different things.** `ERR_NO_PEER` means nobody
@@ -168,7 +168,7 @@ Every frame after the handshake is
 - `message.js` owns the type tags and every body's encoding. Its decoders
   either return a well-formed value or throw a code; the ones for CANCEL
   and DECLINE never throw, because a garbled one has still said stop, or
-  no. Peer text is sanitised where it enters a message.
+  no. Peer text is sanitized where it enters a message.
 - `channel.js` seals and opens. The nonce is a per-direction counter that
   only the `Nonces` class can advance. Sending and receiving use different
   keys, and the constructor refuses the same key for both. A frame that
@@ -182,13 +182,13 @@ Every frame after the handshake is
 ## The transfer: `transfer.js`
 
 **Sending.** `sendFile` opens the file once, and the size, the hash, the
-prefix digests resume needs and every byte sent come through that one
+prefix digests resume needs, and every byte sent come through that one
 descriptor (W15b). `sendStream` takes any readable and offers `size: null`,
 computing the digest as it reads, and only if `stream` was negotiated.
 Both go through one state machine (`offerAndSend`, `offerSource`), whose
 phases are PROTOCOL §4.4's sender states: offered, prefix sent, sending,
 awaiting result. Nothing is read from the source before ACCEPT. The sender
-honours backpressure, splits a stream's chunks to the declared
+honors backpressure, splits a stream's chunks to the declared
 `blockSize`, and enters each phase *before* the write that lets the peer
 answer, because a transport may deliver the answer inside that write.
 
@@ -213,7 +213,7 @@ with PREFIX, the digest of its own first *n* bytes, from digests it
 recorded while hashing, so the skipped part is never re-read. On a match
 the partial is adopted from *n*; otherwise it is truncated to zero, and
 the same connection starts over (PROTOCOL §7.5). Only an interruption
-keeps a partial; a cancel, a mismatch or a protocol error discards it.
+keeps a partial; a cancel, a mismatch, or a protocol error discards it.
 A reopened partial is never touched before the final ACCEPT.
 
 **Timers.** Manifest 30 s, progress 60 s, the receiver's answer 5 min,
@@ -253,12 +253,12 @@ they cannot disagree:
 ## Errors
 
 Every failure a caller sees is a `TransferError` with a `.code`, and the
-codes are PROTOCOL §10's. Automation, tests and `scratch-trials.js` switch
+codes are PROTOCOL §10's. Automation, tests, and `scratch-trials.js` switch
 on the code, never on the message. A local abort uses Node's own
 `AbortError`/`ABORT_ERR`, so generic abort handling still works.
 
 Three more codes say why one *candidate* was discarded, not how a drop
-ended: `ERR_PAKE_CONFIRMATION`, `ERR_SID_REUSED` and
+ended: `ERR_PAKE_CONFIRMATION`, `ERR_SID_REUSED`, and
 `ERR_REPLY_UNANSWERED`. They are what `swarm.js` counts. Two kinds of error carry a code without being a
 `TransferError`: frame.js's `FrameLengthError`, which keeps that module
 free of the engine's vocabulary, and the handshake's per-candidate
@@ -268,7 +268,7 @@ refusals. Everything branches on `.code`, so that is the contract.
 
 - **Receive.** `ad-hal-receive` generates a code (or reads one from the
   prompt or stdin) and shows it, with its QR symbol, once announced. Each
-  offer is shown with its name, size, SHA-256 and any resume, and the
+  offer is shown with its name, size, SHA-256, and any resume, and the
   person is asked. `--yes` skips the question; with no terminal and no
   `--yes` the offer is declined. A name that would run when opened is
   warned about either way. The receiver also prints a line when
@@ -282,7 +282,7 @@ refusals. Everything branches on `.code`, so that is the contract.
 - **Environment:** `ADHAL_BOOTSTRAP` (validated in `env.js`, and never
   echoed), `ADHAL_JOIN_TIMEOUT` (receiver 30 s, sender 120 s),
   `ADHAL_REFRESH_INTERVAL`, `ADHAL_MAX_SIZE` (`0` is no limit),
-  `ADHAL_NO_PROGRESS`, `ADHAL_QR_WIDE` and `ADHAL_INSECURE_OPAQUE_CODE`.
+  `ADHAL_NO_PROGRESS`, `ADHAL_QR_WIDE`, and `ADHAL_INSECURE_OPAQUE_CODE`.
 
 The loopback CLIs, `send.js` and `receive.js`, are test-only. They are not
 in `bin`, and `--help` says so.
@@ -307,11 +307,11 @@ does not count them as tests:
 | `interrupt.js` | A real Ctrl-C to a child process, Windows included |
 | `tiers.js` | The `slow` marker |
 
-Beside the behaviour tests, three files pin the protocol as a whole:
+Beside the behavior tests, three files pin the protocol as a whole:
 `state-machine.test.js` (every message in every state, PROTOCOL §4.4),
-`negative-vectors.test.js` (PROTOCOL §11) and `fuzz.test.js`.
+`negative-vectors.test.js` (PROTOCOL §11), and `fuzz.test.js`.
 `security-properties.test.js` pins the security properties of W15, and
-the vector files pin the CFRG suite, the code derivation and the
+the vector files pin the CFRG suite, the code derivation, and the
 handshake mapping.
 
 One more check runs by hand: every source file must be text. A literal

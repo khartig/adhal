@@ -14,7 +14,7 @@ const { Field } = require('@noble/curves/abstract/modular.js')
 //
 // WHY A PAKE AT ALL. v1 proved knowledge of the code with an HMAC over
 // nonces (../src/proof.js). That is sound as a proof, and useless as a
-// defence, because v1's topic is hash(code || salt): the topic is public
+// defense, because v1's topic is hash(code || salt): the topic is public
 // the moment a receiver announces, so an attacker holding it can grind
 // candidate codes offline and never touch a peer. A PAKE removes the
 // offline target entirely -- the secret is never hashed into anything an
@@ -43,7 +43,7 @@ const { Field } = require('@noble/curves/abstract/modular.js')
 // skipping RFC 7748's decodeUCoordinate.
 //
 // ON THE WIRE AS OF W11. ./handshake.js owns the ad-hal-specific parameter
-// mapping -- what goes in PRS, CI, sid, ADa and ADb -- and ./swarm.js
+// mapping -- what goes in PRS, CI, sid, ADa, and ADb -- and ./swarm.js
 // runs the exchange. That mapping is the part this file deliberately does
 // not decide: everything here is the suite as the draft defines it, which
 // is what makes cli/test/cpace-vectors.test.js able to check it against
@@ -132,7 +132,7 @@ function generatorString (PRS, CI, sid) {
 /**
  * The secret generator g, as a 32-byte little-endian u-coordinate.
  *
- * Both sides derive the same g if and only if they hold the same PRS, CI
+ * Both sides derive the same g if and only if they hold the same PRS, CI,
  * and sid. That is the whole trick: an attacker with the wrong password
  * is working in a group it cannot relate to this one.
  *
@@ -192,9 +192,9 @@ function scalarMultVfy (y, u) {
     // so callers switch on one code instead of on a library's wording.
     throw neutralElementError(err)
   }
-  // Belt and braces: the throw above is noble's behaviour, not its
+  // Belt and braces: the throw above is noble's behavior, not its
   // documented contract, and this module pins an exact version precisely
-  // because such behaviour can change. A version that returned the zero
+  // because such behavior can change. A version that returned the zero
   // instead of throwing would otherwise hand a shared key to an attacker.
   if (isAllZero(result)) throw neutralElementError()
   return result

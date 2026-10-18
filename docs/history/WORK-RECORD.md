@@ -6,7 +6,7 @@ differed, and the measurements behind each. It moved here in W16, when
 [`IMPLEMENTATION-PLAN.md`](../IMPLEMENTATION-PLAN.md) became a roadmap.
 The roadmap keeps one line per item and its commits.
 
-**Read it as history.** Statuses, counts and "now" are as of the item
+**Read it as history.** Statuses, counts, and "now" are as of the item
 they appear in, and the product's name changes partway through, from
 Quay to Ad-ḫal to Adhal. The security review's findings and their final
 status are in [`../SECURITY-REVIEW.md`](../SECURITY-REVIEW.md).
@@ -84,7 +84,7 @@ covered by a test.
    registered it. Measured: aborting at 500 ms against a 5000 ms budget,
    `acceptOnce` rejected at 502 ms, and `connectOnce` ran the full 5001 ms.
    On the real sender that is up to two minutes of Ctrl-C doing nothing,
-   while `README.md`, `ARCHITECTURE.md` and `swarm-send.js` all documented
+   while `README.md`, `ARCHITECTURE.md`, and `swarm-send.js` all documented
    the opposite as shipped. It survived because **there was no sender-side
    cancel test at all** — the asymmetry in the tests mirrored the
    asymmetry in the bug.
@@ -178,7 +178,7 @@ Those commits closed three of them in the engine:
 | | Finding | State at `3042057` |
 |---|---|---|
 | Q-01 | AEAD channel not on the transfer path | **Closed.** Every post-handshake frame goes through `openChannel`, which refuses to run without keys; there is no unsealed mode. Tamper test in `sealed-transfer.test.js`. The length prefix is still outside the tag (W15a). |
-| Q-02 | Code possession is the only authorisation | **Closed.** Engine half at `3042057`: ACCEPT/DECLINE, RESULT, DECLINE codes. CLI half in W15c: both receivers pass `onOffer` and ask before accepting; `--yes` skips the question, and with no terminal and no `--yes` the offer is declined. |
+| Q-02 | Code possession is the only authorization | **Closed.** Engine half at `3042057`: ACCEPT/DECLINE, RESULT, DECLINE codes. CLI half in W15c: both receivers pass `onOffer` and ask before accepting; `--yes` skips the question, and with no terminal and no `--yes` the offer is declined. |
 | Q-03 | Capabilities advertised without handlers | **Closed.** `resume` and `stream` both have handlers. Pinned in W15d by `security-properties.test.js`, which fails if a token is advertised without one. |
 
 Every other finding is disposed of below, either in W15 or deferred with
@@ -196,7 +196,7 @@ them change the wire and the freeze is defined by them.
 | 5 | Consent and argv defaults (Q-02, Q-17) | **The receiver prompts by default; `--yes` skips it.** A code on argv requires an explicit flag. |
 | 6 | How much robustness testing before the freeze (Q-06) | **State-machine spec, negative vectors, a basic fuzz harness.** Property-based and mutation testing go to W12. |
 | 7 | The source reviews | **Called AI-assisted reviews.** The raw transcripts are not tracked; only the findings and their status are published. |
-| 8 | The product name | **The product becomes Ad-ḫal**, written with ḫ (U+1E2B, h with breve below) for the hard *ch* of *loch*. Code, flags, environment variables, comments and protocol labels all use ASCII forms of the name. The protocol identifier is `adhal` (W15a item 5). |
+| 8 | The product name | **The product becomes Ad-ḫal**, written with ḫ (U+1E2B, h with breve below) for the hard *ch* of *loch*. Code, flags, environment variables, comments, and protocol labels all use ASCII forms of the name. The protocol identifier is `adhal` (W15a item 5). |
 
 ---
 
@@ -264,7 +264,7 @@ them change the wire and the freeze is defined by them.
        §5.2, and `code.test.js` all change.
   4. *`ERR_DROP_TAKEN` (decision 4).* Today, once `acceptOnce` pairs it
      removes its connection listener, and a later candidate simply goes
-     unanswered. Proposed behaviour:
+     unanswered. Proposed behavior:
      - While the transfer runs, the paired side keeps answering late
        candidates.
      - A candidate that completes the handshake is told
@@ -304,7 +304,7 @@ them change the wire and the freeze is defined by them.
      **Rule: anything hashed or encoded on the wire is ASCII.** The ḫ
      never enters a label. It has a precomposed form (U+1E2B) and a
      decomposed one (h + U+032E), and a label that depended on Unicode
-     normalisation would be a latent interoperability bug in every second
+     normalization would be a latent interoperability bug in every second
      implementation.
 
      **Product-facing names.** At `3042057` these are about 200
@@ -327,13 +327,13 @@ them change the wire and the freeze is defined by them.
 
   | | Outcome |
   |---|---|
-  | Q-11 | **Four leaks, not the two the review named.** (1) Six `JSON.parse` failure paths echoed V8's snippet of peer input, ESC included; each now reports only the body's length (`notJson` in `message.js`, and the manifest parse in `transfer.js`). (2) An unknown manifest key went raw into both the message and `err.field`. (3) Quoted manifest values used `JSON.stringify`, which escapes ESC but leaves U+202E. (4) `sanitizeReason` stripped control characters from CANCEL, DECLINE and RESULT reasons but not bidi overrides. All four are fixed at the source. As a backstop, `report.js` now escapes the whole line it prints through the new `displayText()` (`names.js`): the same escapes as `displayName`, with a 4096-character bound instead of 120, so long diagnostics survive whole. Tests are in `hardening.test.js`; restoring the echo or removing the backstop each fails exactly one test. |
+  | Q-11 | **Four leaks, not the two the review named.** (1) Six `JSON.parse` failure paths echoed V8's snippet of peer input, ESC included; each now reports only the body's length (`notJson` in `message.js`, and the manifest parse in `transfer.js`). (2) An unknown manifest key went raw into both the message and `err.field`. (3) Quoted manifest values used `JSON.stringify`, which escapes ESC but leaves U+202E. (4) `sanitizeReason` stripped control characters from CANCEL, DECLINE, and RESULT reasons but not bidi overrides. All four are fixed at the source. As a backstop, `report.js` now escapes the whole line it prints through the new `displayText()` (`names.js`): the same escapes as `displayName`, with a 4096-character bound instead of 120, so long diagnostics survive whole. Tests are in `hardening.test.js`; restoring the echo or removing the backstop each fails exactly one test. |
   | Q-12 | `createSwarm` generates the announce keypair itself (`HyperDHT.keyPair()`) for every swarm, and throws if a caller passes one. THREAT-MODEL §4 records the rule. `announce-key.test.js` checks two swarms get distinct keys, a supplied key is refused, and, on a DHT testnet, that one process's two drops are seen by their peer under different keys. |
   | Q-15 | The flag is now `--insecure-opaque-code` and the variable `ADHAL_INSECURE_OPAQUE_CODE`; only the exact value `1` opts in, and the old variable name is inert. The refusal a mistyped code gets now leads with the fix (check the code, or generate a new one) and names the flag only as a diagnostic, with what it costs. That matters more since W15a removed the v1-code detection, because this is now the message a six-word typo gets. Test in `code.test.js`. |
   | Q-16 | `sendFile` opens the file once. The size comes from `FileHandle.stat()`, exactly that many bytes are hashed through the handle, and every byte is sent through the same handle, which is closed on every path. A non-regular file is refused before anything is offered. That closes the path-swap case: a file renamed over the path after hashing is not what gets sent. An in-place edit of the same file still can't be prevented short of a private copy, and it still fails closed at the receiver's digest check. Tests in `verify.test.js`: path swap, descriptor leak on success and on decline, and a directory. `offerAndSend` was split (`offerSource`) so the source can be closed around the transfer. |
   | Q-17 | `ADHAL_BOOTSTRAP` is parsed and validated in one place, the new `cli/src/env.js`. It must be a JSON array of 1–64 `{host, port 1-65535}` entries; extra fields are dropped; an error message names the variable and never echoes the value. Both swarm CLIs print a clean error and exit 1 instead of a stack trace. The topic hex appears only with the new `--verbose` flag. The swarm CLIs print no peer IP addresses, so there was nothing to redact there. `--log-json` moves to W13 with the `--json` events. Tests in `env.test.js`, one of them spawning the real CLIs. |
-  | Q-19 | `publish()` reports how it landed the file (`link`, `check-then-rename` or `replace`), and `receiveFile` returns this as `published`. Both receivers print a note when the racy fallback was used. The test simulates a filesystem without hard links by making `link()` fail with `EPERM`. |
-  | Q-18 | Best effort, and documented as such in THREAT-MODEL §7. The handshake zeroes its private scalar, K, the ISK, the MAC key, the password bytes and the generator on every exit, including failed confirmations; it no longer returns the ISK, whose value the handshake vectors pin instead. `Channel#wipe()` zeroes both directional keys; both transfer roles call it however they end, and so does the drop-taken DECLINE path. **Channel keys are now single-use**: a Channel handed wiped keys refuses them with a message saying so. That exposed a test-helper defect: `channelKeys()` handed both sides the same Buffers, so the first side to finish wiped the other's keys mid-transfer (one `resume.test.js` run in eight). The helper now gives each side its own copies, as a real handshake does. |
+  | Q-19 | `publish()` reports how it landed the file (`link`, `check-then-rename`, or `replace`), and `receiveFile` returns this as `published`. Both receivers print a note when the racy fallback was used. The test simulates a filesystem without hard links by making `link()` fail with `EPERM`. |
+  | Q-18 | Best effort, and documented as such in THREAT-MODEL §7. The handshake zeroes its private scalar, K, the ISK, the MAC key, the password bytes, and the generator on every exit, including failed confirmations; it no longer returns the ISK, whose value the handshake vectors pin instead. `Channel#wipe()` zeroes both directional keys; both transfer roles call it however they end, and so does the drop-taken DECLINE path. **Channel keys are now single-use**: a Channel handed wiped keys refuses them with a message saying so. That exposed a test-helper defect: `channelKeys()` handed both sides the same Buffers, so the first side to finish wiped the other's keys mid-transfer (one `resume.test.js` run in eight). The helper now gives each side its own copies, as a real handshake does. |
   | Q-08 (part) | The unused `compact-encoding` dependency was removed; `pnpm install` regenerated the lockfile via corepack. |
 
   After W15b: typecheck clean, fast tier 257 pass. On the last full run,
@@ -358,12 +358,12 @@ them change the wire and the freeze is defined by them.
   >   readline, not to the signal handler, so `consent.js` passes it on.
   >   A question the transfer outlives (the sender cancels, or gives up
   >   after `ACCEPT_TIMEOUT_MS`) is taken down and never answered, so no
-  >   DECLINE goes out behind a CANCEL. Checked on a real pty: y, n and
+  >   DECLINE goes out behind a CANCEL. Checked on a real pty: y, n, and
   >   Ctrl-C.
   > - *A no carries a reason.* A bare `false` put the engine's default
   >   sentence on the wire, and the sender printed "the receiver declined
   >   the file: the receiver declined the file".
-  > - *Risky names* also include disk images, shortcut files and
+  > - *Risky names* also include disk images, shortcut files, and
   >   macro-enabled documents. `.bin` is deliberately left out: every test
   >   and demo file uses it, and it runs nothing when opened.
   > - *Argv and streaming.* `ad-hal-send <code> -` streams stdin as the
@@ -413,7 +413,7 @@ them change the wire and the freeze is defined by them.
   - *Metadata (Q-09).* A one-line notice in both swarm CLIs and in
     `--help`: both IP addresses are visible to the peer and to DHT nodes
     near the topic. Ad-ḫal is not anonymous.
-  - *Loopback (Q-13).* `send.js` and `receive.js` are labelled test-only
+  - *Loopback (Q-13).* `send.js` and `receive.js` are labeled test-only
     in help and docs. **The published `ad-hal-send` / `ad-hal-receive` bins
     currently point at the loopback tools, not the swarm ones.** Remap
     them, or drop the loopback tools from `bin`.
@@ -422,8 +422,8 @@ them change the wire and the freeze is defined by them.
 
   > **Done**, in five commits: `6154994` (the pairing stall), `42f2cf7`
   > (security-property tests), `550ea47` (state machine), `a09a387`
-  > (negative vectors and fuzz harness) and `dfc5b3f` (PROTOCOL §4.4,
-  > §11, §12 and this record). Where the result differed from the plan
+  > (negative vectors and fuzz harness), and `dfc5b3f` (PROTOCOL §4.4,
+  > §11, §12, and this record). Where the result differed from the plan
   > below:
   > - *The stall is a race inside hyperdht, not a slow network.* When both
   >   peers share an address (a testnet, one machine, one LAN), hyperdht's
@@ -462,7 +462,7 @@ them change the wire and the freeze is defined by them.
   >   bounded with a message that names the mechanism. After it,
   >   `handshake.test.js` passed 12 of 12 runs in 31–43 s each, and
   >   `attempts.test.js` 8 of 8. The helper's redial had a cost that was
-  >   caught on the way: a guesser redialled after its connection was
+  >   caught on the way: a guesser redialed after its connection was
   >   dropped, guessed a second time, and burned a cap of 2 early (2 of 3
   >   runs). Guessers now answer once.
   > - *Not done, deliberately.* The real fix is upstream: hyperdht should
@@ -479,7 +479,7 @@ them change the wire and the freeze is defined by them.
   >   Q-01 records every (key, nonce) pair the process seals and opens
   >   across a resumed transfer. Q-14 runs over an in-memory swarm
   >   (`test-helpers/fake-swarm.js`), so every counting rule is in the
-  >   fast tier. Q-11, Q-12 and Q-15 were already pinned by W15b's tests,
+  >   fast tier. Q-11, Q-12, and Q-15 were already pinned by W15b's tests,
   >   and are cited rather than repeated. Each new test was broken on
   >   purpose and went red. One was too weak as first written: the burn
   >   test passed with every failure counted, because noise alone also
@@ -553,7 +553,7 @@ them change the wire and the freeze is defined by them.
     - PREFIX when none was asked for.
   - *Fuzz harness (decision 6).* A seeded random-mutation harness over
     `frame.js`, `message.js` (every `decode*`), `reader.js`, manifest
-    validation and the handshake readers. It checks one property: the
+    validation, and the handshake readers. It checks one property: the
     input is either accepted or refused with a `TransferError`, and
     never throws anything else, hangs, or buffers past its cap. Built on
     `node:test` with **no new dependency**, since adding one needs a
@@ -581,11 +581,11 @@ them change the wire and the freeze is defined by them.
   describe the final code.
 
   > **Done.** Committed in `7e403a0`, `6a1877e`, `15956c4`, `7269725`,
-  > `9aa0589`, `4075fc8` and `25cd39f`. `POSITIONING.md` and the
+  > `9aa0589`, `4075fc8`, and `25cd39f`. `POSITIONING.md` and the
   > 2026-10-13 trial records followed in `668bab4`. The two things left
   > to the owner were closed on 2026-10-14: the repository went public
   > and GitHub private vulnerability reporting was turned on, and the
-  > response targets in SECURITY.md (7, 14 and 90 days) were confirmed.
+  > response targets in SECURITY.md (7, 14, and 90 days) were confirmed.
   > Where the result differed from the table below:
   > - ARCHITECTURE.md was rewritten from the code rather than edited. The
   >   old file is `history/ENGINEERING-LOG.md` whole, with a note listing
@@ -600,7 +600,7 @@ them change the wire and the freeze is defined by them.
   >   code still holds, and gained §13, the changelog. §12's odds now use
   >   the vendored list's 7,772 words, not 7,776.
   > - `scratch-trials.js` had no outcome for `ERR_DECLINED`,
-  >   `ERR_DROP_TAKEN`, `ERR_NO_SPACE` or `ERR_EXISTS`, so each would
+  >   `ERR_DROP_TAKEN`, `ERR_NO_SPACE`, or `ERR_EXISTS`, so each would
   >   have read as a generic `transfer-error`. They have outcomes now. The
   >   measuring doc's outcome table had been split by an earlier edit,
   >   and it is whole again.
@@ -639,7 +639,7 @@ them change the wire and the freeze is defined by them.
   line below is true and was checked by running something, not by
   reading:
 
-  1. W15a's five wire changes are in the spec, the code and the vectors.
+  1. W15a's five wire changes are in the spec, the code, and the vectors.
      Every protocol label and the QR scheme use the ASCII identifier
      `adhal`. `grep -ri quay` over the code finds nothing.
   2. Every post-CONFIRM frame is sealed with its length bound. No

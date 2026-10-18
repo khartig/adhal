@@ -90,8 +90,8 @@ acid-acorn-acre-acts-afar            <- shown to a human
 ^^^^^^^^^^ nameplate   ^^^^^^^^^^^^^ secret
 ```
 
-Input normalisation is unchanged from v1: case, and any run of `-`, `_`,
-`.` or whitespace, collapse to one canonical form before anything derives
+Input normalization is unchanged from v1: case, and any run of `-`, `_`,
+`.`, or whitespace, collapse to one canonical form before anything derives
 from it.
 
 ---
@@ -190,7 +190,7 @@ The handshake aborts; it does not silently fall back. That is the correct
 outcome, and it is the only one available to a one-round-trip PAKE.
 
 Domain tags `-s`/`-r` stop one direction's confirmation being replayed as
-the other's. This is the same defence v1 used
+the other's. This is the same defense v1 used
 (`ROLE_TAGS` in `engine/src/proof.js`) and it is why MACing the *whole*
 transcript from both sides — rather than the draft §9.4 suggestion that
 each party MAC only its own message — does not open a reflection hole:
@@ -207,7 +207,7 @@ key, but with different prefixes, so neither can stand in for the other.
    applies to `sid`.
 
 2. **`caps` needs a byte-exact canonical encoding**, fixed by this spec
-   and not left to a serialiser. Two implementations that order the same
+   and not left to a serializer. Two implementations that order the same
    capability set differently will derive different keys and fail every
    handshake — and the failure is indistinguishable from an attack, which
    is the worst way for an interoperability bug to present.
@@ -246,7 +246,7 @@ still verifies exactly **one** password candidate per run: to test a
 guess it needs `CDH(g_guess, Yb)`, and choosing `sid` does not give it
 that. So the quantity the attempt cap (§6) defends — guesses per run — is
 unchanged. What a chosen, reusable `sid` does buy is (a) escaping the UC
-proof's premise that session ids are unique, and (b) amortising the
+proof's premise that session ids are unique, and (b) amortizing the
 generator derivation across many attack sessions, which is a constant
 factor on work that was never the bottleneck.
 
@@ -416,7 +416,7 @@ with:
 
 A sender accepts any `code` matching `^ERR_[A-Z0-9_]{1,48}$`, not only
 these, so a later receiver's new code reaches automation intact. Anything
-else, or no code, decodes as none, and the decline is honoured regardless.
+else, or no code, decodes as none, and the decline is honored regardless.
 The sender's own error stays `ERR_DECLINED`, since §10's codes say how
 *that* side's drop ended. The receiver's code is `.declineCode`.
 
@@ -471,7 +471,7 @@ not the one intended, and only the people involved can say which.
 
 An earlier plan described resume as "ack by index". That is the wrong
 primitive. UDX under Noise is **already reliable and ordered** — a
-per-chunk acknowledgement re-implements a guarantee the transport gives
+per-chunk acknowledgment re-implements a guarantee the transport gives
 for free, and costs a round trip per chunk to do it.
 
 What resume actually needs is a **durable offset**: how much is safely on
@@ -530,7 +530,7 @@ with a different source, sharing one state machine.)
   `size: null` only if `stream` is in the negotiated capability set (§3.2),
   and a receiver declines one otherwise. Both check the transcript's
   result, per trap #3. This is the first place a capability token changes
-  behaviour.
+  behavior.
 - **`END` is valid only on a stream, and only after ACCEPT.** On a
   transfer that declared its size it is `ERR_PROTOCOL`: the manifest
   already made that claim, and a second one could only disagree with it.
@@ -574,10 +574,10 @@ Only the refusals marked **counted** move the attempt cap (§6).
 | receiver | candidate | a connection is surfaced | nothing; writes HELLO, after the §6 backoff | — |
 | receiver | awaiting REPLY | HELLO written | REPLY, body 64–192 bytes, canonical `caps_s` | a malformed or non-canonical REPLY: `ERR_PROTOCOL`, not counted. A REPLY whose `confirmS` fails: `ERR_PAKE_CONFIRMATION`, **counted** |
 | sender | awaiting HELLO | a connection is surfaced | HELLO, body 49–177 bytes, version `0x02`, canonical `caps_r`, a `sid` not seen on this nameplate | a malformed HELLO or another version: `ERR_PROTOCOL`, not counted. A `sid` already seen: `ERR_SID_REUSED`, **counted** |
-| sender | awaiting CONFIRM | an attempt reserved and REPLY written, after the backoff | CONFIRM, exactly 32 bytes | a CONFIRM that fails: `ERR_PAKE_CONFIRMATION`, **counted**. A close, a reset or the deadline: `ERR_REPLY_UNANSWERED`, **counted** |
+| sender | awaiting CONFIRM | an attempt reserved and REPLY written, after the backoff | CONFIRM, exactly 32 bytes | a CONFIRM that fails: `ERR_PAKE_CONFIRMATION`, **counted**. A close, a reset, or the deadline: `ERR_REPLY_UNANSWERED`, **counted** |
 
 In every other state, a close, a reset, the per-candidate deadline
-(`HANDSHAKE_TIMEOUT_MS`, 15 s plus any backoff) or a connection that never
+(`HANDSHAKE_TIMEOUT_MS`, 15 s plus any backoff), or a connection that never
 receives a packet (`UNANSWERED_CONNECTION_MS`, 5 s; see
 `engine/src/swarm.js`) discards the candidate and is **not** counted. A
 sender whose failures and reservations already fill the cap drops a
@@ -612,7 +612,7 @@ the type of the frame that opened:
 | done | RESULT received | — | — | — | — | — | — | — | — | — | — | — | — |
 
 P is `ERR_PROTOCOL`, C is `ERR_CANCELLED_PEER`, D is `ERR_DECLINED`
-(with the receiver's code as `.declineCode`) and T is `ERR_DROP_TAKEN`.
+(with the receiver's code as `.declineCode`), and T is `ERR_DROP_TAKEN`.
 — means the side has settled and no longer reads: nothing that arrives
 is acted on or answered. ¹ Only when `resume` was negotiated and the
 transfer is not a stream; otherwise P.
@@ -645,7 +645,7 @@ answer to its offer and to its PREFIX with `ACCEPT_TIMEOUT_MS` (5 min)
 and RESULT with `RESULT_TIMEOUT_MS` (2 min), both `ERR_STALLED`. A
 close in any state before *done* is `ERR_CONNECTION`, and so is a
 transport error such as a reset, which keeps its own error as `.cause`.
-On the sender it carries `.phase`: `offer`, `prefix`, `send` or
+On the sender it carries `.phase`: `offer`, `prefix`, `send`, or
 `result`, for the four sender states in order.
 
 ---
@@ -722,7 +722,7 @@ trying it.
 ## 6. Attempt cap
 
 Count **failed guesses only**. N = 100, exponential backoff. On
-exhaustion, burn the drop, fail with `ERR_ATTEMPT_CAP` (§10) and tell the
+exhaustion, burn the drop, fail with `ERR_ATTEMPT_CAP` (§10), and tell the
 human that someone was guessing.
 
 A failed guess is one of three things:
@@ -733,7 +733,7 @@ A failed guess is one of three things:
 - **A REPLY not answered by a valid CONFIRM**, on the sender:
   `ERR_REPLY_UNANSWERED`. REPLY carries `confirmS`, which lets whoever
   reads it test one guess offline, so a run that read REPLY and then hung
-  up, went quiet or was reset has guessed, whatever happened next
+  up, went quiet, or was reset has guessed, whatever happened next
   (§12.5, step 4). The sender **reserves** an attempt before it writes
   REPLY and settles it when the run ends: released if a valid CONFIRM
   arrives, counted otherwise. If failures and reservations together
@@ -816,7 +816,7 @@ Why re-hashing wins here:
   worth doing, the local read is the cheaper half.
 - Block hashes are a manifest field, and a manifest field is forever.
   Adding one to make resume faster would be paying a permanent format
-  cost for an optimisation nobody has measured a need for.
+  cost for an optimization nobody has measured a need for.
 - A hash tree is also a second thing that can be wrong. The re-hash
   compares against the `sha256` the manifest already carries, so resume
   reuses the integrity check the protocol already has rather than
@@ -975,7 +975,7 @@ resumed than the partial held, which is re-sent.
 
 - After an `ACCEPT{n > 0}` that passes §7.4's checks, it sends exactly
   one `PREFIX` and reads nothing from the file.
-- It accepts `ACCEPT{n}`, `ACCEPT{0}`, `DECLINE` or `CANCEL` as the
+- It accepts `ACCEPT{n}`, `ACCEPT{0}`, `DECLINE`, or `CANCEL` as the
   answer. An ACCEPT with any other offset would resume a prefix nobody
   checked, and is `ERR_PROTOCOL`. So is any other frame. It bounds the
   wait with the accept timeout.
@@ -1070,11 +1070,11 @@ Also confirmed, so that neither forces a further dependency:
 
 `_map_to_curve_elligator2_curve25519` is marked experimental by noble
 and may be renamed. Both dependencies are pinned to exact versions, and
-the vector test is what catches a behaviour change.
+the vector test is what catches a behavior change.
 
 ### 8.2 Protomux or raw stream — **keep the hand-rolled framing**
 
-`protomux@3.12.0` **has no priority, preempt or urgent path.** It
+`protomux@3.12.0` **has no priority, preempt, or urgent path.** It
 cork/uncork-batches and writes in order to a single stream. So a
 `CANCEL` on a separate channel would queue behind already-written chunk
 bytes *exactly* as it does today. It does not solve the problem this
@@ -1089,7 +1089,7 @@ imported by any source file.
 **And the estimate this section was built on was wrong.** §8.2 used to
 say a cancel is "delayed by roughly one chunk plus the high-water mark".
 `engine/scratch-cancel-latency.js` measures it over a real loopback TCP
-socket, at the 64 KB default and either side cancelling:
+socket, at the 64 KB default and either side canceling:
 
 Median latency, and bytes the peer moved *after* being told to stop
 shown as a range over 15 trials — that quantity is set by kernel socket
@@ -1182,7 +1182,7 @@ bytes — is the part a second implementation should copy.
 
 v1 shipped until W11, under the product's old name, and nothing in this
 repository speaks it now. It is described only so that a v2
-implementation can recognise a v1 peer and say so, rather than reporting
+implementation can recognize a v1 peer and say so, rather than reporting
 corruption.
 
 ```
@@ -1222,8 +1222,8 @@ project's own measurement instrument to its wording.
 
 | Code | Meaning |
 | --- | --- |
-| `ABORT_ERR` (`name: AbortError`) | we cancelled, locally |
-| `ERR_CANCELLED_PEER` | they cancelled, with their reason |
+| `ABORT_ERR` (`name: AbortError`) | we canceled, locally |
+| `ERR_CANCELLED_PEER` | they canceled, with their reason |
 | `ERR_HASH_MISMATCH` | the bytes are wrong |
 | `ERR_SIZE_MISMATCH` | more or fewer bytes than declared, or a stream past the receiver's limit (`.limit` set; §4.3) |
 | `ERR_UNSAFE_NAME` | the name is not one we will write; `.detail` says why |
@@ -1246,7 +1246,7 @@ that nothing throws is a code nothing tests. The name matches §6's own
 term ("attempt cap") and the `ERR_NO_PEER` / `ERR_NO_HANDSHAKE` shape.
 
 Three further codes exist in the implementation and are **deliberately
-not in this table**: `ERR_PAKE_CONFIRMATION`, `ERR_SID_REUSED` and
+not in this table**: `ERR_PAKE_CONFIRMATION`, `ERR_SID_REUSED`, and
 `ERR_REPLY_UNANSWERED`. They say
 why one *candidate* was discarded, not how a *drop* ended, and the
 distinction is load-bearing — a receiver discards a failed candidate and
@@ -1274,8 +1274,8 @@ considered published:
   vectors, transcribed rather than computed). The Adhal-specific ones are
   `cli/test/code-vectors.test.js` (a code to its nameplate, secret,
   topic, and QR payload) and `cli/test/handshake-vectors.test.js` (a
-  secret, nameplate, `sid`, scalars and capabilities to the generator,
-  both points, K, the transcript, the ISK, both confirmations and both
+  secret, nameplate, `sid`, scalars, and capabilities to the generator,
+  both points, K, the transcript, the ISK, both confirmations, and both
   channel keys). They were generated by this implementation, so they pin
   it rather than prove it; the second file recomputes each derivation
   independently to narrow that gap.
@@ -1340,7 +1340,7 @@ not listed here is not claimed.**
 ### 12.1 The adversary
 
 The network is the adversary's: it can read, drop, delay, reorder,
-replay and inject bytes on any path, run any number of peers on any
+replay, and inject bytes on any path, run any number of peers on any
 topic, and act as a relay. It does not hold the drop code, and it does
 not control either endpoint's machine. A peer that holds the code is a
 different adversary, and §12.3 says what it can do.
@@ -1374,7 +1374,7 @@ different adversary, and §12.3 says what it can do.
    one failed frame ends the channel (§3.4, §5). Altering, replaying,
    reordering, reflecting, or re-delimiting a frame fails it. Truncation
    at a frame boundary is a close, and the protocol never reads a close
-   as completion: a transfer that ends without its last byte, its END or
+   as completion: a transfer that ends without its last byte, its END, or
    its RESULT is `ERR_CONNECTION`. Pinned: `channel.test.js`,
    `sealed-transfer.test.js`, `security-properties.test.js`, the frame
    vectors.
@@ -1430,7 +1430,7 @@ different adversary, and §12.3 says what it can do.
    nothing above depends on them (§3.3). Availability does, and is not
    claimed.
 8. **Windows is not supported for security purposes** (Q-07). It has no
-   `O_NOFOLLOW`, and two defences fall back to checks that race.
+   `O_NOFOLLOW`, and two defenses fall back to checks that race.
 
 ### 12.4 What the claims rest on
 
@@ -1440,7 +1440,7 @@ different adversary, and §12.3 says what it can do.
   marks experimental: underscored, and free to be renamed. So the
   dependency is pinned to that exact version, and it is guarded by the
   CFRG vectors in `cpace-vectors.test.js` (9 handshake vectors and 12
-  low-order and twist inputs), which fail on any change in its behaviour.
+  low-order and twist inputs), which fail on any change in its behavior.
   A rename fails at the first handshake rather than silently. An upgrade
   is a change to the security argument, and is reviewed as one.
 - **`@noble/hashes` 2.4.0** for SHA-512, pinned likewise.
@@ -1464,8 +1464,8 @@ failed on the code until the change recorded in §13, "After W16".
 
 #### What is inherited, and the property actually used
 
-The analysis the CPace draft relies on (Abdalla, Haase and Hesse, 2021)
-shows CPace UC-secure, with SHA-512 and the map to the curve modelled as
+The analysis the CPace draft relies on (Abdalla, Haase, and Hesse 2021)
+shows CPace UC-secure, with SHA-512 and the map to the curve modeled as
 random oracles, under Diffie-Hellman assumptions on Curve25519 (the
 draft's sCDH and sSDH), and with session ids that are unique. Adhal does
 not claim UC security (§12.3.1). Claims 1–4 use a narrower property, and
@@ -1495,8 +1495,8 @@ and it is not guaranteed unique. Each role is affected differently.
 - **The sender's sessions.** Here `sid` comes from the peer, which may be
   an attacker and may repeat it. A repeat gives the attacker the same
   generator for the same secret in two sessions. Each sender session still
-  samples a fresh `yb` (§3.2, trap 1), so `Yb`, `K` and the ISK differ in
-  each, and the ISK hashes `sid`, `K` and a transcript containing `Yb`.
+  samples a fresh `yb` (§3.2, trap 1), so `Yb`, `K`, and the ISK differ in
+  each, and the ISK hashes `sid`, `K`, and a transcript containing `Yb`.
   The argument for (P) is that the session's freshness comes from `yb`
   rather than from `sid`, and the attacker's one candidate per session is
   still fixed by the `Ya` it sent.
@@ -1537,7 +1537,7 @@ confirmation is HMAC-SHA256 over a role label and the whole transcript
   transcript `confirmS` and `confirmR` differ except by an HMAC collision.
   A confirmation cannot be returned to its author. Pinned: the reflection
   vectors in `negative-vectors.test.js`.
-- **Key separation.** `mac_key`, `k_r2s` and `k_s2r` come from one ISK
+- **Key separation.** `mac_key`, `k_r2s`, and `k_s2r` come from one ISK
   under three distinct `info` labels. With HKDF as a PRF they are
   independent, so the confirmations an attacker sees say nothing about
   the channel keys. The salt is `sid`, which is public and, on the
@@ -1556,7 +1556,7 @@ The rule that follows:
 > receive a valid confirmation.**
 
 - **An attacker in the sender's role.** Before it verifies anything, the
-  receiver sends only HELLO: `sid`, `Ya` and `caps_r`, none of it derived
+  receiver sends only HELLO: `sid`, `Ya`, and `caps_r`, none of it derived
   from `K`. To learn anything the attacker must send `confirmS` for its
   candidate. A wrong one is `ERR_PAKE_CONFIRMATION`, which `acceptOnce`
   counts. An attacker that hangs up before REPLY has tested nothing.
@@ -1566,7 +1566,7 @@ The rule that follows:
   rule binds. It reserves an attempt before writing REPLY, and settles
   the reservation as a failure, `ERR_REPLY_UNANSWERED`, unless a valid
   CONFIRM arrives (§6). An attacker that reads REPLY, checks `confirmS`
-  offline and hangs up is counted. One that goes quiet is counted when
+  offline, and hangs up is counted. One that goes quiet is counted when
   the per-candidate deadline ends the run. **Holds.** Pinned by the Q-14
   sender tests in `security-properties.test.js`.
 - **Guessers in flight together.** A reservation is taken before REPLY
@@ -1658,12 +1658,12 @@ W11 removed two fields while implementing it:
 
 - **`mode` had no definition anywhere in this spec.** The candidates
   were each wrong. POSIX permission bits do not exist on Windows, an
-  eventual target (Node synthesises `stat.mode` there and `chmod` only
+  eventual target (Node synthesizes `stat.mode` there and `chmod` only
   toggles read-only), and they would let a peer choose to deliver an
   executable. A file/stream kind repeats `size: null`, and a repeated
   fact is two facts that can disagree. A directory kind cannot be a
   one-word field at all: it needs a list of entries, each needing the
-  traversal and symlink defences one name gets now, which is a different
+  traversal and symlink defenses one name gets now, which is a different
   manifest and so a different `v`. A v2 receiver refuses that by version,
   which is the same clean refusal a `mode` value would have given.
   Directories travel as a stream (`tar c dir | ad-hal-send <code> -`, §4.3). The
@@ -1705,7 +1705,7 @@ carries. The amendment, as W11 recorded it:
 > the manifest cost W10 declined.
 >
 > **Superseded by §7.5.** The wire change was made, before release, with
-> the digest travelling the other way: the sender proves its prefix, and
+> the digest traveling the other way: the sender proves its prefix, and
 > the receiver checks. A wrong prefix now costs one round trip, is
 > discarded, and is not reported to the person, which is what the first
 > paragraphs of this section promised. The final digest comparison stays.
@@ -1715,7 +1715,7 @@ it. Because `@noble/curves@2.4.0` is ESM-only, W10 moved `engines.node`
 from `>= 18` to `>= 20.19`, the first versions that can `require` an ES
 module. It is now `>= 24`, and CI runs Node 24, for an unrelated reason:
 on 22.x, six stall-timer and size-cap tests in `cli/test/hardening.test.js`
-are reported cancelled rather than run (reproducibly on 22.23.2, and
+are reported canceled rather than run (reproducibly on 22.23.2, and
 clean on 24.21.0).
 
 ### W15a — five wire changes from the security review
