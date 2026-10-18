@@ -1,13 +1,33 @@
 {
   "name": "@ad-hal/engine",
   "version": "0.1.0",
-  "private": true,
-  "description": "Transport-agnostic transfer engine: framing, manifest, chunking, hashing. Holepunch (Hyperswarm/Hyperdht) join logic lands here starting with item 2.",
+  "description": "The Adhal transfer engine: a CPace-authenticated, sealed, one-shot file drop between two peers over Hyperswarm.",
+  "keywords": [
+    "p2p",
+    "file-transfer",
+    "pake",
+    "cpace",
+    "hyperswarm",
+    "hole-punching"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khartig/adhal.git",
+    "directory": "engine"
+  },
+  "homepage": "https://github.com/khartig/adhal#readme",
+  "bugs": {
+    "url": "https://github.com/khartig/adhal/issues"
+  },
   "files": [
     "src"
   ],
   "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
   "engines": {
     "node": ">=24"
   },
@@ -18,5 +38,8 @@
     "hypercore-crypto": "3.7.0",
     "hyperdht": "6.34.0",
     "hyperswarm": "4.17.1"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

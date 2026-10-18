@@ -57,7 +57,7 @@ const {
   QR_SCHEME,
   WORD_COUNT
 } = require('@ad-hal/engine')
-const { WORDS } = require('@ad-hal/engine/src/wordlist')
+const { WORDS } = require('../../engine/src/wordlist')
 
 // BLAKE2b-256 of "abc", from the BLAKE2 reference vectors. Not computed
 // here and not chosen by this project: it is the external check that the

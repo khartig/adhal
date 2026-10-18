@@ -35,7 +35,7 @@ const {
   NAMEPLATE_ENTROPY_BITS,
   SECRET_ENTROPY_BITS
 } = require('@ad-hal/engine')
-const { WORDS, INDEX } = require('@ad-hal/engine/src/wordlist')
+const { WORDS, INDEX } = require('../../engine/src/wordlist')
 const { renderQr, ECC_LEVEL, QUIET_ZONE } = require('../src/qr')
 const { resolveCode } = require('@ad-hal/engine')
 

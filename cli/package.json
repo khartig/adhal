@@ -1,11 +1,29 @@
 {
   "name": "@ad-hal/cli",
   "version": "0.1.0",
-  "private": true,
-  "description": "Command-line send/receive proof of concept for the ad-hal transfer engine.",
+  "description": "Adhal command-line tools: send and receive a file directly between two machines with a one-shot code.",
+  "keywords": [
+    "p2p",
+    "file-transfer",
+    "cli",
+    "pake",
+    "hyperswarm"
+  ],
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/khartig/adhal.git",
+    "directory": "cli"
+  },
+  "homepage": "https://github.com/khartig/adhal#readme",
+  "bugs": {
+    "url": "https://github.com/khartig/adhal/issues"
+  },
   "files": [
-    "src"
+    "src",
+    "!src/send.js",
+    "!src/receive.js",
+    "!src/demo-*.js"
   ],
   "bin": {
     "ad-hal-send": "src/swarm-send.js",
@@ -27,5 +45,8 @@
   "devDependencies": {
     "hyperdht": "6.34.0",
     "jsqr": "1.4.0"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

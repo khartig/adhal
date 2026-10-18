@@ -53,7 +53,7 @@ const {
   S_IN_BYTES,
   SCALAR_SIZE,
   ISK_SIZE
-} = require('@ad-hal/engine/src/cpace')
+} = require('../../engine/src/cpace')
 
 const hex = (/** @type {Buffer|Uint8Array} */ b) => Buffer.from(b).toString('hex')
 const h = (/** @type {string} */ s) => Buffer.from(s, 'hex')
