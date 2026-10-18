@@ -59,7 +59,7 @@ measure the real network.
 **On the receiving machine:**
 
 ```bash
-cd ~/quay && git pull
+cd ~/adhal && git pull
 node engine/scratch-trials.js --role receiver --seed run1 --trials 10 \
   --out ~/rx-trials.json 2>&1 | tee ~/rx-trials.log
 ```
@@ -67,7 +67,7 @@ node engine/scratch-trials.js --role receiver --seed run1 --trials 10 \
 **On the sending machine**, started within about a minute:
 
 ```bash
-cd ~/quay && git pull
+cd ~/adhal && git pull
 head -c 10485760 /dev/urandom > /tmp/test.bin
 node engine/scratch-trials.js --role sender --seed run1 --trials 10 \
   --file /tmp/test.bin --out ~/tx-trials.json 2>&1 | tee ~/tx-trials.log

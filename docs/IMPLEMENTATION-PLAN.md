@@ -148,7 +148,7 @@ has all 21).
   **CGNAT↔CGNAT** and symmetric NAT. Reuse `scratch-trials.js`. **This
   single experiment tests the central thesis and decides how much the
   relay matters.** The method, the tools, and the network pairs are in
-  [`POSITIONING.md`](POSITIONING.md) §5, and so will the results be.
+  [`POSITIONING.md`](POSITIONING.md) §4, and so will the results be.
 
 ---
 

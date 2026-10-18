@@ -19,8 +19,8 @@
 ## Getting the code running
 
 ```bash
-git clone <repo-url> quay
-cd quay
+git clone git@github.com:khartig/adhal.git   # creates ./adhal
+cd adhal
 pnpm install            # installs root + engine + cli workspaces in one pass
 pnpm test               # runs the item-1 loopback proof automatically
 pnpm run demo:loopback  # runs it manually; prints both sides' output live

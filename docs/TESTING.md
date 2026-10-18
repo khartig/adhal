@@ -150,7 +150,7 @@ ADHAL_FUZZ_SEED=<seed> node --test cli/test/fuzz.test.js
 ### Set up both machines
 
 ```bash
-git clone <repo-url> quay && cd quay      # or: cd ~/quay
+git clone git@github.com:khartig/adhal.git && cd adhal   # or: cd ~/adhal
 git fetch && git checkout <branch> && git pull
 git log --oneline -1                      # must print the same commit on both
 node -v                                   # 24 or later

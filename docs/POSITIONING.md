@@ -12,10 +12,10 @@ as summarized in September 2026: in the review of 2026-09-18
 ([`history/REVIEW-SECURITY-AND-POSITIONING.md`](history/REVIEW-SECURITY-AND-POSITIONING.md))
 and in the plan's competitor section, which corrected it a week later.
 The Hushdrop profile is from its sites and READMEs, read on 2026-10-10.
-The croc profile and §2a are weaker still: general knowledge, not even a
-README read. Nobody here has run any of these tools, read their source, or measured
+The magic-wormhole and croc profiles and §2a are weaker still: general
+knowledge, not even a README read. Nobody here has run any of these tools, read their source, or measured
 them. **Treat every claim about another tool as a claim to verify, not a
-fact.** §5 is how they will be verified.
+fact.** §4 is how they will be verified.
 
 ---
 
@@ -42,8 +42,9 @@ vectors and a conformance suite ([`PROTOCOL.md`](PROTOCOL.md); W12 for the
 harness). The tools compared below are applications that happen to contain
 an engine. A specification is what lets other clients exist (Rust, Go,
 Swift, a browser), and so what lets a one-person project outlive its
-author. The natural comparator is **magic-wormhole**: a PAKE-protected
-code, a mature CLI, and a mailbox server it needs. "Wormhole without the
+author. The natural comparator is **magic-wormhole** (§2): a
+PAKE-protected code, a mature CLI, a published protocol with several
+implementations, and a mailbox server it needs. "Wormhole without the
 server" is a sentence people already understand.
 
 **3. Ephemeral-by-construction privacy.** No accounts, no persistent
@@ -65,11 +66,19 @@ serves developers, CI, headless servers, and machines without SSH, which
 GUI-first tools ignore, and it lands naturally on macOS and Linux first.
 
 **5. Published, reproducible reliability numbers.** "Lead with
-reliability" is a position only if it is evidence. `scratch-trials.js`
-already reports rates with honest bounds: 10 of 10 on one path gives a
-95% lower bound of 74.1%, not "100%". §5 turns that into a public
-scoreboard. If Adhal loses, that is the most valuable early finding
-available. If it wins, it is the case for using it.
+reliability" is a position only if it is evidence, so every rate is
+stated with an honest bound. The first measurement, 10 of 10 on one path
+(Starlink CGNAT to Comcast), gives a 95% one-sided lower bound of 74.1%,
+not "100%". Two runs of 40 trials with `scratch-trials.js` followed on the
+same pair of networks, 20 in each direction ([`trials/`](trials/), one
+`ENVIRONMENT.md` per run). On 2026-10-13 the senders completed 38 of 40
+and the receivers 39 of 40: one direction was 20/20 on both sides, and
+both failures were in the other. On 2026-10-15, at `8bc808a`, in the run
+that gated the wire freeze (W17), both directions were 20/20 on both
+sides: 40 of 40, which gives a lower bound of 92.8%. That is still one
+pair of networks. §4 turns it into a public scoreboard. If Adhal loses,
+that is the most valuable early finding available. If it wins, it is the
+case for using it.
 
 ### Do not fight on
 
@@ -91,15 +100,40 @@ available. If it wins, it is the case for using it.
 
 ## 2. The tools compared
 
-| | MeshDrop | DashBeam | Adhal today |
-|---|---|---|---|
-| Stack | Hyperswarm + Hyperbee, Noise | Iroh (QUIC/TLS 1.3, BLAKE3 blobs) | Hyperswarm, Noise underneath; its own sealed channel keyed by a PAKE (v2) |
-| Codes | `MD-` pair codes, single-use `DROP-` codes, HMAC challenge-response | Tickets, links, QR, pairing and verification codes | Five words (public nameplate + secret) and QR; CPace PAKE; an attempt cap; a late peer is told the drop is taken |
-| Discovery | mDNS + DHT + TCP relay | mDNS, relays (self-hostable) | DHT only. LAN discovery and an optional relay are planned (Stage 3) |
-| Resume | Yes | Yes (BLAKE3) | Yes: the prefix is proven by the sender before it is resumed (W11) |
-| Approval gate | Yes | Yes, plus trusted auto-accept | Yes: in the engine (W11), and a prompt in the CLI (W15c) |
-| Platforms | Windows / macOS / Linux / Android | Windows / macOS / Linux / Android / CLI / web | CLI on macOS and Linux; Windows not supported for security purposes yet |
-| Version / traction | v1.0.14, ~1 star, MIT | v0.7.1, ~9.6k stars, AGPL-3.0 | 0.1.0, unreleased |
+| | magic-wormhole | MeshDrop | DashBeam | Adhal today |
+|---|---|---|---|---|
+| Stack | Python (Twisted); SPAKE2 PAKE, NaCl SecretBox | Hyperswarm + Hyperbee, Noise | Iroh (QUIC/TLS 1.3, BLAKE3 blobs) | Hyperswarm, Noise underneath; its own sealed channel keyed by a PAKE (v2) |
+| Codes | A number nameplate + two words (`7-guitarist-revenge`); SPAKE2; a wrong guess ends the exchange | `MD-` pair codes, single-use `DROP-` codes, HMAC challenge-response | Tickets, links, QR, pairing and verification codes | Five words (public nameplate + secret) and QR; CPace PAKE; an attempt cap; a late peer is told the drop is taken |
+| Discovery | A mailbox (rendezvous) server, the project's by default; a direct path is tried, with a transit relay as the fallback | mDNS + DHT + TCP relay | mDNS, relays (self-hostable) | DHT only. LAN discovery and an optional relay are planned (Stage 3) |
+| Resume | Not known to | Yes | Yes (BLAKE3) | Yes: the prefix is proven by the sender before it is resumed (W11) |
+| Approval gate | Yes: the receiver confirms before a file is written | Yes | Yes, plus trusted auto-accept | Yes: in the engine (W11), and a prompt in the CLI (W15c) |
+| Platforms | CLI wherever Python runs; Go and Rust implementations, and apps built on them | Windows / macOS / Linux / Android | Windows / macOS / Linux / Android / CLI / web | CLI on macOS and Linux; Windows not supported for security purposes yet |
+| Version / traction | MIT, long established and widely used; version and stars not checked | v1.0.14, ~1 star, MIT | v0.7.1, ~9.6k stars, AGPL-3.0 | 0.1.0, unreleased |
+
+The magic-wormhole column is general knowledge, like its profile below,
+not a README read.
+
+**magic-wormhole** is the main competitor for the position in §1: the
+tool people already reach for when they want a short spoken code instead
+of an account or a cloud link, and the one most likely to be named in the
+first reply to any announcement of Adhal. As understood: two sides that
+share a code such as `7-guitarist-revenge` meet at a mailbox server, run
+SPAKE2 over it to agree a key, and then try a direct connection, falling
+back to a transit relay. The number is a public channel on the mailbox,
+and the words are the secret. A wrong guess ends the exchange, so an
+attacker gets one guess per code. The receiver confirms before a file is
+written, and directories are sent as an archive. The protocol is
+documented and has independent implementations (wormhole-william in Go,
+magic-wormhole.rs in Rust), which is the protocol-first position of §1 #2
+already taken, by a mature project. What Adhal can claim against it is
+§1 #1: the mailbox server is required for every transfer, even when the
+direct path works, and whoever runs it sees who met whom and when. Adhal's
+DHT nodes see a topic and IP addresses too (§1, #3), so the difference is
+an operator, not anonymity. It is a W14 comparison target. To verify: the
+code format and its entropy, the one-guess rule, whether resume or a piped
+input is supported, what the mailbox and transit relay log, how often the
+default servers have been unavailable, and the current release and
+platforms.
 
 **MeshDrop, corrected.** An earlier plan called it "Android only",
 "fragile", and "a tiny same-stack competitor, not the market". Per its own
@@ -107,7 +141,7 @@ README it ships on four platforms with a relay, resume, and an approval
 gate, and its drop-code design is close to Adhal's data path. "Not the
 market" is true of *traction* and false of *feature parity*. On features
 it was ahead of Adhal when this was written, and on platforms and
-discovery it still is. Whether it is fragile is unknown, and is what §5
+discovery it still is. Whether it is fragile is unknown, and is what §4
 measures.
 
 **DashBeam** is a different kind of tool: real traction, Iroh's mature
@@ -128,7 +162,10 @@ server in the middle of every transfer. It is also the tool most likely to
 make a CLI user ask why Adhal needs to exist, so it is a strong candidate
 for the W14 comparison. To verify: the code format, whether a direct path
 is ever attempted, what the relay can observe, and whether the default
-relay's availability has been a problem in practice.
+relay's availability has been a problem in practice. Its contrast with
+magic-wormhole matters too: if croc's data always crosses the relay and
+magic-wormhole's usually does not, they are two different points on the
+same line, and Adhal is the end of it.
 
 **Hushdrop** is two unrelated projects that share a name, both read from
 their sites and READMEs on 2026-10-10 and neither run. Neither is
@@ -172,14 +209,15 @@ project has traction yet, so this is a comparison of designs, not of
 markets. To verify: StatiCrypt's KDF and cost, and what the managed tier
 logs.
 
-**Others named but not profiled here:** magic-wormhole (§1, #2),
-LocalSend (a W14 comparison target), and PairDrop-style browser tools,
-which already serve casual use from iOS. Each needs the same treatment as
-the two above before anything is said about it.
+**Others named but not profiled here:** LocalSend (a W14 comparison
+target), and PairDrop-style browser tools, which already serve casual use
+from iOS. Each needs the same treatment as the tools above before anything
+is said about it.
 
 **License hygiene.** DashBeam is AGPL-3.0: treat it as a black box, and do
-not read its source with an eye to copying. MeshDrop is MIT (its name and
-logo are separately protected), so reading its core is both legal and the
+not read its source with an eye to copying. magic-wormhole is MIT, and its
+protocol documentation is the first thing to read before W14. MeshDrop is
+MIT (its name and logo are separately protected), so reading its core is both legal and the
 cheapest high-value research available. It uses the same stack for the same
 idea, so it holds either bugs to avoid or a design worth adopting.
 
@@ -238,7 +276,7 @@ already installed. This will be include in the next version.
 - **Scripting** (§1, #4). A share sheet is not a pipe.
 
 **Not in the W14 trials.** They do not cross NAT, so they cannot be run on
-the network pairs in §5. Say so where the results are published, so that
+the network pairs in §4. Say so where the results are published, so that
 their absence is not read as avoiding them.
 
 ### Third-party sharing apps
@@ -301,26 +339,17 @@ them is a transfer between two people who share nothing beforehand.
   largest open gap in this space, so it is worth a spike early, to size the
   prize before reordering the platforms.
 - **Is MeshDrop fragile?** A claim from an earlier plan, never measured.
-- **Does the relay matter?** The one path measured so far (Starlink CGNAT
-  to Comcast) punched 10 of 10 times. Dual hard NAT, the plan's own named
-  risk, has not been measured, so "the relay is not on the critical path"
-  is not yet established.
+- **Does the relay matter?** One pair of networks has been measured
+  (Starlink CGNAT to Comcast): 10 of 10 punched at first, then two runs
+  of 40 trials with no relay configured, and every one of the 80
+  connected directly. The two failures, on 2026-10-13, lost the
+  connection after it was made. Dual hard NAT, the plan's own named risk,
+  has not been measured, so "the relay is not on the critical path" is
+  not yet established.
 
 ---
 
-## 4. The name
-
-The 2026-09-18 review pointed out that the project's first name, Quay,
-collides with quay.io, Red Hat's container registry (Project Quay):
-hostile for search, and close to a trademark in software. The product is
-now Adhal. The same check against other tools' names should be repeated
-before there is a website. Names ending in "drop" are already crowded in
-this space (MeshDrop, PairDrop, Snapdrop, AirDrop, and two unrelated
-Hushdrops), which is a reason to avoid one for any sub-tool or feature.
-
----
-
-## 5. Comparison testing (W14, planned)
+## 4. Comparison testing (W14, planned)
 
 Not done yet. This is the method, so that when it is run the result can
 be trusted, and it is where the results will go.
@@ -355,11 +384,14 @@ much the relay matters.
 - Every tool runs its own default configuration, and the configuration is
   published with the result.
 
-**Before running it.** Read MeshDrop's core and its handshake (MIT, same
-stack). Treat DashBeam as a black box (AGPL).
+**Before running it.** Read magic-wormhole's protocol documentation (MIT),
+and MeshDrop's core and its handshake (MIT, same stack). Treat DashBeam as
+a black box (AGPL).
 
-**Results.** None yet.
+**Results.** None yet. Adhal's own runs on the CGNAT ↔ home NAT pair
+(§1, #5) are in [`ARCHITECTURE.md`](ARCHITECTURE.md), but they are not a
+comparison until the other tools have been run on the same pair.
 
-| Pair | Adhal | MeshDrop | DashBeam | LocalSend |
-|---|---|---|---|---|
-| | | | | |
+| Pair | Adhal | magic-wormhole | MeshDrop | DashBeam | LocalSend |
+|---|---|---|---|---|---|
+| | | | | | |
