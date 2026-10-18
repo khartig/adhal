@@ -33,6 +33,7 @@
 const test = require('node:test')
 const assert = require('node:assert/strict')
 const crypto = require('node:crypto')
+const path = require('node:path')
 
 const {
   FrameDecoder,
@@ -347,9 +348,12 @@ test('fuzz: manifest validation, and the name that would be written', () => {
     assert.ok(parsed.sha256 === null || /^[0-9a-f]{64}$/.test(parsed.sha256), 'sha256')
     assert.equal(parsed.size === null, parsed.sha256 === null, 'size and sha256 are both declared or both null')
     assert.ok(Number.isSafeInteger(parsed.blockSize) && parsed.blockSize >= 1 && parsed.blockSize <= MAX_CHUNK_SIZE, 'blockSize')
+    // Resolved on the host, as safeOutputName resolves it: on Windows
+    // '/srv/drops' is 'D:\srv\drops', which no literal prefix matches.
+    const drops = path.resolve('/srv/drops') + path.sep
     for (const platform of ['linux', 'darwin', 'win32']) {
       const { outputPath } = safeOutputName('/srv/drops', parsed.name, { platform })
-      assert.ok(outputPath.startsWith('/srv/drops'), 'a name that validated resolves inside the directory')
+      assert.ok(outputPath.startsWith(drops), 'a name that validated resolves inside the directory')
     }
     // What the CLI would print of it.
     assert.ok(!/[\u0000-\u001f\u007f‮]/.test(displayName(parsed.name)))

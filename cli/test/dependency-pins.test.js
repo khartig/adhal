@@ -79,7 +79,9 @@ test('engine/package.json pins each @noble package to an exact version', () => {
 })
 
 test('pnpm-lock.yaml resolves each @noble package to the pin, and to nothing else', () => {
-  const lock = fs.readFileSync(path.join(REPO_ROOT, 'pnpm-lock.yaml'), 'utf8')
+  // A Windows checkout with core.autocrlf hands us CRLF; the patterns
+  // below are about the lockfile's layout, not its line endings.
+  const lock = fs.readFileSync(path.join(REPO_ROOT, 'pnpm-lock.yaml'), 'utf8').replace(/\r\n/g, '\n')
 
   // The engine importer's block, up to the blank line that ends it.
   const engine = lock.match(/^ {2}engine:\n {4}dependencies:\n([\s\S]*?)\n\n/m)
