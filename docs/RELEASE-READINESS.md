@@ -81,7 +81,7 @@ that the review did not are `RR-n`, and they are numbered only here.
 | Compromised endpoint | Accepted | Not claimed (§12.3.4). Key wiping is best effort (Q-18). |
 | Outdated clients | Open | There are no releases, there is no support policy beyond "the default branch", and a client cannot learn that it is out of date. The wire version byte stops cross-version sessions from proceeding silently. See RR-2 and RR-3. |
 | Supply chain | Open | The pinning above is in place. Gating, an SBOM, and signed artifacts are not (Q-08; RR-4). pnpm ≥ 10 blocks dependency install scripts by default, and this repository allows none. |
-| Clones and typosquatted packages | Open | **`ad-hal`, `adhal`, `@ad-hal/cli`, and `@ad-hal/engine` were all unregistered on npm** on 2026-10-10. Each returned 404 from the registry. See RR-1. |
+| Clones and typosquatted packages | Open | **`ad-hal`, `adhal`, `@ad-hal/cli`, and `@ad-hal/engine` were all unregistered on npm** on 2026-10-10. On 2026-10-18 they still were, and so was `ad-hal-cli`. Each returned 404 from the registry. A 404 means no public package has the name. It does not promise that npm will accept a publish under it, since its similarity checks can still refuse one. The official sources are now named in README.md and SECURITY.md. See RR-1. |
 
 ---
 
@@ -89,10 +89,35 @@ that the review did not are `RR-n`, and they are numbered only here.
 
 Ordered by how expensive each gets to fix later.
 
-- [ ] **RR-1 — Reserve the names.** Register `ad-hal` and the `@ad-hal`
-  scope on npm, and claim the obvious variants (`adhal`, `ad-hal-cli`)
-  before the project is announced. Name one install source in the README
-  and in SECURITY.md, and say that anything else is not Adhal.
+- [ ] **RR-1 — Establish the official npm namespace, and publish the
+  packages meant for distribution.** npm does not reserve names, and
+  publishing an empty package only to hold a name breaks its
+  name-squatting policy. So the namespace is claimed by creating the
+  `ad-hal` organization, which gives the `@ad-hal` scope to its members
+  alone, and is held by publishing real packages in it within a
+  reasonable time:
+  - [ ] Create the npm account, with two-factor authentication on and
+    the recovery codes stored.
+  - [ ] Create the `ad-hal` organization on the free plan.
+  - [x] Make the packages publishable (2026-10-18). `@ad-hal/engine`
+    and `@ad-hal/cli` are no longer `private`, and each has its own
+    README and LICENSE. The CLI is the canonical install, and it leaves
+    out the test-only loopback pair and the demos. The engine's
+    `exports` keeps its internals out of reach. Both were packed,
+    installed in a directory outside the workspace, and used for a real
+    drop on the public DHT, whose digest matched.
+  - [ ] Publish the engine first, then the CLI, with `pnpm publish`,
+    which turns the CLI's `workspace:*` into the engine's version. Both
+    have `publishConfig.access` set to `public`.
+  - [x] Name the official sources in the README and in SECURITY.md: the
+    repository, `@ad-hal/cli`, and `@ad-hal/engine`. Anything else is
+    unofficial.
+
+  The workspace root, `ad-hal`, stays `private`. It is a development
+  workspace, not a package, and publishing it to hold the name would be
+  the squatting the policy forbids. Owning `@ad-hal` gives no claim to
+  `ad-hal`, `adhal`, or `ad-hal-cli`. Those are published only if one of
+  them gets a real purpose, such as a working wrapper around the CLI.
 - [x] **Turn on GitHub private vulnerability reporting.** SECURITY.md was
   not accurate until it was, and it could not be enabled while the
   repository was private (W16). Done on 2026-10-14, when the repository

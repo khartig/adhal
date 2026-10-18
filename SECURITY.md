@@ -55,6 +55,21 @@ vulnerabilities in this sense:
 - Windows, which is not supported for security purposes yet;
 - the `scratch-*` diagnostics in `engine/`, which are not shipped.
 
+## Official sources
+
+Adhal comes from two places only:
+
+- the repository, [github.com/khartig/adhal](https://github.com/khartig/adhal);
+- the npm packages [`@ad-hal/cli`](https://www.npmjs.com/package/@ad-hal/cli),
+  which is the one to install, and
+  [`@ad-hal/engine`](https://www.npmjs.com/package/@ad-hal/engine), which
+  the CLI depends on.
+
+Neither package has been published yet. Any other package or repository
+that claims to be Adhal is unofficial, including the unscoped npm names
+`ad-hal`, `adhal`, and `ad-hal-cli`. If one of those turns up claiming
+to be Adhal, please report it the way you would report a vulnerability.
+
 ## Supported versions
 
 There are no releases yet. The wire format is v2, frozen at the tag

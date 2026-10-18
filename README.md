@@ -87,6 +87,11 @@ comfortably usable", not "proven ≥ 75%"
 
 ## Quickstart
 
+The official packages will be `@ad-hal/cli`, the one to install, and
+`@ad-hal/engine`, which the CLI depends on. Neither has been published
+yet, so for now Adhal runs from this repository. Any other package that
+claims to be Adhal is unofficial ([`SECURITY.md`](SECURITY.md)).
+
 Prerequisites: Node.js ≥ 24, and [pnpm](https://pnpm.io) 12.11.2
 (`corepack enable` provides it from `packageManager`).
 
