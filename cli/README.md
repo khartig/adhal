@@ -45,6 +45,11 @@ before anything is written. `--help` on either command lists every flag.
 - **This is 0.x.** The wire protocol is frozen at v2, but the commands and
   their flags may still change.
 
+What changed in each version, and which versions have security fixes, is
+in the [release notes](https://github.com/khartig/adhal/releases). A
+version with a known vulnerability is also deprecated on npm, so
+installing it prints a warning.
+
 Report a vulnerability through the repository's
 [security policy](https://github.com/khartig/adhal/blob/main/SECURITY.md),
 not in a public issue.

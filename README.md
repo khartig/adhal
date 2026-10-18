@@ -33,8 +33,8 @@ rather than a custom NAT-traversal stack.
 
 **A drop works end to end, over the public DHT and across ISPs. Protocol
 v2 is implemented, and a security review of it has been worked through
-(W15). The wire format is frozen as v2 (W17), and there are no releases
-yet.**
+(W15). The wire format is frozen as v2 (W17), and 0.1.0 is published on
+npm as `@ad-hal/cli`.**
 
 What a drop does today:
 
@@ -87,10 +87,16 @@ comfortably usable", not "proven ≥ 75%"
 
 ## Quickstart
 
-The official packages will be `@ad-hal/cli`, the one to install, and
-`@ad-hal/engine`, which the CLI depends on. Neither has been published
-yet, so for now Adhal runs from this repository. Any other package that
-claims to be Adhal is unofficial ([`SECURITY.md`](SECURITY.md)).
+To use Adhal, install the CLI (Node.js ≥ 24, macOS or Linux):
+
+```bash
+npm install --global @ad-hal/cli
+```
+
+The official packages are `@ad-hal/cli` and `@ad-hal/engine`, which the
+CLI depends on. Any other package that claims to be Adhal is unofficial
+([`SECURITY.md`](SECURITY.md)). The rest of this section runs Adhal from
+this repository, for development.
 
 Prerequisites: Node.js ≥ 24, and [pnpm](https://pnpm.io) 12.11.2
 (`corepack enable` provides it from `packageManager`).

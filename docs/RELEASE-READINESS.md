@@ -79,7 +79,7 @@ that the review did not are `RR-n`, and they are numbered only here.
 |---|---|---|
 | Social engineering around the code | Partial | The receiver is asked before accepting, and is shown the name, size, digest, and any resume. Executables and double extensions are warned about even with `--yes`. Codes stay off argv by default, and both sides are told when someone else holds the code (W15c, W15a). See RR-5. |
 | Compromised endpoint | Accepted | Not claimed (§12.3.4). Key wiping is best effort (Q-18). |
-| Outdated clients | Open | There are no releases, there is no support policy beyond "the default branch", and a client cannot learn that it is out of date. The wire version byte stops cross-version sessions from proceeding silently. See RR-2 and RR-3. |
+| Outdated clients | Open | 0.1.0 is the first release (2026-10-18). The only support policy is "the latest npm release and the default branch", and a client cannot learn that it is out of date. The wire version byte stops cross-version sessions from proceeding silently. See RR-2 and RR-3. |
 | Supply chain | Open | The pinning above is in place. Gating, an SBOM, and signed artifacts are not (Q-08; RR-4). pnpm ≥ 10 blocks dependency install scripts by default, and this repository allows none. |
 | Clones and typosquatted packages | Open | **`ad-hal`, `adhal`, `@ad-hal/cli`, and `@ad-hal/engine` were all unregistered on npm** on 2026-10-10. On 2026-10-18 they still were, and so was `ad-hal-cli`. Each returned 404 from the registry. A 404 means no public package has the name. It does not promise that npm will accept a publish under it, since its similarity checks can still refuse one. The official sources are now named in README.md and SECURITY.md. See RR-1. |
 
@@ -96,9 +96,9 @@ Ordered by how expensive each gets to fix later.
   `ad-hal` organization, which gives the `@ad-hal` scope to its members
   alone, and is held by publishing real packages in it within a
   reasonable time:
-  - [ ] Create the npm account, with two-factor authentication on and
+  - [x] Create the npm account, with two-factor authentication on and
     the recovery codes stored.
-  - [ ] Create the `ad-hal` organization on the free plan.
+  - [x] Create the `ad-hal` organization on the free plan.
   - [x] Make the packages publishable (2026-10-18). `@ad-hal/engine`
     and `@ad-hal/cli` are no longer `private`, and each has its own
     README and LICENSE. The CLI is the canonical install, and it leaves
@@ -106,9 +106,14 @@ Ordered by how expensive each gets to fix later.
     `exports` keeps its internals out of reach. Both were packed,
     installed in a directory outside the workspace, and used for a real
     drop on the public DHT, whose digest matched.
-  - [ ] Publish the engine first, then the CLI, with `pnpm publish`,
+  - [x] Publish the engine first, then the CLI, with `pnpm publish`,
     which turns the CLI's `workspace:*` into the engine's version. Both
-    have `publishConfig.access` set to `public`.
+    have `publishConfig.access` set to `public`. Both 0.1.0 releases are
+    out (2026-10-18). npm staged them, so each package also carries a
+    `0.0.0-stage` placeholder version that npm created. The source in
+    both published tarballs is identical to the repository's. Installed
+    from the registry, the CLI completed a real drop on the public DHT,
+    and the digests matched. Neither release has provenance (Q-08).
   - [x] Name the official sources in the README and in SECURITY.md: the
     repository, `@ad-hal/cli`, and `@ad-hal/engine`. Anything else is
     unofficial.
@@ -129,11 +134,32 @@ Ordered by how expensive each gets to fix later.
   or signed artifacts, and publish release checksums.
 - [ ] **RR-2 — A version support policy.** Which releases get security
   fixes, and for how long. SECURITY.md's "Supported versions" says only
-  the default branch.
-- [ ] **RR-3 — How a user learns of a fix.** At least GitHub security
-  advisories and release notes. Any in-client update check has to be
-  weighed against the privacy properties: it would contact a server, and
-  that is a design decision rather than a default.
+  the latest npm release and the default branch.
+- [ ] **RR-3 — How a user learns of a fix.** Through three channels,
+  none of which needs the client to contact a server. That keeps an
+  in-client update check off the table: one would be a design decision
+  weighed against the privacy properties, not a default.
+  - **Release notes, on GitHub Releases**, for every published version:
+    what changed, what was fixed, and whether any of it is a security
+    fix. The npm package page does not show them. It shows only the
+    README that was published with the version, so both package READMEs
+    link to the Releases page, and that link reaches npm with the next
+    publish.
+  - **A GitHub security advisory** for each confirmed vulnerability,
+    published from the private report once the fix is released
+    (SECURITY.md). Advisories that GitHub reviews into its Advisory
+    Database are what `npm audit` reports, so a user is told without
+    visiting any page. That review is not instant, and whether every
+    advisory for a small package is taken in has not been checked.
+  - **`npm deprecate`** on each version a security fix supersedes, with
+    a message naming the fixed version and the advisory. npm prints it
+    on every install of that version and shows it on the package page.
+    It is the only one of the three that reaches users through npm
+    itself. It does not remove the version.
+
+  Open: the Releases link is in both READMEs (2026-10-18) but is not on
+  npm until the next publish. No release notes exist yet, including for
+  0.1.0.
 - [x] **W17 gate 8 — A real two-machine drop** (macOS ↔ Linux) on the
   public DHT, on the frozen wire. Done on 2026-10-15 at `8bc808a`, logged
   clean on both sides: 40 trials of 10 MB between macOS on eero/Xfinity

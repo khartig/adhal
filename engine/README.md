@@ -36,6 +36,11 @@ security purposes yet; the
 [threat model](https://github.com/khartig/adhal/blob/main/docs/THREAT-MODEL.md)
 says what is and is not claimed.
 
+What changed in each version, and which versions have security fixes, is
+in the [release notes](https://github.com/khartig/adhal/releases). A
+version with a known vulnerability is also deprecated on npm, so
+installing it prints a warning.
+
 ## License
 
 MIT

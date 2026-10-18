@@ -65,16 +65,18 @@ Adhal comes from two places only:
   [`@ad-hal/engine`](https://www.npmjs.com/package/@ad-hal/engine), which
   the CLI depends on.
 
-Neither package has been published yet. Any other package or repository
+Any other package or repository
 that claims to be Adhal is unofficial, including the unscoped npm names
 `ad-hal`, `adhal`, and `ad-hal-cli`. If one of those turns up claiming
 to be Adhal, please report it the way you would report a vulnerability.
 
 ## Supported versions
 
-There are no releases yet. The wire format is v2, frozen at the tag
-`v2-final` (W17, [`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md)).
-Until the first release, only the default branch is supported.
+The first release is 0.1.0, published to npm on 2026-10-18. The wire
+format is v2, frozen at the tag `v2-final` (W17,
+[`docs/IMPLEMENTATION-PLAN.md`](docs/IMPLEMENTATION-PLAN.md)). Until a
+longer support policy is written, only the latest npm release and the
+default branch are supported.
 
 ## Status of earlier findings
 
