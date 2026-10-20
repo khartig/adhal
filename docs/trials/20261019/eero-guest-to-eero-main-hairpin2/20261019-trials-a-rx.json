@@ -1,0 +1,358 @@
+{
+  "role": "receiver",
+  "seed": "20261019-eero-guest-to-eero-main-hairpin2-a",
+  "trials": 10,
+  "slotSeconds": 135,
+  "refreshMs": 4000,
+  "startEpoch": 1792469369,
+  "startedAtEpochMs": 1792469121106,
+  "endedAtEpochMs": 1792470715284,
+  "file": null,
+  "environment": {
+    "hostname": "DecentralizedDefender.local",
+    "os": {
+      "platform": "darwin",
+      "release": "25.5.0",
+      "arch": "arm64",
+      "name": "macOS",
+      "version": "26.5.2",
+      "build": "25F84",
+      "pretty": "macOS 26.5.2 (25F84)"
+    },
+    "node": "v24.21.0",
+    "build": {
+      "commit": "7b147e3eb7da",
+      "dirty": false,
+      "versions": {
+        "hyperswarm": "4.17.1",
+        "hyperdht": "6.34.0",
+        "udx-native": "1.21.1"
+      }
+    },
+    "interfaces": {
+      "ipv4": 2,
+      "cgnatIpv4": 0,
+      "globalIpv6": false
+    },
+    "access": {
+      "interface": "en0",
+      "type": "wifi",
+      "detail": "Wi-Fi",
+      "gatewayKind": "private",
+      "hotspot": null,
+      "gateway": "192.168.12.1"
+    },
+    "vpn": {
+      "onRoute": false,
+      "tunnelInterfaces": [],
+      "services": [
+        {
+          "name": "ProtonVPN",
+          "status": "Disconnected"
+        }
+      ]
+    },
+    "hostFirewall": {
+      "tool": "macOS application firewall; pf not checked, it needs root",
+      "enabled": false,
+      "blockAll": false,
+      "stealth": false
+    },
+    "natAtStart": {
+      "kind": "consistent",
+      "firewalled": true,
+      "portPreserved": true,
+      "samples": 16,
+      "publicHost": "redacted-shared-public-ip",
+      "publicPort": 64477,
+      "localPorts": [
+        49737,
+        64477
+      ]
+    },
+    "isp": {
+      "asn": 7922,
+      "name": "COMCAST-7922 - Comcast Cable Communications, LLC, US",
+      "country": "US",
+      "source": "Team Cymru IP-to-ASN (DNS)"
+    },
+    "notes": [
+      "eero guest Wi-Fi, isolated from the main LAN",
+      "same eero and Comcast public IP as the peer",
+      "router: eero Pro 6E"
+    ],
+    "addressesRecorded": true
+  },
+  "results": [
+    {
+      "trial": 0,
+      "outcome": "no-peer",
+      "announcedMs": 3662,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129994ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792469499028,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 62491,
+        "localPorts": [
+          49737,
+          62491
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 1,
+      "outcome": "no-peer",
+      "announcedMs": 5296,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129998ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792469634009,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 62863,
+        "localPorts": [
+          49737,
+          62863
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 2,
+      "outcome": "no-peer",
+      "announcedMs": 5356,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129999ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792469768977,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 61664,
+        "localPorts": [
+          49737,
+          61664
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 3,
+      "outcome": "no-peer",
+      "announcedMs": 3368,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129999ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792469904010,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 52165,
+        "localPorts": [
+          49737,
+          52165
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 4,
+      "outcome": "no-peer",
+      "announcedMs": 3944,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129993ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792470039006,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 64184,
+        "localPorts": [
+          49737,
+          64184
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 5,
+      "outcome": "no-peer",
+      "announcedMs": 3978,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129997ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792470174012,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 55269,
+        "localPorts": [
+          49737,
+          55269
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 6,
+      "outcome": "no-peer",
+      "announcedMs": 4174,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129999ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792470309011,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 55833,
+        "localPorts": [
+          49737,
+          55833
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 7,
+      "outcome": "no-peer",
+      "announcedMs": 4101,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129999ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792470444015,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 52533,
+        "localPorts": [
+          49737,
+          52533
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 8,
+      "outcome": "no-peer",
+      "announcedMs": 4617,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129999ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792470579007,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 58827,
+        "localPorts": [
+          49737,
+          58827
+        ]
+      },
+      "path": null
+    },
+    {
+      "trial": 9,
+      "outcome": "no-peer",
+      "announcedMs": 3526,
+      "candidateMs": null,
+      "connectedMs": null,
+      "badConfirmations": 0,
+      "error": "timed out after 129999ms waiting for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+      "phase": "accept",
+      "bytesReceived": 0,
+      "manifestSize": null,
+      "cause": null,
+      "failedAtEpochMs": 1792470714010,
+      "nat": {
+        "kind": "consistent",
+        "firewalled": true,
+        "portPreserved": true,
+        "samples": 16,
+        "publicHost": "redacted-shared-public-ip",
+        "publicPort": 49663,
+        "localPorts": [
+          49737,
+          49663
+        ]
+      },
+      "path": null
+    }
+  ]
+}

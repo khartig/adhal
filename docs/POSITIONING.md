@@ -373,8 +373,10 @@ much the relay matters.
   touching the router, so hairpinning is tested only by two devices
   behind one NAT that cannot reach each other locally, such as main and
   guest Wi-Fi. Adhal's same-machine baseline is 20 of 20 (2026-10-18,
-  [`ARCHITECTURE.md`](ARCHITECTURE.md)). The isolated case is not
-  measured yet;
+  [`ARCHITECTURE.md`](ARCHITECTURE.md)). The isolated case, guest and
+  main Wi-Fi behind one eero Pro 6E, is 0 of 20 in both directions
+  (2026-10-19): the router did not hairpin, so only a relay connects
+  that pair. The other tools have not been run on it;
 - a mobile hotspot and a corporate network.
 
 **How it is read.**
