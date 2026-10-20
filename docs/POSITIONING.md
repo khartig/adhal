@@ -368,7 +368,13 @@ much the relay matters.
 - **CGNAT ↔ CGNAT**, for example two phones on hotspots from different
   carriers;
 - a symmetric or port-randomizing NAT;
-- same NAT (hairpinning) and VLAN-isolated networks;
+- same NAT (hairpinning) and VLAN-isolated networks. Two peers on one
+  machine or one LAN connect by hyperdht's LAN shortcut, without
+  touching the router, so hairpinning is tested only by two devices
+  behind one NAT that cannot reach each other locally, such as main and
+  guest Wi-Fi. Adhal's same-machine baseline is 20 of 20 (2026-10-18,
+  [`ARCHITECTURE.md`](ARCHITECTURE.md)). The isolated case is not
+  measured yet;
 - a mobile hotspot and a corporate network.
 
 **How it is read.**
