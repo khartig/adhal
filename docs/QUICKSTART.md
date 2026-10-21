@@ -74,7 +74,7 @@ The **receiver goes first**, because the receiver creates the code.
 Choose the folder the file should land in, and run:
 
 ```bash
-ad-hal-receive ~/Downloads
+ad-hal-receive - ~/Downloads
 ```
 
 After a few seconds it prints a QR symbol and a line like this:
