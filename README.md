@@ -93,6 +93,9 @@ To use Adhal, install the CLI (Node.js ≥ 24, macOS or Linux):
 npm install --global @ad-hal/cli
 ```
 
+New to Adhal? [`docs/QUICKSTART.md`](docs/QUICKSTART.md) walks through
+installing it and sending a first file.
+
 The official packages are `@ad-hal/cli` and `@ad-hal/engine`, which the
 CLI depends on. Any other package that claims to be Adhal is unofficial
 ([`SECURITY.md`](SECURITY.md)). The rest of this section runs Adhal from
