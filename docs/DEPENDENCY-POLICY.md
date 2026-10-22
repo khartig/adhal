@@ -2,8 +2,9 @@
 
 What to do when a dependency has a known vulnerability, and the rules for
 adding or changing one. This is the gating half of Q-08
-([`SECURITY-REVIEW.md`](SECURITY-REVIEW.md)). The SBOM and signed releases
-are the other half and are not done yet.
+([`SECURITY-REVIEW.md`](SECURITY-REVIEW.md)). The rest of Q-08 is the
+SBOM, attached to each GitHub Release, and signed releases, which are not
+done yet.
 
 A vulnerability in Adhal's own code goes through
 [`SECURITY.md`](../SECURITY.md), not this document.

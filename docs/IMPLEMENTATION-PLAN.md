@@ -128,7 +128,7 @@ has all 21).
 | Q-05 independent cryptographic review | After W17 | Reviewing a moving spec wastes the review. |
 | Q-06 property-based and mutation testing | W12 | Decision 6. |
 | Q-07 Windows as a required CI leg | Stage 3 | Documented as unsupported for security purposes until then (W16). |
-| Q-08 gating advisories, SBOM, signed releases | The next release | 0.1.0 shipped on 2026-10-18 without them: the registry shows no provenance attestation. Every dependency is pinned exactly, and an unused one was removed in W15b. |
+| Q-08 npm provenance, signed checksums | The next npm publish | The rest of Q-08 is done: advisories fail CI (`609f814`), and v0.1.0's GitHub Release carries a CycloneDX SBOM for each package (`e5961d1`). 0.1.0 itself can never have provenance: it was published from a developer's machine on 2026-10-18, and npm does not republish a version. Provenance needs a publish job in `release.yml`. |
 | Q-09 length padding, re-announce back-off | Post-freeze | Neither changes the wire. Padding only if file-size confidentiality ever becomes a stated goal. |
 | Q-10 relay invariants | Before any relay code | Written into THREAT-MODEL §8 as merge gates (W16); enforced when a relay exists. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
 

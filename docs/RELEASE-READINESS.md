@@ -70,7 +70,7 @@ that the review did not are `RR-n`, and they are numbered only here.
 | Path traversal in filenames | Covered | `safeWriteName` refuses `/` and `\` on every platform, plus `.`, `..`, NUL, control characters, and bidi overrides. `safeOutputName` checks that the resolved path stays inside the output directory. Existing files are never replaced, and partials are opened `O_EXCL` or `O_NOFOLLOW` with a link-count check (THREAT-MODEL §6). Tested with `../`, `..\..\`, and `/etc/passwd` (`manifest.test.js`). Windows is not supported for security purposes (Q-07). See RR-6 for the display spoofs that remain. |
 | Memory safety in parsing and chunking | Partial | The engine is JavaScript, and its parsers are fuzzed: the fast tier runs the harness, and `pnpm fuzz` runs 100,000 iterations. The C code it inherits, `sodium-native` and `udx-native`, is not fuzzed by this project. |
 | Resource exhaustion from a declared size | Covered | Frames are capped at 1 MiB before buffering, and handshake messages are capped too. Files are capped at 8 GiB by default, and the cap applies to streams. Backpressure runs in both directions, the stall timers run, and the set of seen `sid`s is bounded. The free-space check is advisory where `statfs` is missing. Pinned by `hardening.test.js`. |
-| Vulnerable dependencies | Partial | Every dependency is pinned exactly, CI installs with `--frozen-lockfile`, and the audit is clean as of this checklist. But the CI audit job is advisory, and there is no SBOM (Q-08). |
+| Vulnerable dependencies | Partial | Every dependency is pinned exactly, and CI installs with `--frozen-lockfile`. Advisories fail CI: `pnpm audit` at moderate, and OSV-Scanner at any severity. [`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md) says what to do when either fails (Q-08, `609f814`). The limit: the scans run on pushes and pull requests only, so an advisory published against an unchanged lockfile is seen at the next push. |
 | Timing side channels in secret comparisons | Covered | Confirmation MACs and the resume prefix check both use `crypto.timingSafeEqual` (`handshake.js`, `transfer.js`). The remaining `Buffer.equals` calls compare public keys, or check two keys for equality as a sanity check. Neither reveals a secret. |
 
 ## 6. How these tools are attacked in practice
@@ -80,7 +80,7 @@ that the review did not are `RR-n`, and they are numbered only here.
 | Social engineering around the code | Partial | The receiver is asked before accepting, and is shown the name, size, digest, and any resume. Executables and double extensions are warned about even with `--yes`. Codes stay off argv by default, and both sides are told when someone else holds the code (W15c, W15a). See RR-5. |
 | Compromised endpoint | Accepted | Not claimed (§12.3.4). Key wiping is best effort (Q-18). |
 | Outdated clients | Open | 0.1.0 is the first release (2026-10-18). The only support policy is "the latest npm release and the default branch", and a client cannot learn that it is out of date. The wire version byte stops cross-version sessions from proceeding silently. See RR-2 and RR-3. |
-| Supply chain | Open | The pinning above is in place. Gating, an SBOM, and signed artifacts are not (Q-08; RR-4). pnpm ≥ 10 blocks dependency install scripts by default, and this repository allows none. |
+| Supply chain | Partial | The pinning and gating above are in place, and each GitHub Release carries a CycloneDX SBOM for each package, from v0.1.0 on (`e5961d1`). Provenance and signed checksums are not (Q-08; RR-4), and 0.1.0 can never have provenance, since npm does not republish a version. pnpm ≥ 10 blocks dependency install scripts by default, and this repository allows none. |
 | Clones and typosquatted packages | Open | **`ad-hal`, `adhal`, `@ad-hal/cli`, and `@ad-hal/engine` were all unregistered on npm** on 2026-10-10. On 2026-10-18 they still were, and so was `ad-hal-cli`. Each returned 404 from the registry. A 404 means no public package has the name. It does not promise that npm will accept a publish under it, since its similarity checks can still refuse one. The official sources are now named in README.md and SECURITY.md. See RR-1. |
 
 ---
@@ -132,6 +132,21 @@ Ordered by how expensive each gets to fix later.
 - [ ] **RR-4 / Q-08 — Make the supply chain gating.** Fail CI on an
   advisory at a chosen level. Publish an SBOM, publish with npm provenance
   or signed artifacts, and publish release checksums.
+  - [x] Fail CI on an advisory (2026-10-21, `609f814`). `pnpm audit`
+    fails at moderate, and OSV-Scanner, which has no threshold, fails at
+    any severity. Exceptions follow
+    [`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md). Both jobs passed on
+    their first run, alongside the full matrix.
+  - [x] Publish an SBOM (2026-10-21, `e5961d1`). `release.yml` builds a
+    CycloneDX 1.7 SBOM for each package with `pnpm sbom` and attaches
+    both to the GitHub Release. v0.1.0's were attached by a manual run:
+    61 components for the engine and 63 for the CLI, each with a
+    license, matching pnpm's resolved production tree. They list the
+    locked tree, which a user's install can differ from, since neither
+    package ships a lockfile.
+  - [ ] Publish with npm provenance, and publish signed checksums, with
+    the next npm publish. Both need the publish to move from a
+    developer's machine to a job in `release.yml`.
 - [ ] **RR-2 — A version support policy.** Which releases get security
   fixes, and for how long. SECURITY.md's "Supported versions" says only
   the latest npm release and the default branch.
@@ -158,8 +173,9 @@ Ordered by how expensive each gets to fix later.
     itself. It does not remove the version.
 
   Open: the Releases link is in both READMEs (2026-10-18) but is not on
-  npm until the next publish. No release notes exist yet, including for
-  0.1.0.
+  npm until the next publish. 0.1.0's release notes are on GitHub
+  Releases (2026-10-21), under the tag `v0.1.0` at `e59a1c5`, the commit
+  whose files match both published tarballs.
 - [x] **W17 gate 8 — A real two-machine drop** (macOS ↔ Linux) on the
   public DHT, on the frozen wire. Done on 2026-10-15 at `8bc808a`, logged
   clean on both sides: 40 trials of 10 MB between macOS on eero/Xfinity

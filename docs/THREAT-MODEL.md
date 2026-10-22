@@ -421,9 +421,11 @@ it stays open.
 - **No per-source or per-key throttling** (Q-04). A Sybil attacker rotating
   identities meets only the drop-wide cap (§5.4). Deferred until W14 shows
   whether the attack happens.
-- **Supply-chain assurance is not gating** (Q-08). Every dependency is
-  pinned exactly, but advisories do not fail CI, and there is no SBOM and
-  no signed release. Deferred to the first release.
+- **Releases are not signed** (Q-08). Every dependency is pinned exactly,
+  advisories fail CI ([`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md)), and
+  each GitHub Release carries a CycloneDX SBOM. But neither npm package
+  has a provenance attestation, and there are no signed checksums. Due
+  with the next npm publish.
 - **Publishing without hard links races** (Q-19). On a filesystem with no
   `link()`, publishing falls back to check-then-rename, and a local process
   that creates the destination in that gap has it replaced. The receiver
