@@ -38,7 +38,7 @@ All commands below run from the repository root.
 | `pnpm test` | Everything, including DHT testnets and child processes | ~2 min |
 | `pnpm typecheck` | `tsc --noEmit` over the JSDoc types | seconds |
 | `pnpm fuzz` | The fuzz harness at 100,000 iterations per target | long |
-| `pnpm audit --audit-level low` | Known advisories in the locked dependencies | seconds |
+| `pnpm audit --audit-level moderate` | Known advisories in the locked dependencies, at the level CI fails on ([`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md)) | seconds |
 
 `pnpm test` and `pnpm run test:fast` both run `node --test` in `cli/`,
 where the tests live (`cli/test/`). The helpers they share are in

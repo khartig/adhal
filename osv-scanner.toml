@@ -1,0 +1,11 @@
+# Exceptions to the OSV-Scanner job in .github/workflows/ci.yml.
+#
+# Read docs/DEPENDENCY-POLICY.md before adding one. Each exception needs a
+# reason and an ignoreUntil date no more than 90 days out, and the same ID
+# goes in `auditConfig.ignoreGhsas` in pnpm-workspace.yaml if `pnpm audit`
+# reports it too. An exception that has expired fails the build again.
+#
+# [[IgnoredVulns]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# ignoreUntil = 2027-01-19
+# reason = "Which package and path, why Adhal never reaches it, and how that was checked."

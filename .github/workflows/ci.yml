@@ -158,14 +158,20 @@ jobs:
         run: pnpm test
         timeout-minutes: 15
 
-  # Dependency hygiene, advisory for now: this stack pulls in a large
-  # Holepunch tree and a first run that fails the build on a transitive
-  # advisory with no fix available would just get disabled. Reported, read,
-  # and tightened once there is a baseline.
+  # Dependency advisories fail the build (Q-08). This job was advisory
+  # until there was a baseline, for fear that a transitive advisory with no
+  # fix in the Holepunch tree would get the job disabled. The baseline was
+  # clean on 2026-10-21, and what to do when a fix does not exist is now
+  # written down in docs/DEPENDENCY-POLICY.md instead of left to whoever
+  # meets the red build. Exceptions go in `auditConfig.ignoreGhsas` in
+  # pnpm-workspace.yaml, and the policy says when one is allowed.
+  #
+  # `--audit-level moderate` sets the exit code, not only what is printed:
+  # checked against a lockfile holding lodash 4.17.15, it exits 1 at
+  # moderate and 0 at critical.
   audit:
-    name: audit (advisory)
+    name: audit
     runs-on: ubuntu-24.04
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@v6
@@ -177,5 +183,38 @@ jobs:
       - run: pnpm audit --audit-level moderate
       # A lockfile that changes when nobody changed a dependency is worth
       # seeing, and --frozen-lockfile above already fails on it. This just
-      # prints what is installed so a review has something to read.
+      # prints what is installed, so a review has something to read.
       - run: pnpm licenses list || true
+
+  # The same lockfile, checked against OSV instead of the GitHub Advisory
+  # Database that `pnpm audit` reads. OSV takes in GitHub's advisories and
+  # adds its own sources, among them reports of malicious packages, which
+  # `pnpm audit` does not see. The consolidated security audit asked for it
+  # (Q-08).
+  #
+  # Unlike `pnpm audit`, OSV-Scanner has no severity threshold, so a
+  # low-severity finding fails this job too. Exceptions go in
+  # osv-scanner.toml, each with an `ignoreUntil` date. An exception that has
+  # expired fails the build again, which is how the policy's review dates
+  # are enforced.
+  #
+  # It runs the scanner image directly rather than through Google's
+  # reusable workflow. The workflow asks for `security-events: write` to
+  # upload SARIF, which a pull request from a fork does not get, and the
+  # table in the log is all a reader needs. The image is pinned by digest
+  # because this is the exact image that was checked against the lockfile
+  # here: it reads lockfile v9 and finds the same 101 packages
+  # `pnpm audit` does. To upgrade, pull the new tag from
+  # google/osv-scanner-action and pin the digest that `docker pull` prints.
+  # v2.7.0 is the version below.
+  osv:
+    name: osv-scanner
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - run: >-
+          docker run --rm -v "$PWD":/src:ro
+          ghcr.io/google/osv-scanner-action@sha256:d54770fe0b09493894e76a02aaed9f51a0513fa57c5186452a755d257b0068a6
+          scan source
+          --config=/src/osv-scanner.toml
+          --lockfile=/src/pnpm-lock.yaml
