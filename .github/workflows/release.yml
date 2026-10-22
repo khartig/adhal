@@ -1,6 +1,27 @@
-# Release artifacts, attached to the GitHub Release for each version (Q-08).
+# Publishing to npm, and the artifacts attached to the GitHub Release for
+# each version (Q-08).
 #
-# For now that is one CycloneDX SBOM for each published package:
+# PUBLISH. Publishing a GitHub Release publishes both packages to npm,
+# engine first and then the CLI, through npm trusted publishing (OIDC).
+# No npm token exists anywhere: npm trusts this file, `release.yml`, in
+# this repository, running in the `npm` environment, and nothing else.
+# The environment's required reviewer approves each publish. Because the
+# repository and both packages are public, npm attaches a provenance
+# attestation to each version without being asked.
+#
+# Each tarball is packed once, and that exact file is hashed, attested,
+# published, and attached. After publishing, the job checks that the
+# registry's SHA-512 for each version is the hash of the file it packed,
+# so the checksums on the release are the bytes npm serves. The tarballs
+# and SHA256SUMS are attached to the release, and each tarball has a
+# GitHub build provenance attestation, signed through Sigstore:
+#
+#   gh attestation verify ad-hal-cli-0.2.0.tgz --repo khartig/adhal
+#
+# Publishing runs only on a release event, never by hand, so running the
+# workflow by hand for an old tag cannot try to republish it.
+#
+# SBOM. One CycloneDX SBOM for each published package:
 # `@ad-hal/engine` as a library and `@ad-hal/cli` as an application. Each
 # lists the production dependency tree from pnpm-lock.yaml with versions,
 # purls, licenses, and the registry's SHA-512 for every tarball. Dev
@@ -31,6 +52,123 @@ on:
         required: true
 
 jobs:
+  publish:
+    name: publish
+    if: github.event_name == 'release'
+    runs-on: ubuntu-24.04
+    # npm's trusted publisher for both packages names this environment, so
+    # a run outside it cannot publish. Its required reviewer is the human
+    # step between publishing a release and publishing to npm.
+    environment: npm
+    permissions:
+      # To upload the tarballs and checksums to the release.
+      contents: write
+      # For npm's OIDC token exchange, and for the Sigstore certificate
+      # that signs the attestations.
+      id-token: write
+      # To store the attestations.
+      attestations: write
+    env:
+      TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      # No dependency cache in a job that publishes, as npm advises: a
+      # poisoned cache entry would go straight into a release.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: pnpm install --frozen-lockfile
+
+      - name: check the tag matches both packages
+        run: |
+          engine=$(node -p 'require("./engine/package.json").version')
+          cli=$(node -p 'require("./cli/package.json").version')
+          if [ "$TAG" != "v$engine" ] || [ "$TAG" != "v$cli" ]; then
+            echo "::error::Tag $TAG does not match @ad-hal/engine $engine and @ad-hal/cli $cli"
+            exit 1
+          fi
+
+      # CI has already run the full matrix on this commit. This is the
+      # sub-10s tier, as a last check on the exact tree being packed.
+      - run: pnpm typecheck
+      - run: pnpm test
+        env:
+          ADHAL_FAST: '1'
+
+      # `pnpm pack` turns the CLI's `workspace:*` into the engine's
+      # version, as `pnpm publish` would.
+      - name: pack
+        run: |
+          pnpm --filter @ad-hal/engine --filter @ad-hal/cli pack \
+            --out 'dist/%s-%v.tgz'
+          cd dist
+          sha256sum -- *.tgz > SHA256SUMS
+          cat SHA256SUMS
+
+      # Attested before publishing, so no version reaches npm without an
+      # attestation. A publish that then fails leaves an attestation for a
+      # tarball nobody can install, which is harmless.
+      - uses: actions/attest@v4
+        with:
+          subject-path: dist/*.tgz
+
+      # The tarball, not the directory, so the bytes published are the bytes
+      # hashed and attested. --no-git-checks because a tag checkout is a
+      # detached HEAD, which pnpm's branch check refuses.
+      #
+      # A version already on npm is skipped, so that if the engine went out
+      # and the CLI failed, re-running the job finishes the CLI. The next
+      # step still checks the skipped one: `pnpm pack` writes fixed
+      # timestamps, so the same tag packs to the same bytes.
+      - name: publish to npm
+        run: |
+          version="${TAG#v}"
+          for p in engine cli; do
+            if npm view "@ad-hal/$p@$version" version >/dev/null 2>&1; then
+              echo "@ad-hal/$p@$version is already on npm, skipping"
+              continue
+            fi
+            pnpm publish "dist/ad-hal-$p-$version.tgz" --access public --no-git-checks
+          done
+
+      # The registry can take a few seconds to serve a new version.
+      - name: check npm serves the bytes that were packed
+        run: |
+          version="${TAG#v}"
+          for p in engine cli; do
+            want="sha512-$(openssl dgst -sha512 -binary "dist/ad-hal-$p-$version.tgz" | base64 -w0)"
+            got=""
+            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+              got=$(npm view "@ad-hal/$p@$version" dist.integrity 2>/dev/null) && [ -n "$got" ] && break
+              sleep 5
+            done
+            if [ "$got" != "$want" ]; then
+              echo "::error::@ad-hal/$p@$version: registry has '$got', packed '$want'"
+              exit 1
+            fi
+            echo "@ad-hal/$p@$version  $got"
+            # Provenance is the reason this job exists, so its absence is a
+            # failure, not a warning. The version is already out by then,
+            # and the error says so.
+            slsa=$(npm view "@ad-hal/$p@$version" dist.attestations.provenance.predicateType)
+            if [ -z "$slsa" ]; then
+              echo "::error::@ad-hal/$p@$version was published without a provenance attestation"
+              exit 1
+            fi
+            echo "  provenance: $slsa"
+          done
+
+      - name: attach the tarballs and checksums to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            dist/*.tgz dist/SHA256SUMS
+
   sbom:
     name: sbom
     runs-on: ubuntu-24.04
