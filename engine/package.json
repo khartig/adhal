@@ -1,6 +1,6 @@
 {
   "name": "@ad-hal/engine",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The Adhal transfer engine: a CPace-authenticated, sealed, one-shot file drop between two peers over Hyperswarm.",
   "keywords": [
     "p2p",
