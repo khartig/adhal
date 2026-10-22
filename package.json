@@ -1,6 +1,6 @@
 {
   "name": "ad-hal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Anonymous, one-shot peer-to-peer file drop. No account, no intermediary server unless relaying.",
   "license": "MIT",
