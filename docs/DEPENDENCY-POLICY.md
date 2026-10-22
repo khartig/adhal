@@ -137,4 +137,7 @@ both files in the same commit.
   verifies the registry signatures of all 101 packages, but nothing in
   CI runs it yet, and a registry signature says what npm received, not
   how the binary inside it was built.
-- **The SBOM and signed releases**, the rest of Q-08.
+- **Signed releases**, the rest of Q-08. The SBOMs are built by
+  `.github/workflows/release.yml`, one CycloneDX file per package,
+  attached to each GitHub Release. They list the locked tree, which a
+  user's install can differ from, as that file explains.

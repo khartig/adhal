@@ -17,6 +17,7 @@ pnpm-debug.log*
 # Build output
 dist/
 build/
+/sbom/
 
 # Test / demo artifacts
 *.tmp

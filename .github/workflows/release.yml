@@ -1,0 +1,86 @@
+# Release artifacts, attached to the GitHub Release for each version (Q-08).
+#
+# For now that is one CycloneDX SBOM for each published package:
+# `@ad-hal/engine` as a library and `@ad-hal/cli` as an application. Each
+# lists the production dependency tree from pnpm-lock.yaml with versions,
+# purls, licenses, and the registry's SHA-512 for every tarball. Dev
+# dependencies are left out, since neither package ships them.
+#
+# The SBOM describes the tree that was locked and tested, not necessarily
+# the one a user's install resolves. Neither package ships a lockfile, and
+# the engine's own dependencies are pinned exactly but theirs are ranges,
+# so `npm install` can pick newer transitive versions than these.
+#
+# It runs when a release is published, from the workflow file at the
+# release's tag. A tag from before this file existed, like v0.1.0, has no
+# copy of it, so for those run it by hand with the tag as input. The
+# workflow then runs from the default branch and checks out the tag.
+#
+# The commands are inline rather than in a package.json script for the
+# same reason: an older tag would not have the script.
+
+name: release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and attach SBOMs for, such as v0.1.0
+        required: true
+
+jobs:
+  sbom:
+    name: sbom
+    runs-on: ubuntu-24.04
+    permissions:
+      # To upload assets to the release, and nothing else.
+      contents: write
+    env:
+      # Through env rather than ${{ }} in the scripts, so a tag name is
+      # never spliced into shell source.
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+      # The install puts the packages in the store, where `pnpm sbom` reads
+      # their licenses. With --lockfile-only it would list no licenses.
+      - run: pnpm install --frozen-lockfile
+
+      # An SBOM attached to the wrong release is worse than none. The tag
+      # must be v<version>, and both packages must be at that version.
+      - name: check the tag matches both packages
+        run: |
+          engine=$(node -p 'require("./engine/package.json").version')
+          cli=$(node -p 'require("./cli/package.json").version')
+          if [ "$TAG" != "v$engine" ] || [ "$TAG" != "v$cli" ]; then
+            echo "::error::Tag $TAG does not match @ad-hal/engine $engine and @ad-hal/cli $cli"
+            exit 1
+          fi
+
+      - name: generate the SBOMs
+        run: |
+          pnpm --filter @ad-hal/engine sbom --sbom-format cyclonedx --prod \
+            --sbom-type library --out 'sbom/%s-%v.cdx.json'
+          pnpm --filter @ad-hal/cli sbom --sbom-format cyclonedx --prod \
+            --sbom-type application --out 'sbom/%s-%v.cdx.json'
+          ls -l sbom
+
+      # --clobber, so that running it again for a tag replaces the files
+      # rather than failing on them.
+      - name: attach them to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${TAG#v}"
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "sbom/ad-hal-engine-$version.cdx.json" \
+            "sbom/ad-hal-cli-$version.cdx.json"
