@@ -421,11 +421,14 @@ it stays open.
 - **No per-source or per-key throttling** (Q-04). A Sybil attacker rotating
   identities meets only the drop-wide cap (§5.4). Deferred until W14 shows
   whether the attack happens.
-- **Releases are not signed** (Q-08). Every dependency is pinned exactly,
-  advisories fail CI ([`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md)), and
-  each GitHub Release carries a CycloneDX SBOM. But neither npm package
-  has a provenance attestation, and there are no signed checksums. Due
-  with the next npm publish.
+- **Dependency assurance has two gaps** (Q-08, closed). Dependencies are
+  pinned exactly, advisories fail CI, and releases from 0.1.1 carry npm
+  provenance, signed checksums, and an SBOM
+  ([`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md)). But the scans run
+  only when the code changes, so an advisory against an unchanged
+  lockfile waits for the next push. And the prebuilt binaries in
+  `sodium-native` and `udx-native` are trusted as npm serves them:
+  nothing here checks how they were built. 0.1.0 has no provenance.
 - **Publishing without hard links races** (Q-19). On a filesystem with no
   `link()`, publishing falls back to check-then-rename, and a local process
   that creates the destination in that gap has it replaced. The receiver

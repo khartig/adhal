@@ -2,9 +2,9 @@
 
 What to do when a dependency has a known vulnerability, and the rules for
 adding or changing one. This is the gating half of Q-08
-([`SECURITY-REVIEW.md`](SECURITY-REVIEW.md)). The rest of Q-08 is the
-SBOM, attached to each GitHub Release, and signed releases, which are not
-done yet.
+([`SECURITY-REVIEW.md`](SECURITY-REVIEW.md)). The rest of Q-08, the SBOMs
+and signed releases, is done by `.github/workflows/release.yml`, whose
+header says what each release carries and how to check it.
 
 A vulnerability in Adhal's own code goes through
 [`SECURITY.md`](../SECURITY.md), not this document.
@@ -138,7 +138,7 @@ both files in the same commit.
   verifies the registry signatures of all 101 packages, but nothing in
   CI runs it yet, and a registry signature says what npm received, not
   how the binary inside it was built.
-- **Signed releases**, the rest of Q-08. The SBOMs are built by
-  `.github/workflows/release.yml`, one CycloneDX file per package,
-  attached to each GitHub Release. They list the locked tree, which a
-  user's install can differ from, as that file explains.
+- **What a user's install resolves.** The SBOMs on each release list
+  the locked tree. Neither package ships a lockfile, so an install can
+  resolve newer versions of the packages that Adhal's dependencies
+  depend on, and no SBOM or scan here covers those.

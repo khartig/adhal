@@ -80,7 +80,7 @@ that the review did not are `RR-n`, and they are numbered only here.
 | Social engineering around the code | Partial | The receiver is asked before accepting, and is shown the name, size, digest, and any resume. Executables and double extensions are warned about even with `--yes`. Codes stay off argv by default, and both sides are told when someone else holds the code (W15c, W15a). See RR-5. |
 | Compromised endpoint | Accepted | Not claimed (§12.3.4). Key wiping is best effort (Q-18). |
 | Outdated clients | Open | 0.1.0 is the first release (2026-10-18). The only support policy is "the latest npm release and the default branch", and a client cannot learn that it is out of date. The wire version byte stops cross-version sessions from proceeding silently. See RR-2 and RR-3. |
-| Supply chain | Partial | The pinning and gating above are in place, and each GitHub Release carries a CycloneDX SBOM for each package, from v0.1.0 on (`e5961d1`). Provenance and signed checksums are not (Q-08; RR-4), and 0.1.0 can never have provenance, since npm does not republish a version. pnpm ≥ 10 blocks dependency install scripts by default, and this repository allows none. |
+| Supply chain | Partial | The pinning and gating above are in place, and each GitHub Release carries a CycloneDX SBOM for each package (`e5961d1`). From 0.1.1, both packages are published by `release.yml` through npm trusted publishing, with no npm token and a required reviewer. Each version has npm provenance, and its release has the tarballs, `SHA256SUMS`, and a Sigstore-signed GitHub attestation (Q-08; RR-4). The limits: 0.1.0 can never have provenance, since npm does not republish a version, and the native modules' prebuilt binaries are trusted as npm serves them. pnpm ≥ 10 blocks dependency install scripts by default, and this repository allows none. |
 | Clones and typosquatted packages | Open | **`ad-hal`, `adhal`, `@ad-hal/cli`, and `@ad-hal/engine` were all unregistered on npm** on 2026-10-10. On 2026-10-18 they still were, and so was `ad-hal-cli`. Each returned 404 from the registry. A 404 means no public package has the name. It does not promise that npm will accept a publish under it, since its similarity checks can still refuse one. The official sources are now named in README.md and SECURITY.md. See RR-1. |
 
 ---
@@ -129,7 +129,7 @@ Ordered by how expensive each gets to fix later.
   went public.
 - [x] **Confirm SECURITY.md's response targets.** They are a commitment
   (W16). Confirmed on 2026-10-14: 7, 14, and 90 days.
-- [ ] **RR-4 / Q-08 — Make the supply chain gating.** Fail CI on an
+- [x] **RR-4 / Q-08 — Make the supply chain gating.** Fail CI on an
   advisory at a chosen level. Publish an SBOM, publish with npm provenance
   or signed artifacts, and publish release checksums.
   - [x] Fail CI on an advisory (2026-10-21, `609f814`). `pnpm audit`
@@ -144,9 +144,25 @@ Ordered by how expensive each gets to fix later.
     license, matching pnpm's resolved production tree. They list the
     locked tree, which a user's install can differ from, since neither
     package ships a lockfile.
-  - [ ] Publish with npm provenance, and publish signed checksums, with
-    the next npm publish. Both need the publish to move from a
-    developer's machine to a job in `release.yml`.
+  - [x] Publish with npm provenance, and publish signed checksums
+    (2026-10-22, `f50ebbb`, `eefc4c8`). Publishing a GitHub Release runs
+    `release.yml`'s publish job in the `npm` environment, which needs a
+    reviewer's approval and allows only `v*` tags. npm trusts that file
+    in that environment for both packages, so no npm token is involved.
+    The job packs each tarball once, attests it, publishes that file,
+    and checks that the registry's SHA-512 is the file's. It then
+    attaches the tarballs and `SHA256SUMS` to the release. 0.1.1 was the
+    first: both versions have `https://slsa.dev/provenance/v1` on npm,
+    the registry tarballs match `SHA256SUMS`, and
+    `gh attestation verify` passes for both, naming `release.yml` at
+    `refs/tags/v0.1.1`. Its first run published correctly, then failed
+    its own check on a stale npm cache. A re-run attached the files, and
+    `eefc4c8` fixes the check.
+  - [x] Close the token route (2026-10-22). Both packages are set to
+    "Require two-factor authentication and disallow tokens", so trusted
+    publishing is the only way to publish them, and the account has no
+    access tokens left. The token from 0.1.0's publish was already
+    invalid when checked: npm rejected it with E401.
 - [ ] **RR-2 — A version support policy.** Which releases get security
   fixes, and for how long. SECURITY.md's "Supported versions" says only
   the latest npm release and the default branch.

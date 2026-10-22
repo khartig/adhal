@@ -100,6 +100,7 @@ project's story.
 | | **W15d**: tests that pin the argument | Security-property tests, the state machine, negative vectors, a fuzz harness, the security claims; the testnet pairing stall found and mitigated | `6154994`, `42f2cf7`, `550ea47`, `a09a387`, `dfc5b3f` |
 | | **W16**: release documentation pass | The docs rewritten to match the code; SECURITY.md and SECURITY-REVIEW.md; this plan made a public roadmap, its finished items moved to [`history/WORK-RECORD.md`](history/WORK-RECORD.md); GitHub private vulnerability reporting on, 2026-10-14 | `7e403a0`, `6a1877e`, `15956c4`, `7269725`, `9aa0589`, `4075fc8`, `25cd39f`, `668bab4` |
 | | **W17**: the freeze gate | Every line checked by running it, the last 40 drops between macOS and Linux on the public DHT at `8bc808a`, all confirmed on both sides; the Q-01 nonce test's fsync race found on Linux and fixed; PROTOCOL.md tagged `v2-final`, 2026-10-15 | `5c5029e`, `8bc808a` |
+| | **Q-08**: supply chain | Advisories fail CI through `pnpm audit` and OSV-Scanner, under [`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md); a CycloneDX SBOM per package on each GitHub Release, from v0.1.0; from 0.1.1, publishing by `release.yml` through npm trusted publishing with a required reviewer, so npm provenance, plus tarballs, `SHA256SUMS`, and a Sigstore-signed attestation on the release. 0.1.1 published 2026-10-22 | `609f814`, `e5961d1`, `f50ebbb`, `eefc4c8` |
 
 The security review's 21 findings and their status are in
 [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md).
@@ -128,7 +129,6 @@ has all 21).
 | Q-05 independent cryptographic review | After W17 | Reviewing a moving spec wastes the review. |
 | Q-06 property-based and mutation testing | W12 | Decision 6. |
 | Q-07 Windows as a required CI leg | Stage 3 | Documented as unsupported for security purposes until then (W16). |
-| Q-08 npm provenance, signed checksums | The next npm publish | The rest of Q-08 is done: advisories fail CI (`609f814`), and v0.1.0's GitHub Release carries a CycloneDX SBOM for each package (`e5961d1`). 0.1.0 itself can never have provenance: it was published from a developer's machine on 2026-10-18, and npm does not republish a version. Provenance needs a publish job in `release.yml`. |
 | Q-09 length padding, re-announce back-off | Post-freeze | Neither changes the wire. Padding only if file-size confidentiality ever becomes a stated goal. |
 | Q-10 relay invariants | Before any relay code | Written into THREAT-MODEL §8 as merge gates (W16); enforced when a relay exists. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
 
