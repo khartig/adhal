@@ -135,15 +135,20 @@ jobs:
             pnpm publish "dist/ad-hal-$p-$version.tgz" --access public --no-git-checks
           done
 
-      # The registry can take a few seconds to serve a new version.
+      # --prefer-online because the publish step's `npm view` cached the
+      # package as it was before this version, and npm serves that cache
+      # for minutes. v0.1.1's run failed here on exactly that, a minute
+      # after both versions had published correctly. The loop is for the
+      # registry itself, which can take a little while to serve a new
+      # version: up to three minutes.
       - name: check npm serves the bytes that were packed
         run: |
           version="${TAG#v}"
           for p in engine cli; do
             want="sha512-$(openssl dgst -sha512 -binary "dist/ad-hal-$p-$version.tgz" | base64 -w0)"
             got=""
-            for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
-              got=$(npm view "@ad-hal/$p@$version" dist.integrity 2>/dev/null) && [ -n "$got" ] && break
+            for _ in $(seq 36); do
+              got=$(npm view --prefer-online "@ad-hal/$p@$version" dist.integrity 2>/dev/null) && [ -n "$got" ] && break
               sleep 5
             done
             if [ "$got" != "$want" ]; then
@@ -154,7 +159,7 @@ jobs:
             # Provenance is the reason this job exists, so its absence is a
             # failure, not a warning. The version is already out by then,
             # and the error says so.
-            slsa=$(npm view "@ad-hal/$p@$version" dist.attestations.provenance.predicateType)
+            slsa=$(npm view --prefer-online "@ad-hal/$p@$version" dist.attestations.provenance.predicateType)
             if [ -z "$slsa" ]; then
               echo "::error::@ad-hal/$p@$version was published without a provenance attestation"
               exit 1
