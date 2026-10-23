@@ -1,0 +1,24 @@
+{
+  "name": "@ad-hal/conformance",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Adhal v2 conformance material: language-neutral test vectors, and a harness that drives any implementation through a drop over loopback TCP.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "ad-hal-conformance": "src/cli.js"
+  },
+  "scripts": {
+    "test": "node --test",
+    "test:fast": "ADHAL_FAST=1 node --test",
+    "conformance": "node src/cli.js"
+  },
+  "dependencies": {
+    "@noble/curves": "2.4.0"
+  },
+  "devDependencies": {
+    "@ad-hal/engine": "workspace:*"
+  }
+}

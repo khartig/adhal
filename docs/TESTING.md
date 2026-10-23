@@ -38,10 +38,13 @@ All commands below run from the repository root.
 | `pnpm test` | Everything, including DHT testnets and child processes | ~2 min |
 | `pnpm typecheck` | `tsc --noEmit` over the JSDoc types | seconds |
 | `pnpm fuzz` | The fuzz harness at 100,000 iterations per target | long |
+| `pnpm conformance` | The conformance harness against this repository's engine ([`CONFORMANCE.md`](CONFORMANCE.md)) | ~40 s |
+| `node tools/mutate.js` | Mutation testing over the security-critical engine modules | ~1 h |
 | `pnpm audit --audit-level moderate` | Known advisories in the locked dependencies, at the level CI fails on ([`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md)) | seconds |
 
-`pnpm test` and `pnpm run test:fast` both run `node --test` in `cli/`,
-where the tests live (`cli/test/`). The helpers they share are in
+`pnpm test` and `pnpm run test:fast` run `node --test` in `cli/`, where
+most tests live (`cli/test/`), and then in `conformance/`
+(`conformance/test/`). The helpers the CLI tests share are in
 `cli/test-helpers/`, outside `cli/test/` so the runner does not count them
 as tests.
 
@@ -98,6 +101,67 @@ ADHAL_FUZZ_SEED=<seed> node --test cli/test/fuzz.test.js
 | `ADHAL_FUZZ_SEED` | Replay a run exactly |
 | `ADHAL_FUZZ_ITERATIONS` | Iterations per target |
 | `ADHAL_FUZZ_STATS=1` | Print how many inputs each target accepted and refused |
+
+### Property-based tests
+
+`cli/test/property.test.js` states claims about every input of some shape,
+such as "however the bytes are split, the decoder yields the same frames",
+and checks each on generated inputs. On a failure it shrinks the input to
+a small counterexample and prints the seed. The generators and the
+shrinking are in `cli/test-helpers/property.js`, with no dependency.
+
+Every property is checked against something independent of the code
+under test: `conformance/src/wire.js` (a second implementation of the wire
+format), a rule restated from PROTOCOL.md, or arithmetic the test does
+itself. A property that only compares a function with its own inverse
+passes for code that is wrong the same way twice.
+
+| Variable | Effect |
+| --- | --- |
+| `ADHAL_PROPERTY_SEED` | Replay a run exactly. One property replays alone with the same seed |
+| `ADHAL_PROPERTY_RUNS` | Inputs per property (default 100). The two resume properties run an eighth as many, since each writes a file |
+
+One property is marked `todo`: it runs and reports a known failure
+without failing the suite. Its comment says what it found.
+
+### Conformance
+
+`conformance/` holds the published test vectors and a harness that
+drives any implementation through drops over loopback TCP.
+[`CONFORMANCE.md`](CONFORMANCE.md) describes both. `pnpm test` runs it
+against this repository's engine, one test per scenario. To run it alone,
+or a subset:
+
+```bash
+pnpm conformance
+node conformance/src/cli.js --only '^R-resume' -- node conformance/adapters/engine.js
+```
+
+`conformance/test/planted.test.js` plants a bug for each kind of check in
+a copy of the engine and requires the harness to catch it.
+
+### Mutation testing
+
+`tools/mutate.js` makes small changes to the engine modules that enforce
+the protocol, one at a time, and runs the tests against each: a `<`
+made `<=`, a `throw` made a no-op, a constant moved by one. A change the
+tests notice is killed. One they do not is a survivor: a gap in the tests,
+or a change no input can observe.
+
+```bash
+node tools/mutate.js                                  # every target, about an hour
+node tools/mutate.js --files engine/src/channel.js    # one module
+node tools/mutate.js --sample 100 --report out.json   # a seeded sample, with a JSON report
+node tools/mutate.js --conformance                    # survivors also face the conformance harness
+```
+
+Each mutant is planted in a copy of the workspace (`tools/sandbox.js`), so
+the working tree is never touched, and a run first checks that the
+unmutated copy passes. The runner tries the tests most likely to notice a
+change in that module first, and runs the rest of the fast tier only for
+mutants that survive them. Seeds are fixed, so a run repeats, with one
+exception: the fuzz harness builds some of its starting inputs from
+`crypto.randomBytes`, outside its seed.
 
 ### Using them well
 

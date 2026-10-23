@@ -60,32 +60,31 @@ const h = (/** @type {string} */ s) => Buffer.from(s, 'hex')
 const utf8 = (/** @type {string} */ s) => Buffer.from(s, 'utf8')
 
 // --- the shared inputs of the draft's X25519/SHA-512 test case ----------
+//
+// Transcribed into conformance/vectors/cpace.json, which is what a second
+// implementation is checked against; this file reads them from there so
+// the two cannot drift apart.
 
-const PRS = utf8('Password')
-const CI = h('6f630b425f726573706f6e6465720b415f696e69746961746f72')
-const SID = h('7e4b4791d6a8ef019b936c79fb7f2c57')
-const ADa = utf8('ADa')
-const ADb = utf8('ADb')
+const CPACE = require('../../conformance/vectors/cpace.json')
+const CASE = CPACE.case
 
-const YA_SCALAR = h('21b4f4bd9e64ed355c3eb676a28ebedaf6d8f17bdc365995b319097153044080')
-const YB_SCALAR = h('848b0779ff415f0af4ea14df9dd1d3c29ac41d836c7808896c4eba19c51ac40a')
+const PRS = utf8(CASE.PRSUtf8)
+const CI = h(CASE.CI)
+const SID = h(CASE.sid)
+const ADa = utf8(CASE.ADaUtf8)
+const ADb = utf8(CASE.ADbUtf8)
+
+const YA_SCALAR = h(CASE.ya)
+const YB_SCALAR = h(CASE.yb)
 
 const EXPECTED = {
-  generatorString:
-    '0843506163653235350850617373776f72646d' + '00'.repeat(109) +
-    '1a6f630b425f726573706f6e6465720b415f696e69746961746f72' +
-    '107e4b4791d6a8ef019b936c79fb7f2c57',
-  generator: '64e8099e3ea682cfdc5cb665c057ebb514d06bf23ebc9f743b51b82242327074',
-  Ya: '1b02dad6dbd29a07b6d28c9e04cb2f184f0734350e32bb7e62ff9dbcfdb63d15',
-  Yb: '20cda5955f82c4931545bcbf40758ce1010d7db4db2a907013d79c7a8fcf957f',
-  K: 'f97fdfcfff1c983ed6283856a401de3191ca919902b323c5f950c9703df7297a',
-  transcriptIR:
-    '201b02dad6dbd29a07b6d28c9e04cb2f184f0734350e32bb7e62ff9dbcfdb63d15' +
-    '034144612020cda5955f82c4931545bcbf40758ce1010d7db4db2a907013d79c7a' +
-    '8fcf957f03414462',
-  ISK_IR:
-    'a051ee5ee2499d16da3f69f430218b8ea94a18a45b67f9e86495b382c33d14a5' +
-    'c38cecc0cc834f960e39e0d1bf7d76b9ef5d54eecc5e0f386c97ad12da8c3d5f'
+  generatorString: CASE.generatorString,
+  generator: CASE.generator,
+  Ya: CASE.Ya,
+  Yb: CASE.Yb,
+  K: CASE.K,
+  transcriptIR: CASE.transcriptIR,
+  ISK_IR: CASE.ISK_IR
 }
 
 // --- string utilities, which the rest of the vectors sit on -------------
@@ -95,32 +94,49 @@ const EXPECTED = {
 // encoding produces a module that is internally consistent and
 // interoperates with nothing.
 
-test('prepend_len emits the draft LEB128 encoding, including the two-byte case', () => {
-  assert.equal(hex(prependLen(Buffer.alloc(0))), '00',
-    'an empty field still carries a length, or concatenation is ambiguous')
-  assert.equal(hex(prependLen(utf8('1234'))), '0431323334')
+/**
+ * A prependLen vector's input: hex, UTF-8, or the bytes 00 01 02 ... counted
+ * up to a length, which is how the draft states its 127- and 128-byte cases.
+ * @param {any} v
+ */
+function prependInput (v) {
+  if ('inputHex' in v) return h(v.inputHex)
+  if ('inputUtf8' in v) return utf8(v.inputUtf8)
+  return Buffer.from(Array.from({ length: v.inputCountingFrom0 }, (_, i) => i))
+}
 
-  const r127 = Buffer.from(Array.from({ length: 127 }, (_, i) => i))
-  const r128 = Buffer.from(Array.from({ length: 128 }, (_, i) => i))
-  assert.equal(hex(prependLen(r127).subarray(0, 1)), '7f',
-    '127 is the largest length that fits in one LEB128 byte')
-  assert.equal(hex(prependLen(r128).subarray(0, 2)), '8001',
-    '128 rolls over to two bytes; a fixed one-byte prefix breaks here and nowhere earlier')
+test('prepend_len emits the draft LEB128 encoding, including the two-byte case', () => {
+  for (const v of CPACE.prependLen) {
+    const out = hex(prependLen(prependInput(v)))
+    if ('outputHex' in v) {
+      assert.equal(out, v.outputHex, v.what)
+    } else {
+      assert.equal(out.slice(0, v.outputPrefixHex.length), v.outputPrefixHex, v.what)
+    }
+  }
+  // An empty field still carries a length, or concatenation is ambiguous;
+  // and 127 and 128 are the two sides of the one-byte boundary, where a
+  // fixed one-byte prefix breaks and nowhere earlier. Asserted, so that a
+  // vector file that lost one of them fails here rather than passing.
+  const lengths = CPACE.prependLen.map((/** @type {any} */ v) => prependInput(v).length)
+  for (const n of [0, 127, 128]) assert.ok(lengths.includes(n), `a ${n}-byte prepend_len vector`)
 })
 
 test('lv_cat concatenates length-prefixed fields, empty ones included', () => {
   assert.equal(
-    hex(lvCat(utf8('1234'), utf8('5'), Buffer.alloc(0), utf8('678'))),
-    '043132333401350003363738',
+    hex(lvCat(...CPACE.lvCat.inputsUtf8.map(utf8))),
+    CPACE.lvCat.outputHex,
     'the empty third field must still contribute its 00, or two different ' +
     'parameter sets hash to the same input'
   )
+  assert.ok(CPACE.lvCat.inputsUtf8.includes(''), 'the vector has an empty field')
 })
 
 test('transcript_ir is the two length-prefixed message pairs in order', () => {
+  const { Ya, ADa, Yb, ADb } = CPACE.transcriptIR.inputsUtf8
   assert.equal(
-    hex(transcriptIR(utf8('123'), utf8('PartyA'), utf8('234'), utf8('PartyB'))),
-    '03313233065061727479410332333406506172747942'
+    hex(transcriptIR(utf8(Ya), utf8(ADa), utf8(Yb), utf8(ADb))),
+    CPACE.transcriptIR.outputHex
   )
 })
 
@@ -128,7 +144,7 @@ test('transcript_ir is the two length-prefixed message pairs in order', () => {
 
 test('generator_string matches the draft, zero padding and all', () => {
   const gs = generatorString(PRS, CI, SID)
-  assert.equal(gs.length, 172, 'the draft states 172 bytes for this input')
+  assert.equal(gs.length, CASE.generatorStringLength, 'the draft states 172 bytes for this input')
   assert.equal(hex(gs), EXPECTED.generatorString)
 })
 
@@ -186,40 +202,20 @@ test('transcript_ir and ISK reproduce the draft for the initiator/responder case
 // Draft section "Test vectors for G_X25519.scalar_mult_vfy: low order
 // points". The scalar is the draft's, and it is fixed: the point of these
 // is that the *u-coordinate* decides the outcome, whatever the scalar.
-const LOW_ORDER_SCALAR = h('af46e36bf0527c9d3b16154b82465edd62144c0ac1fc5a18506a2244ba449aff')
+const LOW_ORDER_SCALAR = h(CPACE.lowOrder.scalar)
 
-const MUST_ABORT = {
-  u0: '0000000000000000000000000000000000000000000000000000000000000000',
-  u1: '0100000000000000000000000000000000000000000000000000000000000000',
-  u2: 'ecffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
-  u3: 'e0eb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b800',
-  u4: '5f9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f1157',
-  u5: 'edffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f',
-  u7: 'eeffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f'
-}
+/** @type {Record<string, string>} */
+const MUST_ABORT = CPACE.lowOrder.mustAbort
 
-const MUST_SUCCEED = {
-  u6: {
-    u: 'daffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
-    q: 'd8e2c776bbacd510d09fd9278b7edcd25fc5ae9adfba3b6e040e8d3b71b21806'
-  },
-  u8: {
-    u: 'dbffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
-    q: 'c85c655ebe8be44ba9c0ffde69f2fe10194458d137f09bbff725ce58803cdb38'
-  },
-  u9: {
-    u: 'd9ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff',
-    q: 'db64dafa9b8fdd136914e61461935fe92aa372cb056314e1231bc4ec12417456'
-  },
-  ua: {
-    u: 'cdeb7a7c3b41b8ae1656e3faf19fc46ada098deb9c32b1fd866205165f49b880',
-    q: 'e062dcd5376d58297be2618c7498f55baa07d7e03184e8aada20bca28888bf7a'
-  },
-  ub: {
-    u: '4c9c95bca3508c24b1d0b1559c83ef5b04445cc4581c8e86d8224eddd09f11d7',
-    q: '993c6ad11c4c29da9a56f7691fd0ff8d732e49de6250b6c2e80003ff4629a175'
-  }
-}
+/** @type {Record<string, { u: string, q: string }>} */
+const MUST_SUCCEED = CPACE.lowOrder.mustSucceed
+
+test('the low-order set is the draft\'s twelve, split seven to five', () => {
+  // A meta-assertion, because a vector file that lost an entry would
+  // otherwise run one test fewer and still pass.
+  assert.deepEqual(Object.keys(MUST_ABORT), ['u0', 'u1', 'u2', 'u3', 'u4', 'u5', 'u7'])
+  assert.deepEqual(Object.keys(MUST_SUCCEED), ['u6', 'u8', 'u9', 'ua', 'ub'])
+})
 
 for (const [name, u] of Object.entries(MUST_ABORT)) {
   test(`scalar_mult_vfy aborts on the low-order point ${name}`, () => {
@@ -313,4 +309,6 @@ test('the suite constants are the ones the draft names', () => {
   assert.equal(DSI, 'CPace255')
   assert.equal(DSI_ISK, 'CPace255_ISK')
   assert.equal(S_IN_BYTES, 128, "SHA-512's input block size, not its digest size")
+  assert.deepEqual(CPACE.constants, { DSI, DSI_ISK, s_in_bytes: S_IN_BYTES },
+    'cpace.json states the constants it was transcribed under')
 })

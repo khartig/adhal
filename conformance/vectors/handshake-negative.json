@@ -1,0 +1,90 @@
+{
+  "description": "Handshake inputs an implementation must refuse (PROTOCOL.md sections 3.1, 3.2, and 4.4). These are transformations of a live handshake rather than fixed bytes, because no implementation should accept an injected scalar or sid (section 3.2, trap #1). Take an honest HELLO or REPLY, alter it as described, and the named side must refuse with the code given. The conformance harness (conformance/src/scenarios.js) performs each of them against an implementation under test.",
+  "protocol": "adhal v2",
+  "source": "Specified by PROTOCOL.md; the encodings below are ones some serializer could produce and the canonical form forbids.",
+  "canonicalCaps": "Each token matches ^[a-z0-9]([a-z0-9-]{0,14}[a-z0-9])?$; the set is deduplicated, sorted bytewise ascending, and joined with \",\" (0x2c), at most 128 bytes in all; the empty set is zero bytes. v2 defines two tokens, \"resume\" and \"stream\". A peer's caps are refused unless they are exactly this encoding, and are hashed into the transcript verbatim.",
+  "nonCanonicalCaps": [
+    "stream,resume",
+    "resume,resume",
+    "resume,",
+    ",resume",
+    "resume,,stream",
+    "Resume",
+    "resume stream"
+  ],
+  "transformations": [
+    {
+      "name": "a reflected confirmation",
+      "how": "return the sender's own confirmS as CONFIRM",
+      "refusedBy": "sender",
+      "code": "ERR_PAKE_CONFIRMATION"
+    },
+    {
+      "name": "capabilities stripped from HELLO in transit",
+      "how": "rewrite caps_r in HELLO to a canonical subset; the sender MACs what it received, the receiver what it sent",
+      "refusedBy": "receiver",
+      "code": "ERR_PAKE_CONFIRMATION"
+    },
+    {
+      "name": "capabilities stripped from REPLY in transit",
+      "how": "rewrite caps_s in REPLY to a canonical subset after confirmS was computed",
+      "refusedBy": "receiver",
+      "code": "ERR_PAKE_CONFIRMATION"
+    },
+    {
+      "name": "non-canonical caps in HELLO",
+      "how": "replace caps_r with each nonCanonicalCaps entry",
+      "refusedBy": "sender",
+      "code": "ERR_PROTOCOL"
+    },
+    {
+      "name": "non-canonical caps in REPLY",
+      "how": "replace caps_s with each nonCanonicalCaps entry",
+      "refusedBy": "receiver",
+      "code": "ERR_PROTOCOL"
+    },
+    {
+      "name": "a v1 opening",
+      "how": "set HELLO's version byte to 0x01",
+      "refusedBy": "sender",
+      "code": "ERR_PROTOCOL"
+    },
+    {
+      "name": "a sealed frame where HELLO belongs",
+      "how": "send frames-negative.json sealed.manifest as the first bytes",
+      "refusedBy": "sender",
+      "code": "ERR_PROTOCOL"
+    },
+    {
+      "name": "a wrong confirmS",
+      "how": "flip one bit of confirmS in REPLY",
+      "refusedBy": "receiver",
+      "code": "ERR_PAKE_CONFIRMATION"
+    },
+    {
+      "name": "a wrong confirmR",
+      "how": "flip one bit of CONFIRM",
+      "refusedBy": "sender",
+      "code": "ERR_PAKE_CONFIRMATION"
+    },
+    {
+      "name": "a HELLO replayed on a second connection",
+      "how": "send the same HELLO bytes on a second connection for the same nameplate",
+      "refusedBy": "sender",
+      "code": "ERR_SID_REUSED",
+      "counted": true
+    },
+    {
+      "name": "a fresh Ya under a sid already seen",
+      "how": "a second connection's HELLO carrying the first one's sid",
+      "refusedBy": "sender",
+      "code": "ERR_SID_REUSED",
+      "counted": true
+    }
+  ],
+  "reflection": {
+    "what": "Over handshake.json's transcript, sid, and K, neither confirmation verifies as the other: they share a key and a transcript and differ only by role label.",
+    "confirmS": "22cb2fc85b8b54f002b21074511bcc3145b626a0fd95239e0987cc90d7d798ca",
+    "confirmR": "8fab90ca833c0b7a1ce505de7cc606d6b372184880cc001c4c65a0d8db56b1a1"
+  }
+}

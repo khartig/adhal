@@ -189,6 +189,16 @@ importers:
         specifier: 1.4.0
         version: 1.4.0
 
+  conformance:
+    dependencies:
+      '@noble/curves':
+        specifier: 2.4.0
+        version: 2.4.0
+    devDependencies:
+      '@ad-hal/engine':
+        specifier: workspace:*
+        version: link:../engine
+
   engine:
     dependencies:
       '@noble/curves':

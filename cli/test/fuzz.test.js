@@ -69,6 +69,7 @@ const {
   generateCode,
   splitCode
 } = require('@ad-hal/engine')
+const { rng } = require('../test-helpers/rng')
 
 const ITERATIONS = Number(process.env.ADHAL_FUZZ_ITERATIONS || 2000)
 const SEED = process.env.ADHAL_FUZZ_SEED || crypto.randomBytes(4).toString('hex')
@@ -84,24 +85,7 @@ const VOCABULARY = new Set([
 
 // --- the generator --------------------------------------------------------
 
-// mulberry32, seeded from the hex seed: small, fast, and reproducible
-// across platforms, which Math.random is not.
-function rng (/** @type {string} */ seed) {
-  let a = parseInt(seed.slice(0, 8).padEnd(8, '0'), 16) >>> 0
-  const next = () => {
-    a = (a + 0x6d2b79f5) >>> 0
-    let t = a
-    t = Math.imul(t ^ (t >>> 15), t | 1)
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
-  }
-  const int = (/** @type {number} */ n) => Math.floor(next() * n)
-  return {
-    int,
-    pick: (/** @type {any[]} */ list) => list[int(list.length)],
-    bytes: (/** @type {number} */ n) => Buffer.from(Array.from({ length: n }, () => int(256)))
-  }
-}
+// mulberry32, in cli/test-helpers/rng.js, which the property tests share.
 
 // Values that sit on the boundaries parsers get wrong.
 const INTERESTING = [0x00, 0x01, 0x7f, 0x80, 0xfe, 0xff, 0x7b, 0x7d, 0x22, 0x2c, 0x1b, 0x5c]

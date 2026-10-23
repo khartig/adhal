@@ -9,12 +9,13 @@
   },
   "packageManager": "pnpm@12.11.2",
   "scripts": {
-    "test": "pnpm --filter @ad-hal/cli test",
+    "test": "pnpm --workspace-concurrency=1 --filter @ad-hal/cli --filter @ad-hal/conformance test",
     "typecheck": "tsc --noEmit",
     "demo:loopback": "node cli/src/demo-loopback.js",
     "demo:swarm": "node cli/src/demo-swarm.js",
     "code": "node cli/src/code.js",
-    "test:fast": "ADHAL_FAST=1 pnpm --filter @ad-hal/cli test",
+    "test:fast": "ADHAL_FAST=1 pnpm --workspace-concurrency=1 --filter @ad-hal/cli --filter @ad-hal/conformance test",
+    "conformance": "node conformance/src/cli.js -- node conformance/adapters/engine.js",
     "fuzz": "pnpm --filter @ad-hal/cli fuzz"
   },
   "devDependencies": {

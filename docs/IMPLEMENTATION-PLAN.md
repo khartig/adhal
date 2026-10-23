@@ -35,9 +35,10 @@ cannot offer this without being rebuilt, which is why §3 fixes the
 relay's constraints before any relay code exists.
 
 **2. Protocol-first.** A published, versioned specification with test
-vectors and a conformance suite ([`PROTOCOL.md`](PROTOCOL.md), W12). That
-is what lets a second implementation exist, and so what lets a
-one-person project outlive its author.
+vectors and a conformance suite ([`PROTOCOL.md`](PROTOCOL.md),
+[`CONFORMANCE.md`](CONFORMANCE.md); W12). That is what lets a second
+implementation exist, and so what lets a one-person project outlive its
+author.
 
 **3. Ephemeral-by-construction privacy.** No accounts, no persistent
 identity, per-drop keys, nothing linking two drops
@@ -101,6 +102,7 @@ project's story.
 | | **W16**: release documentation pass | The docs rewritten to match the code; SECURITY.md and SECURITY-REVIEW.md; this plan made a public roadmap, its finished items moved to [`history/WORK-RECORD.md`](history/WORK-RECORD.md); GitHub private vulnerability reporting on, 2026-10-14 | `7e403a0`, `6a1877e`, `15956c4`, `7269725`, `9aa0589`, `4075fc8`, `25cd39f`, `668bab4` |
 | | **W17**: the freeze gate | Every line checked by running it, the last 40 drops between macOS and Linux on the public DHT at `8bc808a`, all confirmed on both sides; the Q-01 nonce test's fsync race found on Linux and fixed; PROTOCOL.md tagged `v2-final`, 2026-10-15 | `5c5029e`, `8bc808a` |
 | | **Q-08**: supply chain | Advisories fail CI through `pnpm audit` and OSV-Scanner, under [`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md); a CycloneDX SBOM per package on each GitHub Release, from v0.1.0; from 0.1.1, publishing by `release.yml` through npm trusted publishing with a required reviewer, so npm provenance, plus tarballs, `SHA256SUMS`, and a Sigstore-signed attestation on the release. 0.1.1 published 2026-10-22 | `609f814`, `e5961d1`, `f50ebbb`, `eefc4c8` |
+| Stage 2 | **W12**: the conformance material | The vectors moved out of the test files into `conformance/vectors/` as JSON; `conformance/src/wire.js`, a second implementation of the wire format, reproduces them; a harness that drives any implementation through 81 scenarios over loopback TCP, with eleven planted bugs showing each kind of check can fail; [`CONFORMANCE.md`](CONFORMANCE.md); property-based tests and a mutation runner (Q-06). The first mutation run is still to come (§7) | |
 
 The security review's 21 findings and their status are in
 [`SECURITY-REVIEW.md`](SECURITY-REVIEW.md).
@@ -127,7 +129,6 @@ has all 21).
 |---|---|---|
 | Q-04 layered throttling (per-source, per-key budgets) | After W14 | A Sybil attacker rotates both identifiers. W15c makes the attack visible, and W14's data shows whether it happens. |
 | Q-05 independent cryptographic review | After W17 | Reviewing a moving spec wastes the review. |
-| Q-06 property-based and mutation testing | W12 | Decision 6. |
 | Q-07 Windows as a required CI leg | Stage 3 | Documented as unsupported for security purposes until then (W16). |
 | Q-09 length padding, re-announce back-off | Post-freeze | Neither changes the wire. Padding only if file-size confidentiality ever becomes a stated goal. |
 | Q-10 relay invariants | Before any relay code | Written into THREAT-MODEL §8 as merge gates (W16); enforced when a relay exists. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
@@ -136,10 +137,11 @@ has all 21).
 
 ## 7. Stage 2 — prove and publish the thesis
 
-- **W12 — Publish spec, test vectors, conformance harness** (#2). Most of
-  the vectors exist (PROTOCOL §11); the harness that drives any
-  implementation through a drop does not. Property-based and mutation
-  testing land here too (Q-06).
+- **W12, the rest.** The first full run of `tools/mutate.js`, with every
+  survivor triaged as a gap in the tests or an equivalent mutant, which
+  closes Q-06. And BLAKE2b-256 in `conformance/src/wire.js`, so that
+  `code.json`'s topics are reproduced by a second implementation too
+  ([`CONFORMANCE.md`](CONFORMANCE.md)).
 - **W13 — Streaming/pipe contract + `--json` events** (#4), built on the
   existing error codes: a receive that writes to stdout, and a stable,
   documented event stream.

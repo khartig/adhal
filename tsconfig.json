@@ -21,7 +21,9 @@
   "include": [
     "engine/src/**/*.js",
     "cli/src/**/*.js",
-    "cli/test/**/*.js"
+    "cli/test/**/*.js",
+    "conformance/**/*.js",
+    "tools/**/*.js"
   ],
   "exclude": [
     "**/node_modules"

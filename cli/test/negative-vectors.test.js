@@ -57,70 +57,42 @@ const bytes = (/** @type {string} */ h) => Buffer.from(h, 'hex')
 
 // --- frame vectors --------------------------------------------------------
 
+// The vectors are in conformance/vectors/frames-negative.json, which is
+// what a second implementation replays; this file reads them from there so
+// the two cannot drift apart.
+//
 // k_s2r = 00 01 02 ... 1f and k_r2s = 20 21 22 ... 3f. The receiver opens
 // under k_s2r and seals under k_r2s; every frame is the first its direction
 // has sealed (nonce counter 0) unless the vector says otherwise.
-const K_S2R = Buffer.from(Array.from({ length: 32 }, (_, i) => i))
-const K_R2S = Buffer.from(Array.from({ length: 32 }, (_, i) => 0x20 + i))
+const FRAMES = require('../../conformance/vectors/frames-negative.json')
+const K_S2R = bytes(FRAMES.kS2R)
+const K_R2S = bytes(FRAMES.kR2S)
 
 // The MANIFEST these vectors use, offering the three bytes "abc".
-const MANIFEST = { v: 2, name: 'vector.bin', size: 3, sha256: 'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad', blockSize: 65536 }
+const MANIFEST = FRAMES.manifest
 
 // The sealed frames, as this implementation produces them from the keys
-// above. Pinned, and checked in the first test.
-const SEALED = {
-  // MANIFEST, S->R, counter 0.
-  manifest: '0000009319c360478fdc94fd310f3d0cca6174058ed490818edf753e8596de3e08461c26172a325efdcc4f35fcb36d124634225efa97ce6fe83f3ff66b1a7b1c57f03bf973c61ce8972ef7e008c6efdd1bbc415950134c00768b8d8ec5d1ab07afb98080b099327dec6a3a42a6fd0cbc6e72345cebc5c2142297c8b183fb07f05bf3a816d49d6cc5a4f274d8b6c3beffae794ca2c8f8db',
-  // PREFIX{sha256 of "abc"}, S->R, counter 1: the frame after the manifest.
-  prefixAfterManifest: '0000005e60275eaa596b8a4f1b53440dd175202a21c75d26f6d7cc44265cd0491ddfab3be71d886f869fcfe6137ad917c4d39afdf3cf2440b05d6502535a292d0d231e4979b4568ba408b91d4c4544a993fa6423be4cfe3df32ba03e16401bf52e0e',
-  // CHUNK "abc", S->R, counter 0.
-  chunk: '000000141ad920524042a43231abdec67aefea679cad2bf2',
-  // Type 0x00 with body "{}", S->R, counter 0.
-  reserved: '0000001318c33f2b2db4201ed4dd28b4ef841f0c40206b',
-  // Type 0x0a with body "{}", S->R, counter 0.
-  unassigned: '0000001312c33f929fb1da176f958af841cb4db9e91b69',
-  // ACCEPT{resumeFrom: 0}, R->S, counter 0: a frame for the other direction.
-  acceptR2S: '0000002184187dae76fba270ff6e8b8e88ab742dbbf3e2edfed47563ebf52fa1a5cc008e81',
-  // The MANIFEST above sealed WITHOUT associated data -- the pre-W15a
-  // construction. Same ciphertext, different tag (the last 16 bytes).
-  manifestNoAad: '0000009319c360478fdc94fd310f3d0cca6174058ed490818edf753e8596de3e08461c26172a325efdcc4f35fcb36d124634225efa97ce6fe83f3ff66b1a7b1c57f03bf973c61ce8972ef7e008c6efdd1bbc415950134c00768b8d8ec5d1ab07afb98080b099327dec6a3a42a6fd0cbc6e72345cebc5c2142297c8b183fb07f05bf3a816d49d6cc55941a5330436e5363bfff0a92b6c9b'
-}
+// above. Pinned, and checked in the first test. Each one's `what` in the
+// JSON says what it is.
+/** @type {Record<string, string>} */
+const SEALED = Object.fromEntries(Object.entries(FRAMES.sealed).map(([k, v]) => [k, /** @type {any} */ (v).hex]))
 
-/** The manifest frame with its length rewritten by `delta`, body adjusted to match. */
-function rewrittenLength (/** @type {number} */ delta) {
-  const frame = bytes(SEALED.manifest)
-  const sealed = frame.subarray(4)
-  const body = delta > 0 ? Buffer.concat([sealed, Buffer.alloc(delta)]) : sealed.subarray(0, sealed.length + delta)
-  const header = Buffer.alloc(4)
-  header.writeUInt32BE(body.length)
-  return hex(Buffer.concat([header, body]))
-}
-
-// Each vector: the byte strings written to the receiver, in order (`wait`
-// between two of them means "after the receiver's ACCEPT"), whether the
-// stream then ends, and the code the receive must fail with.
-const FRAME_VECTORS = [
-  { name: 'CHUNK before MANIFEST', frames: [SEALED.chunk], code: 'ERR_PROTOCOL' },
-  { name: 'a 0x00 tag, sealed correctly', frames: [SEALED.reserved], code: 'ERR_PROTOCOL' },
-  { name: 'an unassigned tag (0x0a), sealed correctly', frames: [SEALED.unassigned], code: 'ERR_PROTOCOL' },
-  // The header alone is enough to refuse it: nothing is buffered toward it.
-  { name: 'an oversize frame: a header declaring 1 MiB + 1', frames: ['00100001'], code: 'ERR_PROTOCOL' },
-  { name: 'a declared length too short to be sealed (16 bytes)', frames: ['00000010' + '00'.repeat(16)], code: 'ERR_PROTOCOL' },
-  // Three bytes of a header, then the stream ends. Indistinguishable from
-  // a close mid-frame, and reported as the close it is -- never as a frame.
-  { name: 'a truncated length prefix', frames: ['000000'], end: true, code: 'ERR_CONNECTION' },
-  // A rewritten length re-delimits the frame, so the tag is read from the
-  // wrong place and the frame fails to authenticate. That held before W15a
-  // too; it is the attack a reader of the layout thinks of first.
-  { name: 'a rewritten length (+1, one byte appended)', frames: [rewrittenLength(1)], code: 'ERR_PROTOCOL' },
-  { name: 'a rewritten length (-1, last byte dropped)', frames: [rewrittenLength(-1)], code: 'ERR_PROTOCOL' },
-  // What only the associated data catches (W15a): the pre-W15a seal,
-  // byte-identical ciphertext under the right key and nonce, with no AAD.
-  { name: 'a frame sealed without the length as associated data', frames: [SEALED.manifestNoAad], code: 'ERR_PROTOCOL' },
-  { name: 'a frame sealed for the other direction (reflected)', frames: [SEALED.acceptR2S], code: 'ERR_PROTOCOL' },
-  { name: 'a replayed frame: the MANIFEST twice', frames: [SEALED.manifest, SEALED.manifest], code: 'ERR_PROTOCOL' },
-  { name: 'PREFIX when no resume was proposed', frames: [SEALED.manifest, 'wait', SEALED.prefixAfterManifest], code: 'ERR_PROTOCOL' }
-]
+// Each vector: the byte strings written to the receiver, in order ("await
+// ACCEPT" between two of them means "after the receiver's ACCEPT"), whether
+// the stream then ends, and the code the receive must fail with. Three are
+// worth knowing about without opening the JSON:
+//
+//   - A truncated length prefix is three header bytes and then the end of
+//     the stream. Indistinguishable from a close mid-frame, and reported
+//     as the close it is -- never as a frame.
+//   - A rewritten length re-delimits the frame, so the tag is read from
+//     the wrong place and the frame fails to authenticate. That held
+//     before W15a too; it is the attack a reader of the layout thinks of
+//     first.
+//   - What only the associated data catches (W15a): the pre-W15a seal,
+//     byte-identical ciphertext under the right key and nonce, with no AAD.
+/** @type {Array<{ name: string, frames: string[], end?: boolean, code: string }>} */
+const FRAME_VECTORS = FRAMES.vectors
 
 test('the frame vectors are the frames this implementation seals from the fixed keys', () => {
   const tx = () => new Channel({ sendKey: Buffer.from(K_S2R), receiveKey: Buffer.from(K_R2S), onMessage () {} })
@@ -164,7 +136,7 @@ for (const vector of FRAME_VECTORS) {
     const received = receiveFile(near, dir, { sendKey: Buffer.from(K_R2S), receiveKey: Buffer.from(K_S2R) })
       .then(() => null, (err) => err)
     for (const frame of vector.frames) {
-      if (frame === 'wait') {
+      if (frame === 'await ACCEPT') {
         for (let i = 0; i < 200 && !accepted; i++) await new Promise((resolve) => setTimeout(resolve, 5))
         assert.ok(accepted, 'the receiver answered the manifest before the next frame')
         continue
@@ -226,20 +198,15 @@ test('handshake vector: a reflected confirmation -- the sender\'s own confirmS r
 })
 
 test('handshake vector: over the fixed transcript, neither confirmation verifies as the other', () => {
-  // handshake-vectors.test.js's transcript, sid, and K. The confirmations
-  // share a key and a transcript and differ only by role label, which is
-  // what makes reflection fail rather than succeed.
-  const sid = bytes('0123456789abcdef0123456789abcdef')
-  const K = bytes('9f28ae742f859cc3f0a5b7be169c8fda37b95b710ae297618a444c1e5b5da260')
-  const transcript = bytes(
-    '20ccb6464cffda7c8bf5b93d45a427e1cdb2f2ff24d79d3519c3927e4b1dad3278' +
-    '1001020d726573756d652c73747265616d' +
-    '20f049a9334faad701af51e7c623949022b283ed9ad2cff47bf7d88d091badd74d' +
-    '09010206726573756d65'
-  )
-  const d = deriveAll(sid, K, transcript)
-  assert.equal(hex(d.confirmS), '22cb2fc85b8b54f002b21074511bcc3145b626a0fd95239e0987cc90d7d798ca')
-  assert.equal(hex(d.confirmR), '8fab90ca833c0b7a1ce505de7cc606d6b372184880cc001c4c65a0d8db56b1a1')
+  // handshake.json's transcript, sid, and K, the vector
+  // handshake-vectors.test.js checks. The confirmations share a key and a
+  // transcript and differ only by role label, which is what makes
+  // reflection fail rather than succeed.
+  const { vector: V } = require('../../conformance/vectors/handshake.json')
+  const { reflection } = require('../../conformance/vectors/handshake-negative.json')
+  const d = deriveAll(bytes(V.sid), bytes(V.K), bytes(V.transcript))
+  assert.equal(hex(d.confirmS), reflection.confirmS)
+  assert.equal(hex(d.confirmR), reflection.confirmR)
   assert.equal(confirmationMatches(d.confirmS, d.confirmR), false, 'confirmR must not pass where confirmS is checked')
   assert.equal(confirmationMatches(d.confirmR, d.confirmS), false, 'confirmS must not pass where confirmR is checked')
 })
@@ -259,7 +226,8 @@ test('handshake vector: capabilities stripped from REPLY in transit fail the rec
 
 // Every one is a set some serializer could produce, and the canonical form
 // (section 3.2, trap #2) forbids. Refused, never normalized.
-const NON_CANONICAL = ['stream,resume', 'resume,resume', 'resume,', ',resume', 'resume,,stream', 'Resume', 'resume stream']
+/** @type {string[]} */
+const NON_CANONICAL = require('../../conformance/vectors/handshake-negative.json').nonCanonicalCaps
 
 for (const caps of NON_CANONICAL) {
   test(`handshake vector: non-canonical caps ${JSON.stringify(caps)} in HELLO are refused by the sender`, () => {

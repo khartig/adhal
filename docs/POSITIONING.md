@@ -38,9 +38,9 @@ are fixed before any relay code exists
 worth investigating first, so that the project runs nothing.
 
 **2. Protocol-first.** A published, versioned specification with test
-vectors and a conformance suite ([`PROTOCOL.md`](PROTOCOL.md); W12 for the
-harness). The tools compared below are applications that happen to contain
-an engine. A specification is what lets other clients exist (Rust, Go,
+vectors and a conformance suite ([`PROTOCOL.md`](PROTOCOL.md),
+[`CONFORMANCE.md`](CONFORMANCE.md)). The tools compared below are
+applications that happen to contain an engine. A specification is what lets other clients exist (Rust, Go,
 Swift, a browser), and so what lets a one-person project outlive its
 author. The natural comparator is **magic-wormhole** (§2): a
 PAKE-protected code, a mature CLI, a published protocol with several
