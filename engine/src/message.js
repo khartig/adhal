@@ -159,11 +159,15 @@ function sanitizeReason (reason) {
   // CLI's own words around it read as something else (Q-11).
   // eslint-disable-next-line no-control-regex
   const stripped = reason.replace(/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, ' ')
-  const capped = Buffer.from(stripped, 'utf8').subarray(0, MAX_REASON_BYTES).toString('utf8')
-  // A multi-byte character can be cut in half by the byte cap above;
-  // toString leaves U+FFFD behind for the fragment, which is fine to show
-  // but not worth trailing whitespace around.
-  return capped.trim()
+  const bytes = Buffer.from(stripped, 'utf8')
+  // The cap is cut at a character boundary. Sliced inside a multi-byte
+  // character, the fragment decodes to U+FFFD, which is three bytes, and
+  // the reason came out up to two bytes over its cap (found in W12). So
+  // when the byte at the cap continues a character (10xxxxxx), step back
+  // to where that character starts and leave it out whole.
+  let end = Math.min(bytes.length, MAX_REASON_BYTES)
+  if (end < bytes.length) while (end > 0 && (bytes[end] & 0xc0) === 0x80) end--
+  return bytes.subarray(0, end).toString('utf8').trim()
 }
 
 // A body that is not JSON is reported by its length, never its content.

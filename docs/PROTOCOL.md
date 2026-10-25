@@ -1280,8 +1280,9 @@ harness, the adapter contract, and what passing means.
   it. Two things narrow that gap. `cli/test/handshake-vectors.test.js`
   recomputes each derivation independently. And `conformance/src/wire.js`,
   a second implementation of the wire format that shares no code with
-  `engine/src`, reproduces `cpace.json`, `handshake.json`, and
-  `frames-negative.json` (`conformance/test/wire.test.js`). The engine's
+  `engine/src`, reproduces `cpace.json`, `handshake.json`,
+  `frames-negative.json`, and `code.json`'s topics, the last through its
+  own BLAKE2b (`conformance/test/wire.test.js`). The engine's
   own tests (`code-vectors`, `cpace-vectors`, `handshake-vectors`, and
   `negative-vectors` in `cli/test/`) read the same files.
 - **A conformance harness**, `conformance/src/`, that drives any

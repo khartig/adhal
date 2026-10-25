@@ -9,12 +9,15 @@
 // second implementation meeting an external acceptance criterion; for
 // handshake.json and frames-negative.json, which this repository generated,
 // it is the first evidence that someone other than their author can
-// reproduce them from PROTOCOL.md.
+// reproduce them from PROTOCOL.md. code.json's topics are reproduced
+// through wire.js's own BLAKE2b, written from RFC 7693.
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const crypto = require('node:crypto')
 
 const wire = require('../src/wire')
+const CODE = require('../vectors/code.json')
 const CPACE = require('../vectors/cpace.json')
 const HANDSHAKE = require('../vectors/handshake.json')
 const FRAMES = require('../vectors/frames-negative.json')
@@ -23,6 +26,25 @@ const HANDSHAKE_NEGATIVE = require('../vectors/handshake-negative.json')
 const h = (/** @type {string} */ s) => Buffer.from(s, 'hex')
 const hex = (/** @type {Buffer} */ b) => b.toString('hex')
 const utf8 = (/** @type {string} */ s) => Buffer.from(s, 'utf8')
+
+// Node's blake2b512 is an independent implementation of the same
+// compression function, so at a 64-byte output the two must agree. The
+// lengths cover the empty input, which is one block of zeros, and both
+// sides of each block boundary, where the final flag and the counter go
+// wrong.
+test('BLAKE2b at a 64-byte output agrees with node:crypto, around every block boundary', () => {
+  for (let n = 0; n <= 3 * 128 + 1; n++) {
+    const data = Buffer.from(Array.from({ length: n }, (_, i) => (i * 7 + n) & 0xff))
+    assert.equal(hex(wire.blake2b(data, 64)), crypto.createHash('blake2b512').update(data).digest('hex'), `${n} bytes`)
+  }
+})
+
+test('code.json: BLAKE2b-256 of "abc", and every topic', () => {
+  assert.equal(hex(wire.blake2b(utf8('abc'), 32)), CODE.blake2b256Abc, 'the published digest')
+  assert.notEqual(hex(wire.blake2b(utf8('abc'), 64)).slice(0, 64), CODE.blake2b256Abc, 'BLAKE2b-256 is not a truncated BLAKE2b-512')
+  assert.equal(wire.TOPIC_LABEL, CODE.topicLabel)
+  for (const v of CODE.vectors) assert.equal(hex(wire.topic(v.nameplate)), v.topic, v.what)
+})
 
 test('cpace.json: the string utilities', () => {
   for (const v of CPACE.prependLen) {

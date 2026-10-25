@@ -190,6 +190,13 @@ test('a cancel reason round-trips, and a hostile one is defanged', () => {
   // input in the place that is easiest to forget.
   assert.equal(sanitizeReason('a\x1b[2Kfake\nline'), 'a [2Kfake line')
   assert.ok(Buffer.byteLength(sanitizeReason('x'.repeat(10000)), 'utf8') <= 256)
+  // The cap falls at a character boundary: a character it would split is
+  // left out whole, never decoded as U+FFFD, and one that fits exactly is
+  // kept (W12).
+  assert.equal(sanitizeReason('x'.repeat(255) + '\u{1f600}'), 'x'.repeat(255))
+  assert.equal(sanitizeReason('x'.repeat(253) + '\u{1f600}'), 'x'.repeat(253))
+  assert.equal(sanitizeReason('x'.repeat(252) + '\u{1f600}y'), 'x'.repeat(252) + '\u{1f600}')
+  assert.equal(sanitizeReason('x'.repeat(254) + '\u00e9'), 'x'.repeat(254) + '\u00e9')
 
   // A malformed body must not turn a clean cancel back into a mystery.
   assert.equal(decodeCancelReason(Buffer.from('not json')), '')

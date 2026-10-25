@@ -32,13 +32,15 @@ their own they pin it rather than prove it. Two things narrow that gap:
   it assembles by hand.
 - `conformance/src/wire.js`, the harness's own implementation of the wire
   format, shares no code with `engine/src` and reproduces every value in
-  `cpace.json`, `handshake.json`, and `frames-negative.json`
-  (`conformance/test/wire.test.js`). It was written from PROTOCOL.md by
-  the same author, so it is a second implementation, not an independent
-  one.
+  `cpace.json`, `handshake.json`, and `frames-negative.json`, and every
+  topic in `code.json` (`conformance/test/wire.test.js`). It was written
+  from PROTOCOL.md by the same author, so it is a second implementation,
+  not an independent one.
 
-`code.json`'s topics are reproduced only by this implementation, because
-Node has no BLAKE2b-256 for `wire.js` to use.
+Node has no BLAKE2b-256, so `wire.js` carries its own, written from
+RFC 7693. At a 64-byte output it is checked against Node's `blake2b512`
+on every input length up to three blocks and one byte, which `code.json`
+alone could not do: every nameplate there fits in one block.
 
 **The capability encoding**, which every handshake value depends on: each
 token matches `^[a-z0-9]([a-z0-9-]{0,14}[a-z0-9])?$`, and the set is

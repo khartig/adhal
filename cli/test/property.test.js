@@ -313,17 +313,13 @@ test('property: a peer\'s name never lands outside the output directory', async 
 
 // --- what a peer's words can do to a terminal (Q-11) ------------------------
 
-// TODO, AND A FINDING (W12). The byte cap does not hold: MAX_REASON_BYTES
-// in engine/src/message.js slices the UTF-8 bytes, and decoding a
-// character cut in half turns its leftover bytes into U+FFFD, which is
-// three. 255 ASCII bytes and an emoji sanitize to 258 bytes. Escapes are
-// still stripped -- U+FFFD is not a control character -- so what a peer
-// can put on a terminal is unchanged; the cap is two bytes looser than it
-// says. Marked todo so it runs and reports without failing the suite until
-// the fix is decided.
-test('property: a sanitized reason carries no control or bidi character and fits its cap', {
-  todo: 'sanitizeReason exceeds MAX_REASON_BYTES by up to 2 bytes when the cap splits a character'
-}, async () => {
+// A FINDING (W12), FIXED. MAX_REASON_BYTES in engine/src/message.js used
+// to slice the UTF-8 bytes, and decoding a character cut in half turned
+// its leftover bytes into U+FFFD, which is three: 255 ASCII bytes and an
+// emoji sanitized to 258 bytes. Escapes were still stripped, so what a
+// peer could put on a terminal was unchanged, but the cap was two bytes
+// looser than it said. The cap is now cut at a character boundary.
+test('property: a sanitized reason carries no control or bidi character and fits its cap', async () => {
   const unit = gen.oneOf(
     gen.int(0, 0x2ff),
     gen.element([0x1b, 0x7f, 0x85, 0x9b, 0x202a, 0x202e, 0x2066, 0x2069, 0x200b, 0xfeff, 0x1f600, 0x10ffff])
@@ -334,6 +330,16 @@ test('property: a sanitized reason carries no control or bidi character and fits
     assert.ok(!/[\u0000-\u001f\u007f-\u009f‪-‮⁦-⁩]/.test(out), JSON.stringify(out))
     assert.ok(Buffer.byteLength(out, 'utf8') <= 256)
     assert.equal(out, out.trim())
+    // And nothing more is dropped than the cap requires: the longest run of
+    // whole characters that fits, counted here a code point at a time
+    // rather than by scanning bytes, as sanitizeReason does.
+    let kept = ''
+    for (const cp of points) {
+      const c = cp <= 0x1f || (cp >= 0x7f && cp <= 0x9f) || (cp >= 0x202a && cp <= 0x202e) || (cp >= 0x2066 && cp <= 0x2069) ? ' ' : String.fromCodePoint(cp)
+      if (Buffer.byteLength(kept + c, 'utf8') > 256) break
+      kept += c
+    }
+    assert.equal(out, kept.trim())
   })
 })
 

@@ -19,12 +19,106 @@
 // conformance/test/wire.test.js runs this file against every published
 // vector, the CFRG ones included. A wrong map fails the generator vector.
 //
-// Only what the harness needs is here. There is no code parsing and no
-// topic: the harness is handed a nameplate and a secret, and discovery is
-// outside what a byte stream can test.
+// THE ONE THING WRITTEN FROM SCRATCH is BLAKE2b, for section 2's topic.
+// Node ships blake2b512 and blake2s256, and BLAKE2b-256 is neither: the
+// output length is in BLAKE2b's parameter block, so a truncated
+// blake2b512 is a different hash. It is here, from RFC 7693, so that
+// code.json's topics are reproduced by a second implementation too. At a
+// 64-byte output it must agree with Node's blake2b512 on any input, which
+// is how conformance/test/wire.test.js checks the compression function.
+//
+// Otherwise only what the harness needs is here. There is no code parsing:
+// the harness is handed a nameplate and a secret, and discovery is outside
+// what a byte stream can test.
 
 const crypto = require('node:crypto')
 const { _map_to_curve_elligator2_curve25519: mapToCurveElligator2 } = require('@noble/curves/ed25519.js')
+
+// --- section 2: the topic, over BLAKE2b (RFC 7693) -------------------------
+
+const MASK64 = (1n << 64n) - 1n
+const BLAKE2B_IV = [
+  0x6a09e667f3bcc908n, 0xbb67ae8584caa73bn, 0x3c6ef372fe94f82bn, 0xa54ff53a5f1d36f1n,
+  0x510e527fade682d1n, 0x9b05688c2b3e6c1fn, 0x1f83d9abfb41bd6bn, 0x5be0cd19137e2179n
+]
+// Rounds 10 and 11 reuse the first two rows (RFC 7693 section 2.7).
+const SIGMA = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+  [14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3],
+  [11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4],
+  [7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8],
+  [9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13],
+  [2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9],
+  [12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11],
+  [13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10],
+  [6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5],
+  [10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0]
+]
+const BLOCK = 128
+
+const rotr64 = (/** @type {bigint} */ x, /** @type {bigint} */ n) => ((x >> n) | (x << (64n - n))) & MASK64
+
+/**
+ * F, the compression function (RFC 7693 section 3.2).
+ * @param {bigint[]} h @param {Buffer} block @param {bigint} t bytes so far @param {boolean} last
+ */
+function compress (h, block, t, last) {
+  const m = Array.from({ length: 16 }, (_, i) => block.readBigUInt64LE(i * 8))
+  const v = [...h, ...BLAKE2B_IV]
+  v[12] ^= t & MASK64
+  v[13] ^= t >> 64n
+  if (last) v[14] ^= MASK64
+  /** @param {number} a @param {number} b @param {number} c @param {number} d @param {bigint} x @param {bigint} y */
+  const G = (a, b, c, d, x, y) => {
+    v[a] = (v[a] + v[b] + x) & MASK64
+    v[d] = rotr64(v[d] ^ v[a], 32n)
+    v[c] = (v[c] + v[d]) & MASK64
+    v[b] = rotr64(v[b] ^ v[c], 24n)
+    v[a] = (v[a] + v[b] + y) & MASK64
+    v[d] = rotr64(v[d] ^ v[a], 16n)
+    v[c] = (v[c] + v[d]) & MASK64
+    v[b] = rotr64(v[b] ^ v[c], 63n)
+  }
+  for (let r = 0; r < 12; r++) {
+    const s = SIGMA[r % 10]
+    G(0, 4, 8, 12, m[s[0]], m[s[1]])
+    G(1, 5, 9, 13, m[s[2]], m[s[3]])
+    G(2, 6, 10, 14, m[s[4]], m[s[5]])
+    G(3, 7, 11, 15, m[s[6]], m[s[7]])
+    G(0, 5, 10, 15, m[s[8]], m[s[9]])
+    G(1, 6, 11, 12, m[s[10]], m[s[11]])
+    G(2, 7, 8, 13, m[s[12]], m[s[13]])
+    G(3, 4, 9, 14, m[s[14]], m[s[15]])
+  }
+  for (let i = 0; i < 8; i++) h[i] ^= v[i] ^ v[i + 8]
+}
+
+/**
+ * Unkeyed BLAKE2b with an output of `outlen` bytes (RFC 7693 section 3.3).
+ * @param {Buffer} data @param {number} outlen 1 to 64
+ */
+function blake2b (data, outlen) {
+  if (!Number.isInteger(outlen) || outlen < 1 || outlen > 64) throw new RangeError('outlen must be 1 to 64')
+  const h = [...BLAKE2B_IV]
+  h[0] ^= 0x01010000n ^ BigInt(outlen)
+  // The last block is compressed with the final flag set, even when the
+  // input fills it exactly, and an empty input is one block of zeros.
+  const blocks = Math.max(1, Math.ceil(data.length / BLOCK))
+  for (let i = 0; i < blocks - 1; i++) {
+    compress(h, data.subarray(i * BLOCK, (i + 1) * BLOCK), BigInt((i + 1) * BLOCK), false)
+  }
+  const tail = Buffer.alloc(BLOCK)
+  data.copy(tail, 0, (blocks - 1) * BLOCK)
+  compress(h, tail, BigInt(data.length), true)
+  const out = Buffer.alloc(64)
+  h.forEach((word, i) => out.writeBigUInt64LE(word, i * 8))
+  return out.subarray(0, outlen)
+}
+
+const TOPIC_LABEL = 'adhal-v2:topic'
+
+/** topic = BLAKE2b-256(lv_cat("adhal-v2:topic", nameplate)). @param {string} nameplate */
+const topic = (nameplate) => blake2b(lvCat(utf8(TOPIC_LABEL), utf8(nameplate)), 32)
 
 // --- section 3.2: CPace255 and the parameter mapping ----------------------
 
@@ -135,6 +229,11 @@ function calculateGenerator (PRS, CI, sid) {
 
 const b64url = (/** @type {Buffer} */ b) => Buffer.from(b).toString('base64url')
 
+// PKCS#8 PrivateKeyInfo for X25519 (RFC 8410), up to the 32-byte scalar.
+// A JWK private key would need x, the public key, and some builds (Windows)
+// reject one that does not match d.
+const X25519_PKCS8_PREFIX = Buffer.from('302e020100300506032b656e04220420', 'hex')
+
 /**
  * X25519 with the draft's mandatory abort on the neutral element
  * (scalar_mult_vfy). Node clamps the scalar, as RFC 7748 does, and refuses
@@ -143,12 +242,13 @@ const b64url = (/** @type {Buffer} */ b) => Buffer.from(b).toString('base64url')
  * @param {Buffer} u
  */
 function scalarMultVfy (scalar, u) {
+  const privateKey = crypto.createPrivateKey({
+    key: Buffer.concat([X25519_PKCS8_PREFIX, scalar]),
+    format: 'der',
+    type: 'pkcs8'
+  })
   let out
   try {
-    const privateKey = crypto.createPrivateKey({
-      key: { kty: 'OKP', crv: 'X25519', d: b64url(scalar), x: b64url(Buffer.alloc(32)) },
-      format: 'jwk'
-    })
     const publicKey = crypto.createPublicKey({ key: { kty: 'OKP', crv: 'X25519', x: b64url(u) }, format: 'jwk' })
     out = crypto.diffieHellman({ privateKey, publicKey })
   } catch (cause) {
@@ -338,6 +438,9 @@ module.exports = {
   HELLO_BODY,
   REPLY_BODY,
   LABELS,
+  blake2b,
+  TOPIC_LABEL,
+  topic,
   prependLen,
   lvCat,
   generatorString,

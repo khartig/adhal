@@ -121,8 +121,10 @@ passes for code that is wrong the same way twice.
 | `ADHAL_PROPERTY_SEED` | Replay a run exactly. One property replays alone with the same seed |
 | `ADHAL_PROPERTY_RUNS` | Inputs per property (default 100). The two resume properties run an eighth as many, since each writes a file |
 
-One property is marked `todo`: it runs and reports a known failure
-without failing the suite. Its comment says what it found.
+The properties have found one bug so far: a canceling peer's reason
+could come out two bytes over its 256-byte cap, when the cap cut a
+character in half. It is fixed, and the property's comment says how it
+was found.
 
 ### Conformance
 
