@@ -1,0 +1,4 @@
+# LF in every checkout, Windows included: .editorconfig asks for it, and
+# conformance/test/planted.test.js matches source lines ending in \n.
+* text=auto eol=lf
+*.jpg binary
