@@ -29,12 +29,13 @@
 //
 //   node tools/mutate.js [--files engine/src/channel.js,...] [--workers 4]
 //                        [--sample N] [--seed hex] [--conformance] [--report path]
+//                        [--max-rss-mb 3072] [--log-dir .tmp/mutate/<time>]
 
 const fs = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const crypto = require('node:crypto')
-const { spawn, spawnSync } = require('node:child_process')
+const { spawn, spawnSync, execFile } = require('node:child_process')
 
 const { makeSandbox, REPO } = require('./sandbox')
 
@@ -160,58 +161,191 @@ function mutantsOf (file, source) {
   return out.sort((a, b) => a.offset - b.offset)
 }
 
+// --- the journal and the memory guard -------------------------------------
+
+// A mutant can do worse than fail a test: it can make the test take all
+// the memory there is. Three test processes once reached 52, 27, and 15
+// GiB together on a 32 GiB laptop, and it hung. That one was
+// assert.deepEqual, failing on file-sized Buffers and building a diff that
+// grows with the square of their size (cli/test-helpers/bytes.js, which
+// the tests now compare bytes with instead). A mutant that loops forever
+// filling an array still reaches several GB before V8's heap limit stops
+// it. So every phase's process group is measured, and a group past the
+// limit is killed and the mutant counted as killed by it ('oom'), since
+// the unmutated copy passes under the same limit. `ps` leaves out
+// compressed pages on macOS, so a group can hold more than it shows; the
+// limit is a backstop, not an exact bound. The journal is how a run that
+// still goes wrong is diagnosed: a line per phase started and ended, and
+// the memory of every group every few seconds, each synced to disk before
+// the run goes on, so a `start` with no `end` names what was running at a
+// hang.
+
+const GUARD_INTERVAL_MS = 250
+const MEMORY_EVENT_MS = 5000
+
+/** @param {string} file @returns {(event: Record<string, any>) => void} */
+function openJournal (file) {
+  const fd = fs.openSync(file, 'a')
+  return (event) => {
+    fs.writeSync(fd, JSON.stringify({ t: new Date().toISOString(), ...event }) + '\n')
+    fs.fsyncSync(fd)
+  }
+}
+
+/** @typedef {{ w: number, id: string, phase: string, peakMb: number, top: string, oom: boolean }} Watched */
+
+/**
+ * Samples `ps` and kills any watched process group whose resident memory,
+ * summed, passes `limitMb`.
+ * @param {{ limitMb: number, journal: (event: Record<string, any>) => void }} o
+ */
+function startGuard ({ limitMb, journal }) {
+  /** @type {Map<number, Watched>} */
+  const watched = new Map()
+  let busy = false
+  let lastEvent = 0
+  const sample = () => {
+    if (busy) return
+    busy = true
+    execFile('ps', ['-A', '-o', 'pid=,pgid=,rss=,command='], { maxBuffer: 64 * 1024 * 1024 }, (err, stdout) => {
+      busy = false
+      if (err) {
+        clearInterval(timer)
+        process.stderr.write(`the memory guard is off: ps failed (${err.message})\n`)
+        journal({ event: 'guard-off', error: err.message })
+        return
+      }
+      /** @type {Map<number, { mb: number, topMb: number, top: string }>} */
+      const groups = new Map()
+      for (const line of stdout.split('\n')) {
+        const m = /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(.*)$/.exec(line)
+        if (!m || !watched.has(Number(m[2]))) continue
+        const mb = Number(m[3]) / 1024
+        const g = groups.get(Number(m[2])) || { mb: 0, topMb: 0, top: '' }
+        g.mb += mb
+        if (mb > g.topMb) { g.topMb = mb; g.top = m[4] }
+        groups.set(Number(m[2]), g)
+      }
+      for (const [pgid, g] of groups) {
+        const w = /** @type {Watched} */ (watched.get(pgid))
+        w.peakMb = Math.max(w.peakMb, Math.round(g.mb))
+        if (g.mb > limitMb && !w.oom) {
+          w.oom = true
+          // The test file, when the largest process is one; node --test
+          // runs each file in its own process.
+          w.top = (g.top.match(/test\/[\w.-]+\.test\.js/g) || []).pop() || g.top.slice(0, 200)
+          try { process.kill(-pgid, 'SIGKILL') } catch {}
+          journal({ event: 'oom', w: w.w, id: w.id, phase: w.phase, mb: Math.round(g.mb), top: w.top })
+        }
+      }
+      if (Date.now() - lastEvent >= MEMORY_EVENT_MS) {
+        lastEvent = Date.now()
+        const snapshot = [...watched].map(([pgid, w]) => ({ w: w.w, id: w.id, phase: w.phase, mb: Math.round((groups.get(pgid) || { mb: 0 }).mb) }))
+        // The share of memory the system counts as available. On macOS
+        // os.freemem() is only the pages nothing uses, near zero on a busy
+        // machine, so the kernel's own figure (memory_pressure's) is used.
+        const write = (/** @type {number} */ availablePct) => journal({ event: 'memory', availablePct, groups: snapshot })
+        if (process.platform === 'darwin') {
+          execFile('sysctl', ['-n', 'kern.memorystatus_level'], (e, level) => write(e ? -1 : Number(level)))
+        } else {
+          write(Math.round(100 * os.freemem() / os.totalmem()))
+        }
+      }
+    })
+  }
+  const timer = setInterval(sample, GUARD_INTERVAL_MS)
+  return {
+    /** @param {number} pgid @param {Watched} w */
+    watch: (pgid, w) => watched.set(pgid, w),
+    /** @param {number} pgid */
+    unwatch: (pgid) => watched.delete(pgid),
+    stop: () => clearInterval(timer)
+  }
+}
+
 // --- running one mutant ---------------------------------------------------
 
 /**
  * @param {string} cwd @param {string[]} args @param {Record<string, string>} env
- * @returns {Promise<'pass' | 'fail' | 'timeout'>}
+ * @param {{ guard: ReturnType<typeof startGuard>, out: string, w: number, id: string, phase: string }} o
+ *   `out` is the file the child's output goes to
+ * @returns {Promise<{ status: 'pass' | 'fail' | 'timeout' | 'oom', peakMb: number, top: string }>}
  */
-function run (cwd, args, env) {
+function run (cwd, args, env, { guard, out, w, id, phase }) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, args, { cwd, env: { ...process.env, ...SEEDS, ...env }, stdio: 'ignore', detached: true })
-    const timer = setTimeout(() => {
-      try { process.kill(-(/** @type {number} */ (child.pid)), 'SIGKILL') } catch {}
-      resolve('timeout')
-    }, PHASE_TIMEOUT_MS)
-    child.on('exit', (code) => {
+    const fd = fs.openSync(out, 'w')
+    const child = spawn(process.execPath, args, { cwd, env: { ...process.env, ...SEEDS, ...env }, stdio: ['ignore', fd, fd], detached: true })
+    fs.closeSync(fd)
+    const pgid = /** @type {number} */ (child.pid)
+    /** @type {Watched} */
+    const watched = { w, id, phase, peakMb: 0, top: '', oom: false }
+    guard.watch(pgid, watched)
+    const settle = (/** @type {'pass' | 'fail' | 'timeout'} */ status) => {
       clearTimeout(timer)
-      resolve(code === 0 ? 'pass' : 'fail')
-    })
+      guard.unwatch(pgid)
+      resolve({ status: watched.oom ? 'oom' : status, peakMb: watched.peakMb, top: watched.top })
+    }
+    const timer = setTimeout(() => {
+      try { process.kill(-pgid, 'SIGKILL') } catch {}
+      child.removeAllListeners('exit')
+      settle('timeout')
+    }, PHASE_TIMEOUT_MS)
+    child.on('exit', (code) => settle(code === 0 ? 'pass' : 'fail'))
   })
 }
 
 /**
  * @param {ReturnType<typeof makeSandbox>} box @param {any} mutant
- * @param {{ conformance: boolean, allTests: string[] }} o
+ * @param {{ conformance: boolean, allTests: string[], w: number, guard: ReturnType<typeof startGuard>,
+ *   journal: (event: Record<string, any>) => void, logDir: string }} o
+ * @returns {Promise<{ status: string, ms: number, by?: string, oom?: { phase: string, mb: number, top: string } }>}
  */
-async function evaluate (box, mutant, { conformance, allTests }) {
+async function evaluate (box, mutant, { conformance, allTests, w, guard, journal, logDir }) {
   const original = box.read(mutant.file)
   const mutated = original.slice(0, mutant.offset) + mutant.to + original.slice(mutant.offset + mutant.length)
   box.write(mutant.file, mutated)
   const started = Date.now()
+  const id = mutant.operator ? `${mutant.file}:${mutant.line}:${mutant.offset} ${mutant.operator}` : `${mutant.file} baseline`
+  /** @type {{ phase: string, mb: number, top: string } | undefined} */
+  let oom
+  /** @param {string} phase @param {string} cwd @param {string[]} args @param {Record<string, string>} env */
+  const phaseRun = async (phase, cwd, args, env) => {
+    const out = path.join(logDir, `w${w}.out`)
+    journal({ event: 'start', w, id, phase })
+    const r = await run(cwd, args, env, { guard, out, w, id, phase })
+    journal({ event: 'end', w, id, phase, status: r.status, peakMb: r.peakMb, ...(r.top && { top: r.top }) })
+    // The output of a phase that ended badly is kept, for reading later.
+    if (r.status === 'oom' || r.status === 'timeout') {
+      fs.copyFileSync(out, path.join(logDir, `${id.replace(/[^\w.-]+/g, '_')}.${phase}.${r.status}.out`))
+    }
+    if (r.status === 'oom') oom = { phase, mb: r.peakMb, top: r.top }
+    return r.status
+  }
+  const killed = (/** @type {string} */ by) => ({ status: 'killed', by, ms: Date.now() - started, ...(oom && { oom }) })
   try {
     if (spawnSync(process.execPath, ['--check', box.path(mutant.file)]).status !== 0) return { status: 'invalid', ms: 0 }
     const cli = box.path('cli')
     const first = TARGETS[/** @type {keyof typeof TARGETS} */ (mutant.file)].map((t) => `test/${t}.test.js`)
-    const r1 = await run(cli, ['--test', '--test-concurrency=4', `--test-timeout=${TEST_TIMEOUT_MS}`, ...first], { ADHAL_FAST: '1' })
-    if (r1 !== 'pass') return { status: 'killed', by: `phase 1 (${r1})`, ms: Date.now() - started }
+    const r1 = await phaseRun('phase1', cli, ['--test', '--test-concurrency=4', `--test-timeout=${TEST_TIMEOUT_MS}`, ...first], { ADHAL_FAST: '1' })
+    if (r1 !== 'pass') return killed(`phase 1 (${r1})`)
     const rest = allTests.filter((t) => !first.includes(t))
-    const phase2 = () => run(cli, ['--test', '--test-concurrency=4', `--test-timeout=${TEST_TIMEOUT_MS}`, ...rest], { ADHAL_FAST: '1' })
+    const phase2 = (/** @type {string} */ name) => phaseRun(name, cli, ['--test', '--test-concurrency=4', `--test-timeout=${TEST_TIMEOUT_MS}`, ...rest], { ADHAL_FAST: '1' })
     // CONFIRMED, because phase 2 is where a flaky test would do harm: it
     // runs only for what phase 1 missed, so a spurious failure there
     // kills exactly the mutants worth looking at. Two tests in the fast
     // tier fail about 1 run in 15 under this runner's load (both timing
     // races in the tests; docs/history/WORK-RECORD.md, W12). A mutant the
     // tests really catch fails twice; a flake almost never does.
-    let r2 = await phase2()
-    if (r2 !== 'pass') {
-      const again = await phase2()
+    // A mutant over the memory limit is not a flake, and is not run again.
+    let r2 = await phase2('phase2')
+    if (r2 !== 'pass' && r2 !== 'oom') {
+      const again = await phase2('phase2-again')
       if (again === 'pass') r2 = 'pass'
     }
-    if (r2 !== 'pass') return { status: 'killed', by: `phase 2 (${r2}, confirmed)`, ms: Date.now() - started }
+    if (r2 !== 'pass') return killed(r2 === 'oom' ? 'phase 2 (oom)' : `phase 2 (${r2}, confirmed)`)
     if (conformance) {
-      const r3 = await run(box.root, [path.join('conformance', 'src', 'cli.js'), '--', process.execPath, path.join('conformance', 'adapters', 'engine.js')], {})
-      if (r3 !== 'pass') return { status: 'killed', by: `conformance (${r3})`, ms: Date.now() - started }
+      const r3 = await phaseRun('conformance', box.root, [path.join('conformance', 'src', 'cli.js'), '--', process.execPath, path.join('conformance', 'adapters', 'engine.js')], {})
+      if (r3 !== 'pass') return killed(`conformance (${r3})`)
     }
     return { status: 'survived', ms: Date.now() - started }
   } finally {
@@ -232,6 +366,10 @@ function options (argv) {
     seed: value('--seed') || '6d757461',
     conformance: argv.includes('--conformance'),
     report: value('--report') || null,
+    maxRssMb: Number(value('--max-rss-mb') || 3072),
+    // Under .tmp/, which git ignores, rather than the system temporary
+    // directory, which macOS may clear on the restart after a hang.
+    logDir: value('--log-dir') || path.join(REPO, '.tmp', 'mutate', new Date().toISOString().replace(/[:.]/g, '-')),
     list: argv.includes('--list')
   }
 }
@@ -261,27 +399,36 @@ async function main () {
   const results = []
   let next = 0
   const started = Date.now()
-  process.stderr.write(`${mutants.length} mutants (of ${total}) across ${o.files.length} files, ${boxes.length} workers\n`)
+  fs.mkdirSync(o.logDir, { recursive: true })
+  const journal = openJournal(path.join(o.logDir, 'journal.ndjson'))
+  const guard = startGuard({ limitMb: o.maxRssMb, journal })
+  journal({ event: 'run', argv: process.argv.slice(2), mutants: mutants.length, total, workers: boxes.length, maxRssMb: o.maxRssMb, totalMemMb: Math.round(os.totalmem() / 2 ** 20) })
+  process.stderr.write(`${mutants.length} mutants (of ${total}) across ${o.files.length} files, ${boxes.length} workers, ${o.maxRssMb} MB per phase\n`)
+  process.stderr.write(`journal: ${path.join(o.logDir, 'journal.ndjson')}\n`)
   try {
     // The baseline: the unmutated copy, under the same phases, timeouts,
-    // and concurrency. A suite that fails here would count every mutant
-    // as killed.
+    // memory limit, and concurrency. A suite that fails here would count
+    // every mutant as killed.
     for (const f of o.files) {
-      const b = await evaluate(boxes[0], { file: f, offset: 0, length: 0, to: '' }, { conformance: o.conformance, allTests })
+      const b = await evaluate(boxes[0], { file: f, offset: 0, length: 0, to: '' }, { conformance: o.conformance, allTests, w: 0, guard, journal, logDir: o.logDir })
       if (b.status !== 'survived') throw new Error(`the unmutated copy fails for ${f} (${b.by}); no mutant result would mean anything`)
     }
     process.stderr.write(`baseline passes, ${Math.round((Date.now() - started) / 1000)}s\n`)
-    await Promise.all(boxes.map(async (box) => {
+    await Promise.all(boxes.map(async (box, w) => {
       while (next < mutants.length) {
         const m = mutants[next++]
-        const r = await evaluate(box, m, { conformance: o.conformance, allTests })
+        const r = await evaluate(box, m, { conformance: o.conformance, allTests, w, guard, journal, logDir: o.logDir })
         const result = { ...m, ...r, source: lines[m.file][m.line - 1].trim() }
         results.push(result)
+        journal({ event: 'mutant', w, id: `${m.file}:${m.line}:${m.offset} ${m.operator}`, status: r.status, ...(r.by && { by: r.by }), ms: r.ms })
         if (r.status === 'survived') process.stderr.write(`SURVIVED ${m.file}:${m.line} ${m.operator}: ${result.source}\n`)
+        if (r.oom) process.stderr.write(`OVER MEMORY ${m.file}:${m.line} ${m.operator}: ${result.source} (${r.oom.phase}, ${r.oom.mb} MB, ${r.oom.top})\n`)
         if (results.length % 25 === 0) process.stderr.write(`${results.length}/${mutants.length} after ${Math.round((Date.now() - started) / 1000)}s\n`)
       }
     }))
   } finally {
+    guard.stop()
+    journal({ event: 'done', results: results.length })
     for (const box of boxes) box.dispose()
   }
 
@@ -300,6 +447,11 @@ async function main () {
   const survivors = results.filter((r) => r.status === 'survived')
   console.log(`\n${survivors.length} survivors, ${Math.round((Date.now() - started) / 1000)}s`)
   for (const r of survivors) console.log(`  ${r.file}:${r.line}  ${r.operator}  ${r.source}`)
+  const overMemory = results.filter((r) => r.oom)
+  if (overMemory.length) {
+    console.log(`\n${overMemory.length} killed for passing ${o.maxRssMb} MB`)
+    for (const r of overMemory) console.log(`  ${r.file}:${r.line}  ${r.operator}  ${r.source}  (${r.oom.phase}, ${r.oom.top})`)
+  }
   if (o.report) fs.writeFileSync(o.report, JSON.stringify({ seeds: SEEDS, sample: o.sample, seed: o.seed, total, results }, null, 2) + '\n')
 }
 

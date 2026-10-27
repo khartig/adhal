@@ -165,6 +165,31 @@ mutants that survive them. Seeds are fixed, so a run repeats, with one
 exception: the fuzz harness builds some of its starting inputs from
 `crypto.randomBytes`, outside its seed.
 
+A mutant can make a test take all the memory there is. Before the runner
+had a limit, three test processes reached 94 GiB between them and hung a
+32 GiB laptop. The cause was `assert.deepEqual` failing on file-sized
+Buffers: Node builds the failure message from a diff whose memory grows
+with the square of their size, in typed arrays that `--max-old-space-size`
+does not limit. An empty Buffer against 16 KiB takes 2.4 GB. So tests
+compare bytes with `assertSameBytes` (`cli/test-helpers/bytes.js`), never
+`deepEqual`, wherever the bytes can be more than a few hundred. A mutant
+that loops forever filling an array still reaches several GB, so each
+phase's process group also runs under `--max-rss-mb` (3072 by default;
+the unmutated phases peak near 650). A group past it is killed, and the
+mutant counts as killed and is listed at the end. On macOS `ps` leaves
+out compressed pages, so a group can hold more than the limit shows.
+
+Each run writes a journal to `.tmp/mutate/<time>/journal.ndjson`, synced
+line by line: a `start` and an `end` for every phase, with its peak
+memory, and every 5 seconds the memory of each running phase and the
+share the system has available. The output of a phase killed for memory
+or time is kept beside it. If a run still takes the machine down, the
+`start` lines with no `end` are what was running:
+
+```bash
+node -e 'const ev = require("fs").readFileSync(process.argv[1], "utf8").trim().split("\n").map(JSON.parse); const open = new Map(); for (const e of ev) { const k = e.w + " " + e.id + " " + e.phase; if (e.event === "start") open.set(k, e); if (e.event === "end") open.delete(k) } console.log([...open.values()], ev.filter((e) => e.event === "memory").slice(-3))' .tmp/mutate/<time>/journal.ndjson
+```
+
 ### Using them well
 
 - **While editing, run the fast tier.** About 12 seconds is short enough
