@@ -48,6 +48,7 @@ const {
 } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 const RESUME = ['resume']
 const MiB = 1024 * 1024
@@ -149,7 +150,7 @@ test('an interrupted transfer keeps its partial, and a re-paired one resumes fro
   assert.equal(kept.path, partPath)
   assert.ok(kept.bytes >= MiB && kept.bytes < body.length, `kept ${kept.bytes} bytes`)
   const onDisk = await fs.promises.readFile(partPath)
-  assert.deepEqual(onDisk, body.subarray(0, onDisk.length), 'what was kept is exactly a prefix of the file')
+  assertSameBytes(onDisk, body.subarray(0, onDisk.length), 'what was kept is exactly a prefix of the file')
 
   // A second drop: new keys, as a new code would give. Found by name.
   // Resumed from the last whole boundary it held (section 7.5): the bytes
@@ -162,7 +163,7 @@ test('an interrupted transfer keeps its partial, and a re-paired one resumes fro
   assert.equal(received.value.resumedFrom, boundary)
   assert.equal(received.value.sha256, sha256)
   assert.equal(received.value.size, body.length)
-  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
   assert.deepEqual(await fs.promises.readdir(outputDir), ['payload.bin'], 'the partial became the file')
 })
 
@@ -186,7 +187,7 @@ test('a resumed sender proves its prefix, then reads the file from resumeFrom an
   const types = rx.received.map((f) => f.type)
   assert.equal(types.indexOf(TYPE_PREFIX), 1, 'PREFIX follows the MANIFEST and precedes every chunk')
   const chunks = rx.received.filter((f) => f.type === TYPE_CHUNK).map((f) => f.body)
-  assert.deepEqual(Buffer.concat(chunks), body.subarray(from))
+  assertSameBytes(Buffer.concat(chunks), body.subarray(from))
   rx.send(TYPE_RESULT, resultBody({ ok: true, sha256 }))
 
   const outcome = await sent
@@ -254,7 +255,7 @@ test('a foreign partial is caught by the prefix check and the same transfer star
   assert.equal(sent.ok, true, sent.error && sent.error.message)
   assert.equal(received.value.resumedFrom, 0)
   assert.equal(sent.value.resumedFrom, 0)
-  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
   assert.deepEqual(await fs.promises.readdir(outputDir), ['payload.bin'], 'the foreign partial became this file, from zero')
 })
 
@@ -271,7 +272,7 @@ test('a stale partial of an older version of the file is discarded by the prefix
   const [sent, received] = [await d.sent, await d.received]
   assert.equal(received.ok, true, received.error && received.error.message)
   assert.equal(sent.value.resumedFrom, 0)
-  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
 })
 
 test('a matching prefix with a foreign tail resumes at the boundary, and the tail is cut off', async (t) => {
@@ -283,7 +284,7 @@ test('a matching prefix with a foreign tail resumes at the boundary, and the tai
   assert.equal(received.ok, true, received.error && received.error.message)
   assert.equal(received.value.resumedFrom, MiB)
   assert.equal(sent.value.resumedFrom, MiB)
-  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
 })
 
 test('a partial under one boundary is reused from zero, not left beside a fresh .part.1', async (t) => {
@@ -294,7 +295,7 @@ test('a partial under one boundary is reused from zero, not left beside a fresh 
   const [sent, received] = [await d.sent, await d.received]
   assert.equal(received.value.resumedFrom, 0)
   assert.equal(sent.value.resumedFrom, 0)
-  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
   assert.deepEqual(await fs.promises.readdir(outputDir), ['payload.bin'], 'one partial, the primary one, and it became the file')
 })
 
@@ -310,7 +311,7 @@ test('the receiver proposes a boundary, and answers a wrong PREFIX with ACCEPT{0
   await until(() => accepts(tx.received).length === 1, 'the proposal')
   assert.deepEqual(accepts(tx.received), [2 * MiB], 'rounded down to the boundary')
   // Nothing is cut off or adopted while the proposal is outstanding.
-  assert.deepEqual(await fs.promises.readFile(partPath), prefix)
+  assertSameBytes(await fs.promises.readFile(partPath), prefix)
 
   tx.send(TYPE_PREFIX, prefixBody({ sha256: sha(crypto.randomBytes(16)) }))
   await until(() => accepts(tx.received).length === 2, 'the final answer')
@@ -321,7 +322,7 @@ test('the receiver proposes a boundary, and answers a wrong PREFIX with ACCEPT{0
   const outcome = await received
   assert.equal(outcome.ok, true, outcome.error && outcome.error.message)
   assert.equal(outcome.value.resumedFrom, 0)
-  assert.deepEqual(await fs.promises.readFile(outcome.value.path), body)
+  assertSameBytes(await fs.promises.readFile(outcome.value.path), body)
 })
 
 test('the receiver answers a right PREFIX with the offset it proposed, and cuts the tail past it', async (t) => {
@@ -339,7 +340,7 @@ test('the receiver answers a right PREFIX with the offset it proposed, and cuts 
   for (let offset = 2 * MiB; offset < body.length; offset += 65536) tx.send(TYPE_CHUNK, body.subarray(offset, offset + 65536))
   const outcome = await received
   assert.equal(outcome.value.resumedFrom, 2 * MiB)
-  assert.deepEqual(await fs.promises.readFile(outcome.value.path), body)
+  assertSameBytes(await fs.promises.readFile(outcome.value.path), body)
 })
 
 test('nothing the receiver sends carries a digest of its own partial', async (t) => {
@@ -387,7 +388,7 @@ test('a sender that does not answer the proposal with PREFIX is refused, and the
     assert.equal(outcome.ok, false, /** @type {string} */ (what))
     assert.equal(outcome.error.code, code, /** @type {string} */ (what))
     assert.match(outcome.error.message, /** @type {RegExp} */ (why))
-    assert.deepEqual(await fs.promises.readFile(partPath), prefix, `${what} before the final ACCEPT must leave the earlier partial intact`)
+    assertSameBytes(await fs.promises.readFile(partPath), prefix, `${what} before the final ACCEPT must leave the earlier partial intact`)
   }
 })
 
@@ -415,7 +416,7 @@ test('the sender starts over from zero when the receiver answers its PREFIX with
 
   await until(() => rx.received.filter((f) => f.type === TYPE_CHUNK).reduce((n, f) => n + f.body.length, 0) === body.length, 'every byte')
   const chunks = rx.received.filter((f) => f.type === TYPE_CHUNK).map((f) => f.body)
-  assert.deepEqual(Buffer.concat(chunks), body, 'the whole file, from byte 0')
+  assertSameBytes(Buffer.concat(chunks), body, 'the whole file, from byte 0')
   rx.send(TYPE_RESULT, resultBody({ ok: true, sha256 }))
   const outcome = await sent
   assert.equal(outcome.value.resumedFrom, 0)
@@ -463,7 +464,7 @@ test('a planted .part symlink is never followed on resume', { skip: process.plat
   const d = drop(sourcePath, outputDir)
   const received = await d.received
   assert.equal(received.value.resumedFrom, 0, 'a symlink is not a partial to resume')
-  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
   assert.equal(await fs.promises.readFile(target, 'utf8'), 'ssh-ed25519 AAAA the real key\n', 'the link target is untouched')
   assert.equal((await fs.promises.lstat(partPath)).isSymbolicLink(), true, 'and the link is not ours to remove')
 })
@@ -480,7 +481,7 @@ test('a planted .part hard link is never appended to on resume', { skip: process
   const d = drop(sourcePath, outputDir)
   const received = await d.received
   assert.equal(received.value.resumedFrom, 0)
-  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
   assert.equal(await fs.promises.readFile(target, 'utf8'), 'alias ls=ls\n', 'the linked file is untouched')
 })
 
@@ -492,8 +493,8 @@ test('a partial longer than the offer is not a prefix of it, and is left alone',
   const d = drop(sourcePath, outputDir)
   const received = await d.received
   assert.equal(received.value.resumedFrom, 0)
-  assert.deepEqual(await fs.promises.readFile(received.value.path), body)
-  assert.deepEqual(await fs.promises.readFile(partPath), other, 'not ours, so not deleted either')
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
+  assertSameBytes(await fs.promises.readFile(partPath), other, 'not ours, so not deleted either')
 })
 
 // --- which failures keep a partial ----------------------------------------
@@ -540,7 +541,7 @@ test('a sender that goes silent mid-file leaves a resumable partial', async (t) 
   const outcome = await received
   assert.equal(outcome.error.code, 'ERR_STALLED')
   assert.equal(outcome.error.partial.bytes, 3000)
-  assert.deepEqual(await fs.promises.readFile(path.join(outputDir, 'payload.bin.part')), body.subarray(0, 3000))
+  assertSameBytes(await fs.promises.readFile(path.join(outputDir, 'payload.bin.part')), body.subarray(0, 3000))
 })
 
 // --- CHECKPOINT -----------------------------------------------------------
@@ -678,6 +679,6 @@ test('an offer that fails before ACCEPT never deletes a partial it reopened from
 
     const outcome = await received
     assert.equal(outcome.ok, false, how)
-    assert.deepEqual(await fs.promises.readFile(partPath), prefix, `${how} before ACCEPT must leave the earlier partial intact`)
+    assertSameBytes(await fs.promises.readFile(partPath), prefix, `${how} before ACCEPT must leave the earlier partial intact`)
   }
 })

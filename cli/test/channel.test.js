@@ -36,6 +36,7 @@ const {
   DEFAULT_MAX_FRAME_SIZE,
   HEADER_SIZE
 } = require('@ad-hal/engine')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 // Stand-ins for the two directional keys the handshake derives (k_r2s and
 // k_s2r). Fixed rather than random so a failure is reproducible.
@@ -385,7 +386,7 @@ test('maxChunk is an equation, and the boundary is exact', () => {
   const frame = sender.seal(TYPE_CHUNK, biggest)
   assert.equal(frame.length - HEADER_SIZE, DEFAULT_MAX_FRAME_SIZE)
   assert.doesNotThrow(() => receiver.push(frame))
-  assert.deepEqual(atReceiver[0].body, biggest)
+  assertSameBytes(atReceiver[0].body, biggest)
 
   // And one byte more must be refused by the sender, where the caller can
   // see which of its own frames was too big, rather than arriving as an
@@ -406,7 +407,7 @@ test('a non-default frame cap moves the chunk bound with it', () => {
 
   const body = crypto.randomBytes(sender.maxChunk)
   assert.doesNotThrow(() => receiver.push(sender.seal(TYPE_CHUNK, body)))
-  assert.deepEqual(atReceiver[0].body, body)
+  assertSameBytes(atReceiver[0].body, body)
   assert.throws(() => sender.seal(TYPE_CHUNK, Buffer.alloc(sender.maxChunk + 1)), /exceeds the 4079-byte maximum/)
 })
 

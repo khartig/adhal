@@ -1,6 +1,6 @@
 # Adhal
 
-<img src="assets/app-icon.jpg" width="120" alt="Project logo" />
+<img src="assets/app-icon.png" width="120" alt="Project logo" />
 
 Adhal is a one-shot, no-account file drop between two devices. The
 receiver shows a QR code or a five-word code, the sender types or scans

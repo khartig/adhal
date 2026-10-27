@@ -39,6 +39,7 @@ const {
 } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
+const { assertSameBytes } = require('../test-helpers/bytes')
 const { describeError } = require('../src/report')
 
 async function fixture (t, label, size = 256 * 1024) {
@@ -117,7 +118,7 @@ test('the sender offers manifest v2 and sends no file byte until it is accepted'
   answer(TYPE_ACCEPT, acceptBody({ resumeFrom: 0 }))
   await tick(50)
   const chunks = frames.filter((f) => f.type === TYPE_CHUNK)
-  assert.deepEqual(Buffer.concat(chunks.map((f) => f.body)), body, 'after ACCEPT the whole file follows')
+  assertSameBytes(Buffer.concat(chunks.map((f) => f.body)), body, 'after ACCEPT the whole file follows')
 
   answer(TYPE_RESULT, resultBody({ ok: true, sha256 }))
   assert.equal((await sent).sha256, sha256)
@@ -324,7 +325,7 @@ test('onOffer is told about a partial it may resume, without it being opened', a
   assert.equal(await partialSeen(['resume']), 1000)
   assert.equal(await partialSeen([]), 0, 'without resume negotiated there is nothing to resume')
   const after = await fs.promises.stat(partPath)
-  assert.deepEqual(await fs.promises.readFile(partPath), prefix, 'the partial is untouched')
+  assertSameBytes(await fs.promises.readFile(partPath), prefix, 'the partial is untouched')
   assert.equal(after.mtimeMs, before.mtimeMs)
 
   // One reopenPartial would refuse is not offered as resumable either.
@@ -386,7 +387,7 @@ test('a slow decision is not mistaken for a stalled sender', async (t) => {
   })
   await offer(manifestFor(body), body)
   const result = await received
-  assert.deepEqual(await fs.promises.readFile(result.path), body)
+  assertSameBytes(await fs.promises.readFile(result.path), body)
 })
 
 test('a sender that cancels while its offer is considered is heard, and not accepted after', async (t) => {

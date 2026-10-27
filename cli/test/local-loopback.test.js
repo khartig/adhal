@@ -17,6 +17,7 @@ const os = require('node:os')
 const fs = require('node:fs')
 const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..')
 const RECEIVE_SCRIPT = path.join(REPO_ROOT, 'cli', 'src', 'receive.js')
@@ -142,7 +143,7 @@ test('a pipe streams through the CLI: send.js <port> <code> - offers it with no 
   assert.match(receiveOutput.stdout, /\[receive\] manifest: stdin \(streamed, size unknown until it ends\)/)
   assert.equal(sendOutput.stdout.match(/\[send\] sha256: ([0-9a-f]{64})/)?.[1], expectedHash, sendOutput.stdout + sendOutput.stderr)
   assert.equal(receiveOutput.stdout.match(/\[receive\] sha256: ([0-9a-f]{64})/)?.[1], expectedHash, receiveOutput.stdout + receiveOutput.stderr)
-  assert.deepEqual(await fs.promises.readFile(path.join(outputDir, 'stdin')), payload)
+  assertSameBytes(await fs.promises.readFile(path.join(outputDir, 'stdin')), payload)
 })
 
 test('a transfer killed partway resumes under a new code: the receiver keeps its partial and the next drop continues it', slow, async (t) => {

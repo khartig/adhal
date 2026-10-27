@@ -34,6 +34,7 @@ const {
   displayText
 } = require('@ad-hal/engine')
 const { sealedSender } = require('../test-helpers/sealed')
+const { assertSameBytes } = require('../test-helpers/bytes')
 const { describeError } = require('../src/report')
 
 async function tmpDir (t, label) {
@@ -329,7 +330,7 @@ test('a healthy transfer is not killed by the stall timers', async (t) => {
 
   const result = await received
   assert.equal(result.size, body.length)
-  assert.deepEqual(await fs.promises.readFile(result.path), body)
+  assertSameBytes(await fs.promises.readFile(result.path), body)
 })
 
 // --- backpressure ---------------------------------------------------------
@@ -365,7 +366,7 @@ test('a receiver slower than its sender pauses the socket instead of buffering w
   // And correctness survives the pausing -- no lost or reordered chunks.
   assert.equal(result.size, body.length)
   assert.equal(result.sha256, crypto.createHash('sha256').update(body).digest('hex'))
-  assert.deepEqual(await fs.promises.readFile(result.path), body)
+  assertSameBytes(await fs.promises.readFile(result.path), body)
 })
 
 // --- peer bytes in error messages (Q-11) ----------------------------------
@@ -467,7 +468,7 @@ test('a filesystem without hard links still lands the file, and says it used the
 
   const fallback = await offer(outputDir, manifestFor(body, { name: 'b.bin' }), body).received
   assert.equal(fallback.published, 'check-then-rename')
-  assert.deepEqual(await fs.promises.readFile(path.join(outputDir, 'b.bin')), body)
+  assertSameBytes(await fs.promises.readFile(path.join(outputDir, 'b.bin')), body)
 
   // And the no-overwrite rule still holds on that path for a file that is
   // already there: it lands beside it.

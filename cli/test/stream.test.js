@@ -35,6 +35,7 @@ const {
 } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 const STREAM = ['stream']
 
@@ -93,7 +94,7 @@ test('a stream of unknown length arrives whole, verified against END\'s digest',
   assert.equal(received.sha256, sha(whole))
   assert.equal(received.size, whole.length)
   assert.equal(received.name, 'backup.tar')
-  assert.deepEqual(await fs.promises.readFile(received.path), whole)
+  assertSameBytes(await fs.promises.readFile(received.path), whole)
 
   // No total until the end, and bytes still never go backwards.
   assert.ok(progress.every((p) => p.total === null))
@@ -295,5 +296,5 @@ test('a stream from a live pipe survives the producer pausing between writes', a
   pipe.end()
 
   const [, received] = await done
-  assert.deepEqual(await fs.promises.readFile(received.path), Buffer.concat(parts))
+  assertSameBytes(await fs.promises.readFile(received.path), Buffer.concat(parts))
 })

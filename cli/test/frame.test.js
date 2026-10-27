@@ -29,6 +29,7 @@ const {
   TYPE_MANIFEST,
   TYPE_CHUNK
 } = require('@ad-hal/engine')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 // Collects whole payloads out of a decoder, so each test asserts on
 // message boundaries rather than on byte counts.
@@ -52,7 +53,7 @@ test('a frame split across arbitrary chunk boundaries is reassembled', () => {
     decoder.push(frame.subarray(0, cut))
     decoder.push(frame.subarray(cut))
     assert.equal(frames.length, 1, `split at ${cut} should yield exactly one frame`)
-    assert.deepEqual(frames[0], payload)
+    assertSameBytes(frames[0], payload)
   }
 })
 
@@ -137,7 +138,7 @@ test('a message round-trips through one allocation with its tag intact', () => {
   decoder.push(frame)
   const decoded = decodeMessage(frames[0])
   assert.equal(decoded.type, TYPE_CHUNK)
-  assert.deepEqual(decoded.body, body)
+  assertSameBytes(decoded.body, body)
 })
 
 test('an empty body is a valid message; an empty payload is not', () => {

@@ -33,6 +33,7 @@ const {
 } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys } = require('../test-helpers/sealed')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 async function fixture (t, label, body = crypto.randomBytes(256 * 1024), name = 'source.bin') {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
@@ -288,7 +289,7 @@ test('the PAKE over plain TCP keys a channel that carries a whole drop', async (
   ])
   assert.equal(sent.sha256, sha256)
   assert.equal(received.sha256, sha256)
-  assert.deepEqual(await fs.promises.readFile(received.path), await fs.promises.readFile(sourcePath))
+  assertSameBytes(await fs.promises.readFile(received.path), await fs.promises.readFile(sourcePath))
 })
 
 test('a wrong code over a stream fails the confirmation, and the sender hears a handshake-phase hang-up', async () => {

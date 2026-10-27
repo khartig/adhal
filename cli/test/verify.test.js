@@ -28,6 +28,7 @@ const crypto = require('node:crypto')
 const { sendFile, receiveFile, TYPE_CHUNK } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedSender } = require('../test-helpers/sealed')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 async function tmpDir (t, label) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
@@ -118,7 +119,7 @@ test('a partial is visible only under .part, never under the final name, until i
 
   assert.equal(result.path, finalPath)
   assert.equal(fs.existsSync(partPath), false, 'the .part must be renamed away, not left beside the file')
-  assert.deepEqual(await fs.promises.readFile(finalPath), body)
+  assertSameBytes(await fs.promises.readFile(finalPath), body)
   assert.equal(result.sha256, manifest.sha256)
 })
 
@@ -278,7 +279,7 @@ test('a file swapped at its path after hashing is not what gets sent', async (t)
   const expected = crypto.createHash('sha256').update(original).digest('hex')
   assert.equal(sent.sha256, expected)
   assert.equal(received.sha256, expected)
-  assert.deepEqual(await fs.promises.readFile(path.join(outputDir, 'report.bin')), original, 'the bytes that were hashed, not the decoy')
+  assertSameBytes(await fs.promises.readFile(path.join(outputDir, 'report.bin')), original, 'the bytes that were hashed, not the decoy')
 })
 
 test('the sender releases its descriptor however the transfer ends', { skip: openFds() === null && 'no fd listing on this platform' }, async (t) => {
