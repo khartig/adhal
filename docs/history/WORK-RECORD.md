@@ -744,18 +744,21 @@ every one of them triaged as equivalent, constant, or unreachable. The full suit
 596 of 597 in `cli` (the one skip is a Windows-only signal test) and 92
 of 92 in conformance.
 
-| File | Mutants | Before | After |
-| --- | --- | --- | --- |
-| `transfer.js` | 432 | 72.7% | 91.4% |
-| `message.js` | 82 | 85.4% | 96.3% |
-| `handshake.js` | 81 | 87.7% | 100.0% |
-| `channel.js` | 42 | 90.5% | 95.2% |
-| `cpace.js` | 33 | 72.7% | 78.8% |
-| `names.js` | 32 | 59.4% | 93.8% |
-| `attempts.js` | 24 | 83.3% | 87.5% |
-| `frame.js` | 16 | 93.8% | 93.8% |
-| `reader.js` | 9 | 66.7% | 88.9% |
-| **all** | **751** | **76.8%** | **92.5%** |
+Killed and survived count the mutants after the new tests. Before and
+after are the scores, the share killed, before and after them.
+
+| File | Mutants | Killed | Survived | Before | After |
+| --- | --- | --- | --- | --- | --- |
+| `transfer.js` | 432 | 395 | 37 | 72.7% | 91.4% |
+| `message.js` | 82 | 79 | 3 | 85.4% | 96.3% |
+| `handshake.js` | 81 | 81 | 0 | 87.7% | 100.0% |
+| `channel.js` | 42 | 40 | 2 | 90.5% | 95.2% |
+| `cpace.js` | 33 | 26 | 7 | 72.7% | 78.8% |
+| `names.js` | 32 | 30 | 2 | 59.4% | 93.8% |
+| `attempts.js` | 24 | 21 | 3 | 83.3% | 87.5% |
+| `frame.js` | 16 | 15 | 1 | 93.8% | 93.8% |
+| `reader.js` | 9 | 8 | 1 | 66.7% | 88.9% |
+| **all** | **751** | **695** | **56** | **76.8%** | **92.5%** |
 
 **What the gaps were.** None was a bug in the engine as it stands. Each
 was a place where a bug could have been introduced and no test would have
@@ -791,16 +794,26 @@ failed. The ones that matter most:
   be misread, for example `{"sha256": [hex]}`, whose array a regular
   expression coerces to a string.
 
-**Found along the way, in the engine itself.** The handshake classes
-latch only on success. After a `readReply` that fails its confirmation,
-the initiator has already wiped its scalar, and a second `readReply`
-accepts a REPLY forged without the code. After a failed `readConfirm`, a
-second one with 32 zero bytes returns all-zero keys, which `Channel` then
-refuses. Both were confirmed on the unmodified engine. No remote peer can
-reach either: `swarm.js` detaches on failure, `stream-handshake.js`
-settles, and each connection builds its own handshake object. But a
-caller of the exported classes that retried after a failure would be
-exposed. Not fixed here.
+**Found along the way, in the engine itself (Q-22), and fixed.** The
+handshake classes latched only on success, though each half wipes its
+secret material whichever way a step ends. A second call after a failure
+therefore computed with zeros. The triage found two ways in, and the fix
+a third, all confirmed on 0.1.0 and 0.1.1:
+- **A second `readReply`,** after one that failed its confirmation,
+  accepted a REPLY forged without the code.
+- **A second `readHello`,** after one that aborted on a low-order point,
+  answered a HELLO under an all-zero password, and the responder's keys
+  matched the forger's.
+- **A second `readConfirm`,** after a failed one, accepted 32 zero bytes
+  and returned all-zero keys, which `Channel` then refuses.
+
+No remote peer could reach any of them: `swarm.js` detaches on failure,
+`stream-handshake.js` settles, and each connection builds its own
+handshake object. But a caller of the exported classes that retried after
+a failure was exposed. A handshake object now ends at its first failure
+(`endsOnFailure` in `handshake.js`), and one test drives all three paths,
+failing on the old code. A full mutation run of `handshake.js` afterward
+killed all 82 of its mutants.
 
 **Where the plan differed.**
 - **One verdict was corrected by the rerun.** `transfer.js:1210`,

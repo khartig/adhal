@@ -103,9 +103,9 @@ Who calls the state guards: Initiator (swarm.js:655, stream-handshake.js:142) an
 | handshake.js:594 throw removed | gap, local | a second readHello: a party without the secret completes the handshake and gets the receiver's keys (demonstrated) |
 | handshake.js:651 throw removed | gap, local, low | readConfirm before HELLO returns null or a TypeError, not ERR_PROTOCOL |
 
-### A finding in the engine itself, not a mutant (verified on the unmutated engine)
+### A finding in the engine itself, not a mutant (verified on the unmutated engine): Q-22, since fixed
 
-The Initiator sets `_done` only on success (handshake.js:551), but wipes `_ya` on every path (:560). After a readReply that fails ERR_PAKE_CONFIRMATION, a second readReply runs with a zeroed scalar and accepts a REPLY forged without the secret ("FORGED accepted"). The Responder, after a failed readConfirm, has `confirmR` zeroed, so a second readConfirm with 32 zero bytes returns all-zero keys (Channel then refuses them). Not reachable by a remote peer: both connection paths stop calling the object after a throw (swarm.js onFailed → detach; stream-handshake.js fail → settled). But Initiator and Responder are exported. The fix would be to latch on failure as well as success.
+The Initiator sets `_done` only on success (handshake.js:551), but wipes `_ya` on every path (:560). After a readReply that fails ERR_PAKE_CONFIRMATION, a second readReply runs with a zeroed scalar and accepts a REPLY forged without the secret ("FORGED accepted"). The Responder, after a failed readConfirm, has `confirmR` zeroed, so a second readConfirm with 32 zero bytes returns all-zero keys (Channel then refuses them). Not reachable by a remote peer: both connection paths stop calling the object after a throw (swarm.js onFailed → detach; stream-handshake.js fail → settled). But Initiator and Responder are exported. Fixed on 2026-10-27: a handshake object now ends at its first failure (`endsOnFailure`). The fix found a third way in: a Responder whose readHello aborted on a low-order point had its password wiped but stayed open, so a second HELLO under the all-zero password was answered. See SECURITY-REVIEW.md, Q-22.
 
 ## Group C verdicts (transfer.js before line 1170): 53 rows
 
