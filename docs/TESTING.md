@@ -155,6 +155,7 @@ node tools/mutate.js                                  # every target, about an h
 node tools/mutate.js --files engine/src/channel.js    # one module
 node tools/mutate.js --sample 100 --report out.json   # a seeded sample, with a JSON report
 node tools/mutate.js --conformance                    # survivors also face the conformance harness
+node tools/mutate.js --survivors out.json             # only what survived the run that wrote out.json
 ```
 
 Each mutant is planted in a copy of the workspace (`tools/sandbox.js`), so

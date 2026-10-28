@@ -11,7 +11,8 @@
 // run against it. A mutant the tests fail on is KILLED. One they pass is a
 // SURVIVOR, and a survivor is either a gap in the tests or an equivalent
 // mutant, a change no input can observe. Every survivor is triaged as one
-// or the other; docs/history/WORK-RECORD.md has the triage of the W12 run.
+// or the other; docs/history/W12-MUTATION-TRIAGE.md has the triage of the
+// first full run.
 //
 // THE TESTS, IN PHASES, because the fast tier takes 12 s and there are
 // hundreds of mutants:
@@ -30,6 +31,7 @@
 //   node tools/mutate.js [--files engine/src/channel.js,...] [--workers 4]
 //                        [--sample N] [--seed hex] [--conformance] [--report path]
 //                        [--max-rss-mb 3072] [--log-dir .tmp/mutate/<time>]
+//                        [--survivors earlier-report.json]
 
 const fs = require('node:fs')
 const os = require('node:os')
@@ -370,6 +372,7 @@ function options (argv) {
     // Under .tmp/, which git ignores, rather than the system temporary
     // directory, which macOS may clear on the restart after a hang.
     logDir: value('--log-dir') || path.join(REPO, '.tmp', 'mutate', new Date().toISOString().replace(/[:.]/g, '-')),
+    survivors: value('--survivors') || null,
     list: argv.includes('--list')
   }
 }
@@ -380,6 +383,20 @@ async function main () {
 
   let mutants = o.files.flatMap((f) => mutantsOf(f, fs.readFileSync(path.join(REPO, f), 'utf8')))
   const total = mutants.length
+  if (o.survivors) {
+    // Only what survived an earlier --report run, to check new tests
+    // against the survivors without the other 600 mutants. A survivor is
+    // found again by file, offset, and operator, and only if its line
+    // still reads the same: an edit to the engine moves offsets, and a
+    // mutant found at a moved offset would be some other mutant.
+    const prior = JSON.parse(fs.readFileSync(o.survivors, 'utf8')).results.filter((/** @type {any} */ r) => r.status === 'survived' && o.files.includes(r.file))
+    const key = (/** @type {any} */ m) => `${m.file}:${m.offset}:${m.operator}`
+    const current = new Map(mutants.map((m) => [key(m), m]))
+    const sourceAt = (/** @type {any} */ m) => fs.readFileSync(path.join(REPO, m.file), 'utf8').split('\n')[m.line - 1].trim()
+    const found = prior.filter((/** @type {any} */ r) => current.has(key(r)) && sourceAt(current.get(key(r))) === r.source)
+    for (const r of prior) if (!found.includes(r)) process.stderr.write(`not found, the engine has changed: ${r.file}:${r.line} ${r.operator}: ${r.source}\n`)
+    mutants = found.map((/** @type {any} */ r) => current.get(key(r)))
+  }
   if (o.sample !== null && o.sample < mutants.length) {
     // A seeded sample, so a sampled run can be repeated exactly.
     const key = (/** @type {any} */ m) => crypto.createHash('sha256').update(`${o.seed}:${m.file}:${m.offset}:${m.operator}`).digest('hex')
