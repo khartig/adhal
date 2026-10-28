@@ -1,6 +1,6 @@
 {
   "name": "@ad-hal/cli",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Adhal command-line tools: send and receive a file directly between two machines with a one-shot code.",
   "keywords": [
     "p2p",
