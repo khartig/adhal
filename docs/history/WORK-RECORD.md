@@ -682,3 +682,134 @@ them change the wire and the freeze is defined by them.
   > attempt on 2026-10-15 found no peer, because the two machines were
   > given different seeds; it was stopped and restarted, and is not in
   > the record.
+
+---
+
+## Stage 2 — W12, the rest: the first full mutation run
+
+**Planned.** One full run of `tools/mutate.js` over the nine engine
+modules that enforce the protocol, with every survivor triaged as a gap
+in the tests or an equivalent mutant (Q-06).
+
+**The run, 2026-10-26.** `node tools/mutate.js --workers 2
+--conformance`, 751 mutants, 2 h 11 min: 577 killed and 174 survived, a
+score of 76.8%. The verdict on every survivor, with the reason for each,
+is in [`W12-MUTATION-TRIAGE.md`](W12-MUTATION-TRIAGE.md).
+
+**What it took to finish one.** The three runs before this one each hung
+the 32 GiB laptop running them, and left nothing to say why: the runner
+discarded test output and wrote its results only at the end. A macOS
+memory report from one hang showed three test processes at 52, 27, and
+15 GiB together. The cause was not the engine. When `assert.deepEqual`
+fails on two Buffers of different lengths, Node builds its message from a
+diff whose memory grows with the square of their size, in typed arrays
+outside the V8 heap, so `--max-old-space-size` does not stop it: an empty
+Buffer against 16 KiB takes 2.4 GB. Mutants made the transfer tests'
+file-body assertions fail, against files of 256 KiB to 4 MiB. Found by
+pausing a runaway test over the inspector at 800 MB, and reproduced in
+ten lines of plain Node. An earlier guess, that the in-memory socket pair's
+lack of backpressure let frames pile up, was wrong: a 64 MB cap on what a
+test peer receives never fired on any of the runaways.
+
+Three changes came of it:
+- **The tests** compare file-sized Buffers with `assertSameBytes`
+  (`cli/test-helpers/bytes.js`), which fails in constant memory.
+- **The runner** kills a phase whose process group passes
+  `--max-rss-mb` (3072 by default; unmutated phases peak near 650) and
+  counts its mutant as killed. Mutants that loop forever filling an array
+  still need that.
+- **A journal**, `.tmp/mutate/<time>/journal.ndjson`, records each phase
+  started and ended and the memory of each running phase every five
+  seconds, synced line by line, so a hang names what was running.
+
+`--survivors` reruns only what an earlier report says survived.
+
+**The triage.** Four reviews, one per group of modules, read each survivor
+against its callers and tests, and confirmed every claimed difference by
+planting the mutant in a throwaway copy and comparing its behavior with
+the engine's. Of the 174:
+
+| Verdict | Count | Meaning |
+| --- | --- | --- |
+| Gap | 111 | an input reachable through a real caller behaves differently, and no test noticed |
+| Equivalent | 36 | no input can observe the change |
+| Constant | 17 | a timeout or limit moved by one, and not a security limit |
+| Unreachable | 10 | defensive code no real caller can reach, most of it a stated backstop |
+
+Every gap got a test that passes on the engine and fails with its mutant
+planted, and six unreachable checks got a direct test anyway, 117 kills
+in all. A rerun of all 174 with the same settings (`--survivors`, 32 min)
+killed 118, the extra one an unreproduced failure (below), and left 56,
+every one of them triaged as equivalent, constant, or unreachable. The full suite passes:
+596 of 597 in `cli` (the one skip is a Windows-only signal test) and 92
+of 92 in conformance.
+
+| File | Mutants | Before | After |
+| --- | --- | --- | --- |
+| `transfer.js` | 432 | 72.7% | 91.4% |
+| `message.js` | 82 | 85.4% | 96.3% |
+| `handshake.js` | 81 | 87.7% | 100.0% |
+| `channel.js` | 42 | 90.5% | 95.2% |
+| `cpace.js` | 33 | 72.7% | 78.8% |
+| `names.js` | 32 | 59.4% | 93.8% |
+| `attempts.js` | 24 | 83.3% | 87.5% |
+| `frame.js` | 16 | 93.8% | 93.8% |
+| `reader.js` | 9 | 66.7% | 88.9% |
+| **all** | **751** | **76.8%** | **92.5%** |
+
+**What the gaps were.** None was a bug in the engine as it stands. Each
+was a place where a bug could have been introduced and no test would have
+failed. The ones that matter most:
+- **Filename safety.** Each of the rules a peer's declared name must
+  pass could be deleted on its own: not a string, empty, a NUL byte, `.`
+  or `..`, and empty once trailing dots and spaces go. The rules overlap,
+  and every test asserted only `ERR_UNSAFE_NAME`, never which rule fired,
+  so another rule always caught the same input. The tests now pin
+  `detail`. Separately, a 1-character name and one of exactly 255 bytes
+  are now shown to be accepted.
+- **The handshake's state guards.** A second `readReply` after success,
+  a second `readHello`, and CONFIRM before HELLO were each unguarded by
+  any test. Each half wipes its secret material after use, and a planted
+  mutant let a party without the code complete the handshake with zeros.
+  No remote peer can reach these: the connection code stops calling the
+  object after it succeeds or throws. The classes are exported, though.
+- **Sending what was cancelled.** A cancel that landed while the file
+  was still being hashed could be lost, and the file then sent if the
+  receiver accepted.
+- **Symlinks.** No test pinned `O_NOFOLLOW` on opening a `.part`. Without
+  it, a local attacker who won the lstat/open race had the payload
+  written through a symlink.
+- **Limits at their edges.** These were never checked at the exact
+  value: the stream size cap (a mutant let a peer overshoot it by two
+  blocks), the documented 8 GiB default, a caps field of exactly 128
+  bytes, and a 1-byte leftover after the handshake on either side.
+- **A frame after the last byte.** A mutant let one, sent in the same
+  segment as the last byte, crash the receiver process.
+- **Open file descriptors.** Several cancel and close paths a peer can
+  trigger had no test that the descriptors they opened were closed.
+- **Wire decoders.** A RESULT, END, or PREFIX of the wrong shape could
+  be misread, for example `{"sha256": [hex]}`, whose array a regular
+  expression coerces to a string.
+
+**Found along the way, in the engine itself.** The handshake classes
+latch only on success. After a `readReply` that fails its confirmation,
+the initiator has already wiped its scalar, and a second `readReply`
+accepts a REPLY forged without the code. After a failed `readConfirm`, a
+second one with 32 zero bytes returns all-zero keys, which `Channel` then
+refuses. Both were confirmed on the unmodified engine. No remote peer can
+reach either: `swarm.js` detaches on failure, `stream-handshake.js`
+settles, and each connection builds its own handshake object. But a
+caller of the exported classes that retried after a failure would be
+exposed. Not fixed here.
+
+**Where the plan differed.**
+- **One verdict was corrected by the rerun.** `transfer.js:1210`,
+  triaged as a constant, is a gap: it refuses a `blockSize` of 1, which
+  PROTOCOL.md allows, and the new one-byte chunk-size test fails on it.
+- **One kill did not reproduce.** `transfer.js:2343` `>`→`>=`, an
+  equivalent mutant, was killed once in the rerun by a phase-1 failure
+  that did not happen again. It passed 0 of 6 replants, and the
+  unmutated tests passed 20 of 20, 8 of them two at a time as the runner
+  runs them. Whatever failed, it fails less often than about 1 run in
+  20, and its output was not kept. The runner keeps a phase's output only
+  when the phase is killed for memory or time.
