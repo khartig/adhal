@@ -151,6 +151,103 @@ test('an already-aborted signal rejects before a single byte moves', async (t) =
   assert.deepEqual(await fs.promises.readdir(outputDir), [])
 })
 
+test('an already-aborted signal is reported before the path is even opened', async () => {
+  // The abort check comes before any filesystem work, so a canceled
+  // transfer says it was canceled -- not ENOENT about a file nobody
+  // needed to open any more -- and reports that no byte moved.
+  const controller = new AbortController()
+  controller.abort('never mind')
+  const [txSocket] = duplexPair()
+  const sent = await settle(sendFile(txSocket, '/nonexistent/adhal-no-such-file', { ...channelKeys().sender, signal: controller.signal }))
+  assert.equal(sent.ok, false)
+  assert.equal(sent.error.name, 'AbortError', `got ${sent.error.code}: ${sent.error.message}`)
+  assert.equal(sent.error.bytes, 0)
+})
+
+test('a cancel that lands while the file is being hashed stops the send before the offer', async (t) => {
+  // Hashing a large file takes seconds, and that is when a person is most
+  // likely to change their mind. The signal is checked once more after the
+  // hash, because the listener that hears later aborts is attached only
+  // with the offer -- and an abort event is not replayed to a listener
+  // added after it fired. Without that second check the cancel is lost
+  // and the file goes out anyway.
+  const { sourcePath } = await fixture(t, 'cancel-hashing')
+  const [txSocket, rxSocket] = duplexPair()
+  let bytesSeen = 0
+  rxSocket.on('data', (c) => { bytesSeen += c.length })
+  const controller = new AbortController()
+
+  // sendFile returns at its first await, inside the open: the checks
+  // before it have passed, and the abort lands while the file is read.
+  const sending = settle(sendFile(txSocket, sourcePath, { ...channelKeys().sender, signal: controller.signal, acceptTimeout: 300 }))
+  controller.abort('changed my mind')
+  const sent = await sending
+  assert.equal(sent.ok, false)
+  assert.equal(sent.error.name, 'AbortError', `got ${sent.error.code}: ${sent.error.message}`)
+  assert.equal(sent.error.bytes, 0)
+  assert.equal(bytesSeen, 0, 'not even the manifest goes out')
+})
+
+test('a cancel with no reason tells the peer "cancelled by sender", and keeps the signal\'s reason as the cause', async (t) => {
+  // abort() with no argument is how most library callers cancel, and its
+  // reason is a DOMException, not a sentence: the peer gets the default
+  // wording rather than an empty reason. Locally, `.cause` is the signal's
+  // reason, as for any AbortError, so a caller can tell its own aborts
+  // apart.
+  const { sourcePath, outputDir } = await fixture(t, 'cancel-noreason', 1024 * 1024)
+  const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
+  const controller = new AbortController()
+  const onProgress = ({ bytes, total }) => { if (bytes > 0 && bytes < total) controller.abort() }
+
+  const [sent, received] = await Promise.all([
+    settle(sendFile(txSocket, sourcePath, { ...keys.sender, signal: controller.signal, onProgress })),
+    settle(receiveFile(rxSocket, outputDir, { ...keys.receiver }))
+  ])
+  assert.equal(sent.ok, false)
+  assert.equal(sent.error.name, 'AbortError')
+  assert.equal(sent.error.cause, controller.signal.reason)
+  assert.equal(received.ok, false)
+  assert.equal(received.error.code, 'ERR_CANCELLED_PEER')
+  assert.equal(received.error.peerReason, 'cancelled by sender')
+})
+
+test('a receiver canceled with no reason tells the sender "cancelled by receiver", and keeps the signal\'s reason as the cause', async (t) => {
+  // The receiving side of the test above, for the same reason: abort()
+  // with no argument gives a DOMException, which is no sentence to send,
+  // so the sender hears the default wording, and the receiver's own
+  // AbortError carries the signal's reason as its cause.
+  const { sourcePath, outputDir } = await fixture(t, 'cancel-rx-noreason', 1024 * 1024)
+  const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
+  const controller = new AbortController()
+  const onProgress = ({ bytes, total }) => { if (bytes > 0 && bytes < total) controller.abort() }
+
+  const [sent, received] = await Promise.all([
+    settle(sendFile(txSocket, sourcePath, { ...keys.sender })),
+    settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, signal: controller.signal, onProgress }))
+  ])
+  assert.equal(received.ok, false)
+  assert.equal(received.error.name, 'AbortError')
+  assert.equal(received.error.cause, controller.signal.reason)
+  assert.equal(sent.ok, false)
+  assert.equal(sent.error.code, 'ERR_CANCELLED_PEER')
+  assert.equal(sent.error.peerReason, 'cancelled by receiver')
+})
+
+test('a receive given an already-aborted signal reports that no bytes moved', async (t) => {
+  // `bytes` on an abort is what was received before it, and a receive
+  // aborted before it began has received nothing.
+  const { outputDir } = await fixture(t, 'cancel-rx-pre', 16)
+  const controller = new AbortController()
+  controller.abort('never mind')
+  const [, rxSocket] = duplexPair()
+  const received = await settle(receiveFile(rxSocket, outputDir, { ...channelKeys().receiver, signal: controller.signal }))
+  assert.equal(received.ok, false)
+  assert.equal(received.error.name, 'AbortError')
+  assert.equal(received.error.bytes, 0)
+})
+
 test('a simultaneous cancel settles both sides, each reporting its own', async (t) => {
   const { sourcePath, outputDir } = await fixture(t, 'cancel-both')
   const [txSocket, rxSocket] = duplexPair()

@@ -164,6 +164,26 @@ test('a sender refuses to offer a stream the handshake did not negotiate', async
   assert.equal(reads(), 0)
 })
 
+test('a stream offered with no name is refused before anything is written', async () => {
+  // A file takes its name from its path; a stream has only what the
+  // caller says. Without one there is nothing to offer, and the caller is
+  // told so here rather than through a receiver declining a manifest with
+  // no name in it.
+  const [txSocket] = duplexPair()
+  let written = 0
+  const realWrite = txSocket.write.bind(txSocket)
+  txSocket.write = (/** @type {any[]} */ ...args) => { written++; return realWrite(...args) }
+  const { readable, reads } = producer([Buffer.from('data')])
+
+  for (const name of [undefined, 42]) {
+    const outcome = await settle(sendStream(txSocket, readable, /** @type {any} */ ({ ...channelKeys().sender, name, caps: STREAM, acceptTimeout: 200 })))
+    assert.equal(outcome.ok, false)
+    assert.ok(outcome.error instanceof TypeError, `name ${name}: expected a TypeError, got ${outcome.error}`)
+  }
+  assert.equal(written, 0, 'nothing may reach the wire')
+  assert.equal(reads(), 0)
+})
+
 test('a receiver that confirms a different digest than END carried fails the stream', async () => {
   const [txSocket, peer] = duplexPair()
   const keys = channelKeys()
@@ -297,4 +317,35 @@ test('a stream from a live pipe survives the producer pausing between writes', a
 
   const [, received] = await done
   assertSameBytes(await fs.promises.readFile(received.path), Buffer.concat(parts))
+})
+
+test('a stream is held to maxSize exactly: one byte past it never lands, and exactly the cap is taken', async (t) => {
+  // A stream's only size check is counted as its chunks arrive, so it has
+  // to count the chunk in hand: checked against what came before it, a
+  // stream runs a chunk or two past the cap and is published. And the cap
+  // is the largest stream taken, not the smallest refused.
+  const outputDir = await tmpDir(t, 'stream-cap-edges')
+  for (const [second, outcome] of /** @type {Array<[number, string]>} */ ([[61, 'refused'], [40, 'taken']])) {
+    const first = crypto.randomBytes(60)
+    const rest = crypto.randomBytes(second)
+    const { socket, keys, offer, send } = sealedSender()
+    /** @type {number[]} */
+    const progress = []
+    const received = settle(receiveFile(socket, outputDir, { ...keys, caps: STREAM, maxSize: 100, onProgress: ({ bytes }) => progress.push(bytes) }))
+    await offer(streamManifest({ blockSize: 64 }), first, rest)
+    send(TYPE_END, endBody({ sha256: sha(Buffer.concat([first, rest])) }))
+    const result = await received
+    if (outcome === 'refused') {
+      assert.equal(result.ok, false)
+      assert.equal(result.error.code, 'ERR_SIZE_MISMATCH')
+      assert.equal(result.error.limit, 100)
+      assert.equal(result.error.bytes, 60 + second, 'the size it would have reached')
+      assert.ok(Math.max(...progress) <= 100, `received past the cap: ${JSON.stringify(progress)}`)
+      assert.deepEqual(await fs.promises.readdir(outputDir), [])
+    } else {
+      assert.equal(result.ok, true, result.error && result.error.message)
+      assert.equal(result.value.size, 100)
+      await fs.promises.rm(result.value.path)
+    }
+  }
 })

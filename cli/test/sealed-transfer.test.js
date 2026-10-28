@@ -68,6 +68,20 @@ test('sendFile refuses to start without channel keys, before touching the file',
   assert.equal(written, 0, 'nothing may reach the wire unsealed')
 })
 
+test('sendFile without one of its two keys is told which rule it broke', async () => {
+  // Half a key pair is the likelier slip -- both come out of one
+  // handshake result, and one can be dropped in a spread -- and the
+  // refusal should name the rule, not a Buffer-shape complaint about
+  // whichever key happened to be undefined.
+  for (const keys of [{ sendKey: crypto.randomBytes(32) }, { receiveKey: crypto.randomBytes(32) }]) {
+    const [txSocket] = duplexPair()
+    const outcome = await settle(sendFile(txSocket, '/nonexistent/adhal-no-such-file', /** @type {any} */ (keys)))
+    assert.equal(outcome.ok, false)
+    assert.ok(outcome.error instanceof TypeError, `expected a TypeError, got ${outcome.error}`)
+    assert.match(outcome.error.message, /sendKey and receiveKey are required/)
+  }
+})
+
 test('receiveFile refuses to start without channel keys, and attaches nothing', async (t) => {
   const { outputDir } = await fixture(t, 'sealed-nokeys-rx')
   const [, rxSocket] = duplexPair()
@@ -238,6 +252,41 @@ test('the largest chunk the budget allows goes through end to end, and one byte 
   const outcome = await settle(sendFile(tx2, sourcePath, { ...channelKeys().sender, chunkSize: MAX_CHUNK_SIZE + 1 }))
   assert.equal(outcome.ok, false)
   assert.ok(outcome.error instanceof RangeError)
+})
+
+test('a chunk size that is not a positive whole number is refused before anything is written', async (t) => {
+  // The same up-front check as the oversize chunk above, at its other
+  // end. Zero is the dangerous one: the sender splits a stream's chunks
+  // with `offset += chunkSize`, which never moves at 0. A fraction or NaN
+  // would be declared to the receiver as the blockSize, and refused there
+  // only after the offer had gone out.
+  const { sourcePath } = await fixture(t, 'sealed-badchunk', crypto.randomBytes(64))
+  for (const chunkSize of [0, -1, 1.5, NaN]) {
+    const [txSocket] = duplexPair()
+    let written = 0
+    const realWrite = txSocket.write.bind(txSocket)
+    txSocket.write = (/** @type {any[]} */ ...args) => { written++; return realWrite(...args) }
+    // A short accept wait, so a check that let the value through fails
+    // this test in milliseconds rather than after five minutes.
+    const outcome = await settle(sendFile(txSocket, sourcePath, { ...channelKeys().sender, chunkSize, acceptTimeout: 200 }))
+    assert.equal(outcome.ok, false, `chunkSize ${chunkSize}`)
+    assert.ok(outcome.error instanceof RangeError, `chunkSize ${chunkSize}: expected a RangeError, got ${outcome.error}`)
+    assert.equal(written, 0, `chunkSize ${chunkSize}: nothing may reach the wire`)
+  }
+})
+
+test('the smallest chunk size, one byte, goes through end to end', async (t) => {
+  // The lower bound is 1, inclusive: a file sent one byte per frame is
+  // slow, but valid, and the receiver takes a blockSize of 1.
+  const { sourcePath, outputDir, sha256 } = await fixture(t, 'sealed-onebyte', crypto.randomBytes(10))
+  const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
+  const [sent, received] = await Promise.all([
+    sendFile(txSocket, sourcePath, { ...keys.sender, chunkSize: 1 }),
+    receiveFile(rxSocket, outputDir, { ...keys.receiver })
+  ])
+  assert.equal(sent.sha256, sha256)
+  assert.equal(received.sha256, sha256)
 })
 
 // --- the handshake over a stream with no Noise under it -------------------

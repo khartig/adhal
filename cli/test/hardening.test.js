@@ -23,7 +23,10 @@ const crypto = require('node:crypto')
 const {
   receiveFile,
   safeOutputName,
+  safeWriteName,
   displayName,
+  MAX_NAME_BYTES,
+  MAX_DISPLAY_LENGTH,
   TYPE_CHUNK,
   DEFAULT_MAX_SIZE,
   decodeDecline,
@@ -31,7 +34,14 @@ const {
   declineBody,
   cancelBody,
   decodeResult,
-  displayText
+  resultBody,
+  decodeEnd,
+  decodePrefix,
+  decodeCheckpoint,
+  displayText,
+  TYPE_MANIFEST,
+  TYPE_CANCEL,
+  TYPE_RESULT
 } = require('@ad-hal/engine')
 const { sealedSender } = require('../test-helpers/sealed')
 const { assertSameBytes } = require('../test-helpers/bytes')
@@ -114,6 +124,60 @@ test('a name carrying terminal control or bidi characters is refused', () => {
   }
 })
 
+test('each refusal rule fires on its own, and says which rule it was', () => {
+  // The rules overlap on purpose, and that hid them from the tests. A NUL
+  // is a control character too, `.` and `..` strip to empty, and an empty
+  // name resolves to the output directory itself, which the containment
+  // check in safeOutputName refuses. So the test above, which asserts only
+  // ERR_UNSAFE_NAME, passed with any one of these rules deleted: the first
+  // full mutation run (W12) removed each of them in turn and nothing failed.
+  // Pinning `detail` is what makes each rule's absence visible.
+  const dir = path.join(os.tmpdir(), 'adhal-hostile-names')
+  const rules = [
+    ['', 'it is empty'],
+    ['\u0000abc', 'it contains a NUL byte'],
+    ['.', 'it is a directory reference'],
+    ['..', 'it is a directory reference'],
+    ['...', 'it is empty once trailing dots and spaces are removed'],
+    ['   ', 'it is empty once trailing dots and spaces are removed'],
+    ['. .', 'it is empty once trailing dots and spaces are removed'],
+    ['x'.repeat(MAX_NAME_BYTES + 1), `it is longer than ${MAX_NAME_BYTES} bytes`]
+  ]
+  for (const [name, detail] of rules) {
+    // Both entry points: safeWriteName is the rule, and safeOutputName is
+    // what a receive calls. Through safeOutputName, the containment check
+    // would catch '...' had the rule let it through, with a detail that
+    // names the wrong reason.
+    assert.throws(() => safeWriteName(name), { code: 'ERR_UNSAFE_NAME', detail }, JSON.stringify(name))
+    assert.throws(() => safeOutputName(dir, name), { code: 'ERR_UNSAFE_NAME', detail }, JSON.stringify(name))
+  }
+
+  // From the wire a name that is not a string never gets here:
+  // validateManifest refuses it first. But safeWriteName is exported, and
+  // it promises ERR_UNSAFE_NAME for anything it will not write, not a
+  // TypeError from reading .length of undefined.
+  for (const value of [undefined, null, 42, {}, ['a']]) {
+    assert.throws(() => safeWriteName(/** @type {any} */ (value)), { code: 'ERR_UNSAFE_NAME', detail: 'it is not a string' })
+  }
+})
+
+test('the shortest and longest legitimate names are accepted', () => {
+  // Every refusal above fails closed, so a rule drawn one off refuses an
+  // honest file rather than letting a hostile one in: a one-letter name,
+  // or one of exactly 255 bytes, the filesystem's limit, would be declined.
+  const dir = path.join(os.tmpdir(), 'adhal-hostile-names')
+  assert.equal(safeWriteName('a'), 'a')
+  assert.equal(safeOutputName(dir, 'a').name, 'a')
+  assert.equal(safeWriteName('a.'), 'a', 'one character left once the trailing dot goes')
+  assert.equal(safeWriteName('x'.repeat(MAX_NAME_BYTES)), 'x'.repeat(MAX_NAME_BYTES))
+
+  // The limit is on bytes, not characters: 'é' is two bytes in UTF-8.
+  const atLimit = 'é'.repeat(127) + 'x'
+  assert.equal(Buffer.byteLength(atLimit, 'utf8'), MAX_NAME_BYTES)
+  assert.equal(safeWriteName(atLimit), atLimit)
+  assert.throws(() => safeWriteName('é'.repeat(128)), { code: 'ERR_UNSAFE_NAME', detail: `it is longer than ${MAX_NAME_BYTES} bytes` })
+})
+
 test('characters that are illegal or dangerous in a filename are transformed, not refused', () => {
   // Transformed rather than refused because a correct sender could
   // plausibly have meant them -- `report:2026` is a real filename on
@@ -148,6 +212,16 @@ test('displayName escapes rather than strips, and never throws', () => {
   // enough: it passes bidi overrides straight through.
   assert.ok(JSON.stringify('inv\u202efdp.exe').includes('\u202e'), 'JSON.stringify leaves the override in')
   assert.ok(!displayName('inv\u202efdp.exe').includes('\u202e'), 'displayName does not')
+
+  // The escape names the byte that was there. A NUL is the case that
+  // matters: a refusal for one prints the name, and must show \u0000,
+  // not a neighbor.
+  assert.equal(displayName('\u0000abc'), '\\u0000abc')
+
+  // Cut only past the bound: a name exactly MAX_DISPLAY_LENGTH long is
+  // shown whole, with no claim that anything was cut.
+  assert.equal(displayName('x'.repeat(MAX_DISPLAY_LENGTH)), 'x'.repeat(MAX_DISPLAY_LENGTH))
+  assert.equal(displayName('x'.repeat(MAX_DISPLAY_LENGTH + 1)), `${'x'.repeat(MAX_DISPLAY_LENGTH)}... (${MAX_DISPLAY_LENGTH + 1} chars)`)
 
   // Total, because the moment we most need to print a name is when we
   // are refusing it, and a display path that throws turns one error into
@@ -439,6 +513,38 @@ test('a peer reason cannot carry a bidi override, and no decoder echoes a malfor
   })
 })
 
+test('a RESULT is exactly {ok, sha256} or {error}, and anything else is a protocol error', () => {
+  // PROTOCOL.md section 7.6. The sender switches on `'error' in result`,
+  // so a decoder that got `ok` wrong, or let a third shape through as a
+  // receiver failure, would pass every transfer test; the W12 mutation run
+  // showed both. Asserted here on the decoder itself, field by field.
+  const sha256 = 'ab'.repeat(32)
+  assert.deepEqual(decodeResult(resultBody({ ok: true, sha256 })), { ok: true, sha256 })
+  assert.deepEqual(decodeResult(resultBody({ error: 'disk full' })), { ok: false, error: 'disk full' })
+  assert.deepEqual(decodeResult(Buffer.from('{"ok":false,"error":"disk full"}')), { ok: false, error: 'disk full' })
+
+  // Neither shape: no verdict at all, so never a receiver failure, and
+  // never a TypeError from reading a field of null.
+  for (const body of ['{}', 'null', '[]', '{"ok":true,"error":"x"}', '{"ok":true}']) {
+    assert.throws(() => decodeResult(Buffer.from(body)), { code: 'ERR_PROTOCOL' }, body)
+  }
+})
+
+test('END and PREFIX carry a sha256 string, and a body that is not JSON says so', () => {
+  // `RegExp.test` coerces its argument, so a sha256 wrapped in an array
+  // passes the hex check unless the type is checked first; a receiver
+  // handed one compared it as a digest and failed outside the error
+  // vocabulary (a RangeError from timingSafeEqual, for PREFIX).
+  const hex = 'ab'.repeat(32)
+  for (const [decode, label] of [[decodeEnd, 'END'], [decodePrefix, 'PREFIX']]) {
+    for (const body of ['null', '[]', JSON.stringify({ sha256: [hex] }), JSON.stringify({ sha256: 42 })]) {
+      assert.throws(() => /** @type {any} */ (decode)(Buffer.from(body)), { code: 'ERR_PROTOCOL' }, `${label} ${body}`)
+    }
+    assert.throws(() => /** @type {any} */ (decode)(Buffer.from('{')), { code: 'ERR_PROTOCOL', message: new RegExp(`${label} is not valid JSON \\(1 bytes\\)`) })
+  }
+  assert.throws(() => decodeCheckpoint(Buffer.from('{')), { code: 'ERR_PROTOCOL', message: /CHECKPOINT is not valid JSON \(1 bytes\)/ })
+})
+
 test('describeError escapes the whole line, whatever the error carried', () => {
   // The backstop: an error from anywhere, with peer bytes the engine did
   // not clean, still prints safely.
@@ -475,4 +581,209 @@ test('a filesystem without hard links still lands the file, and says it used the
   const again = await offer(outputDir, manifestFor(body, { name: 'b.bin' }), body).received
   assert.equal(again.name, 'b (1).bin')
   assert.equal(again.published, 'check-then-rename')
+})
+
+// --- the receiver's edges, pinned -----------------------------------------
+//
+// Each of these holds one line of the receiver to exactly what it says,
+// at the input where a near miss would behave differently.
+
+/**
+ * Settles with `promise`, or fails the test after `ms` rather than leaving
+ * it to the runner's timeout: several of the failures pinned below are a
+ * receive that never settles.
+ * @template T
+ * @param {number} ms @param {Promise<T>} promise @param {string} what
+ * @returns {Promise<T>}
+ */
+function within (ms, promise, what) {
+  /** @type {NodeJS.Timeout | undefined} */
+  let timer
+  const late = new Promise((resolve, reject) => { timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms waiting for ${what}`)), ms) })
+  return /** @type {Promise<T>} */ (Promise.race([promise, late])).finally(() => clearTimeout(timer))
+}
+
+/** @param {Promise<any>} promise @returns {Promise<any>} the rejection, or null if it resolved */
+const rejection = (promise) => promise.then(() => null, (err) => err)
+
+test('a manifest that is not a JSON object is refused as one, and the sender is told its offer was at fault', async (t) => {
+  // `null`, an array, and a bare number or string all parse as JSON. Each
+  // has to be refused at the root, as ERR_MANIFEST_INVALID: read as an
+  // object, `null` throws a TypeError, which reaches the sender as
+  // ERR_RECEIVER_FAILED -- the receiver blaming itself for a peer's
+  // malformed offer -- and the others are reported as a wrong version.
+  const outputDir = await tmpDir(t, 'harden-root')
+  for (const body of ['null', '[]', '5', '"report.pdf"']) {
+    const { received, answer } = offer(outputDir, Buffer.from(body, 'utf8'))
+    await rejectsWith(received, 'ERR_MANIFEST_INVALID', (err) => assert.equal(err.field, '(root)', body))
+    assert.equal((await answer).body.code, 'ERR_MANIFEST_INVALID', body)
+  }
+  assert.deepEqual(await fs.promises.readdir(outputDir), [])
+})
+
+test('a name that resolves outside the output directory is refused even if the shape checks let it through', () => {
+  // The resolved-path assertion in safeOutputName backstops names.js, and
+  // nothing a peer can send reaches it: every name that would escape is
+  // refused by shape first. So it is tested the only way it can be, with
+  // the shape checks replaced by one that waves everything through. The
+  // replacement lives in the require cache for the length of this test,
+  // and the real modules are put back however it ends.
+  const engineSrc = path.dirname(require.resolve('@ad-hal/engine'))
+  const namesPath = path.join(engineSrc, 'names.js')
+  const transferPath = path.join(engineSrc, 'transfer.js')
+  const realNames = require.cache[namesPath]
+  const realTransfer = require.cache[transferPath]
+  assert.ok(realNames && realTransfer, 'the engine modules are loaded from where this test expects them')
+  const dir = path.resolve(os.tmpdir(), 'adhal-containment')
+  try {
+    require.cache[namesPath] = /** @type {any} */ ({ ...realNames, exports: { ...realNames.exports, safeWriteName: (/** @type {string} */ name) => name } })
+    delete require.cache[transferPath]
+    const { safeOutputName: lenient } = require(transferPath)
+    for (const name of ['../escaped', '../../etc/passwd', path.resolve('/etc/passwd'), '..', '.', '']) {
+      assert.throws(() => lenient(dir, name), { code: 'ERR_UNSAFE_NAME', detail: 'it resolves outside the output directory' }, JSON.stringify(name))
+    }
+    assert.equal(lenient(dir, 'ok.bin').outputPath, path.join(dir, 'ok.bin'), 'and a name that stays put is still taken')
+  } finally {
+    require.cache[namesPath] = realNames
+    require.cache[transferPath] = realTransfer
+  }
+})
+
+test('the thousandth suffix is still a place to land, and past it the drop is refused and nothing is left behind', async (t) => {
+  // MAX_SUFFIX_ATTEMPTS is 1000 and the refusal says so, so `name (1000)`
+  // has to be tried. Past it, the publish fails -- the one refusal that
+  // comes after every byte has arrived -- and that failure must still
+  // settle the receive, tell the sender, and delete the partial, rather
+  // than wait on a stream that has already closed.
+  const outputDir = await tmpDir(t, 'harden-suffixes')
+  fs.writeFileSync(path.join(outputDir, 'a.bin'), '')
+  for (let n = 1; n < 1000; n++) fs.writeFileSync(path.join(outputDir, `a (${n}).bin`), '')
+  const body = crypto.randomBytes(1000)
+
+  const landed = await within(5000, offer(outputDir, manifestFor(body, { name: 'a.bin', blockSize: 1000 }), body).received, 'the 1000th suffix')
+  assert.equal(landed.name, 'a (1000).bin')
+  assertSameBytes(await fs.promises.readFile(landed.path), body)
+
+  // Every name is taken now, that one included.
+  const { socket, keys, offer: offerTo, received: frames } = sealedSender()
+  const refused = within(5000, rejection(receiveFile(socket, outputDir, { ...keys })), 'the refused publish to settle')
+  await offerTo(manifestFor(body, { name: 'a.bin', blockSize: 1000 }), body)
+  const err = await refused
+  assert.equal(err && err.code, 'ERR_EXISTS', err && err.message)
+  const results = frames.filter((f) => f.type === TYPE_RESULT).map((f) => decodeResult(f.body))
+  assert.equal(results.length, 1)
+  assert.equal(results[0].ok, false)
+  assert.match(/** @type {any} */ (results[0]).error, /1000 suffixed names are all taken/)
+  assert.deepEqual((await fs.promises.readdir(outputDir)).filter((f) => f.includes('.part')), [], 'the partial is discarded')
+})
+
+test('every way a filesystem says it has no hard links takes the weaker path, and any other link failure fails the receive', async (t) => {
+  // The fallback is for a filesystem that cannot link at all, and each of
+  // its four codes means exactly that. Any other failure of link() is a
+  // real fault, and renaming the file into place anyway would publish
+  // past it.
+  const outputDir = await tmpDir(t, 'harden-link-codes')
+  const body = crypto.randomBytes(1000)
+  let code = ''
+  t.mock.method(fs.promises, 'link', async () => { throw Object.assign(new Error(`link failed: ${code}`), { code }) })
+
+  for (code of ['EPERM', 'ENOSYS', 'EXDEV', 'ENOTSUP']) {
+    const result = await offer(outputDir, manifestFor(body, { name: `${code}.bin` }), body).received
+    assert.equal(result.published, 'check-then-rename', code)
+    assertSameBytes(await fs.promises.readFile(path.join(outputDir, `${code}.bin`)), body, code)
+  }
+
+  code = 'EIO'
+  await rejectsWith(offer(outputDir, manifestFor(body, { name: 'EIO.bin' }), body).received, 'EIO')
+  const left = (await fs.promises.readdir(outputDir)).filter((f) => f.startsWith('EIO'))
+  assert.deepEqual(left, [], 'neither the file nor its partial')
+})
+
+test('the free-space check refuses only what cannot fit, and only when it can measure', async (t) => {
+  // Advisory by design: a free count of 0 is a filesystem that cannot
+  // say, not a full disk, so it refuses nothing. A file exactly the size
+  // of the free space fits. And `checkSpace: false` turns the check off
+  // whatever the disk reports.
+  const outputDir = await tmpDir(t, 'harden-space-edges')
+  const body = crypto.randomBytes(1000)
+  let free = 0
+  t.mock.method(fs.promises, 'statfs', async () => ({ bavail: free, bsize: 1 }))
+
+  for (const [space, options, outcome] of /** @type {Array<[number, object, string]>} */ ([
+    [0, {}, 'taken'],
+    [body.length, {}, 'taken'],
+    [body.length - 1, {}, 'ERR_NO_SPACE'],
+    [1, { checkSpace: false }, 'taken']
+  ])) {
+    free = space
+    const what = `${space} bytes free, ${JSON.stringify(options)}`
+    const err = await rejection(offer(outputDir, manifestFor(body, { name: `free-${space}.bin` }), body, options).received)
+    assert.equal(err ? err.code : 'taken', outcome, what)
+  }
+})
+
+test('a peer that leaves before its offer is answered is reported as having sent no bytes', async (t) => {
+  // `bytes` is how a log or a retry tells "nothing arrived" from "it died
+  // partway", and before ACCEPT nothing can have arrived.
+  const outputDir = await tmpDir(t, 'harden-early-bytes')
+  {
+    const { socket, keys, peer } = sealedSender()
+    const received = receiveFile(socket, outputDir, { ...keys })
+    peer.destroy()
+    await rejectsWith(received, 'ERR_CONNECTION', (err) => assert.equal(err.bytes, 0, 'gone before a manifest'))
+  }
+  {
+    const { socket, keys, send } = sealedSender()
+    const received = receiveFile(socket, outputDir, { ...keys, onOffer: () => new Promise(() => {}) })
+    send(TYPE_MANIFEST, Buffer.from(JSON.stringify(manifestFor(Buffer.alloc(16))), 'utf8'))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    send(TYPE_CANCEL, cancelBody('changed my mind'))
+    await rejectsWith(received, 'ERR_CANCELLED_PEER', (err) => assert.equal(err.bytes, 0, 'canceled while the offer was considered'))
+  }
+})
+
+test('a receive waiting on its peer never holds the process open by itself', async (t) => {
+  // The stall timer and the checkpoint interval are unref'd: a caller that
+  // abandons a pending receive, or a process that is otherwise done, exits
+  // rather than waiting out a 30-second manifest timer. A timer that keeps
+  // the event loop alive is listed by getActiveResourcesInfo, and an
+  // unref'd one is not.
+  const outputDir = await tmpDir(t, 'harden-unref')
+  const timers = () => process.getActiveResourcesInfo().filter((r) => r === 'Timeout').length
+
+  {
+    const { socket, keys, peer } = sealedSender()
+    const before = timers()
+    const received = rejection(receiveFile(socket, outputDir, { ...keys, manifestTimeout: 10000 }))
+    assert.equal(timers(), before, 'waiting for a manifest')
+    peer.destroy()
+    assert.equal((await received).code, 'ERR_CONNECTION')
+  }
+  {
+    const { socket, keys, peer, offer: offerTo } = sealedSender()
+    const before = timers()
+    const received = rejection(receiveFile(socket, outputDir, { ...keys, caps: ['resume'], progressTimeout: 10000, checkpointInterval: 10000 }))
+    await offerTo(manifestFor(Buffer.alloc(4096)))
+    assert.equal(timers(), before, 'accepted and waiting for the first chunk, with checkpoints armed')
+    peer.destroy()
+    assert.equal((await received).code, 'ERR_CONNECTION')
+  }
+})
+
+test('a receive that ends while its disk was pushing back leaves the socket flowing', async (t) => {
+  // A 64 KiB chunk is past the write stream's high-water mark, so the last
+  // one pauses the socket. Every byte is in by then, and the sender's end
+  // has to be heard: a caller waiting for it would otherwise wait forever.
+  const outputDir = await tmpDir(t, 'harden-paused-end')
+  const body = crypto.randomBytes(256 * 1024)
+  const { socket, keys, send, peer, offer: offerTo } = sealedSender()
+  const received = receiveFile(socket, outputDir, { ...keys })
+  await offerTo(manifestFor(body))
+  for (let offset = 0; offset < body.length; offset += 64 * 1024) send(TYPE_CHUNK, body.subarray(offset, offset + 64 * 1024))
+  await received
+
+  assert.equal(socket.isPaused(), false)
+  const ended = new Promise((resolve) => socket.once('end', resolve))
+  peer.end()
+  await within(1000, ended, "the sender's end")
 })

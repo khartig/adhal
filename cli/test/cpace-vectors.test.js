@@ -160,6 +160,19 @@ test('the zero padding fills the first hash block after DSI and PRS', () => {
     'DSI, PRS, and the padding together are exactly one SHA-512 input block')
 })
 
+test('a password too long to leave room for padding gets none, as the second implementation computes', () => {
+  // The draft's vector has room to spare, so the max(0, ...) floor is never
+  // reached by it. A PRS of 117 bytes or more fills the first block on its
+  // own and takes no padding at all; a floor of one byte instead would
+  // still pair two copies of this engine, and break against everyone else.
+  // conformance/src/wire.js is that everyone else, written separately.
+  const wire = require('../../conformance/src/wire')
+  for (const length of [100, 116, 117, 118, 200, 300]) {
+    const prs = Buffer.alloc(length, 0x61)
+    assert.equal(hex(generatorString(prs, CI, SID)), hex(wire.generatorString(prs, CI, SID)), `a ${length}-byte PRS`)
+  }
+})
+
 test('the generator g reproduces the draft, which exercises Elligator2', () => {
   assert.equal(hex(calculateGenerator(PRS, CI, SID)), EXPECTED.generator,
     'g is where the password enters the group; a wrong map is a wrong ' +
@@ -221,7 +234,9 @@ for (const [name, u] of Object.entries(MUST_ABORT)) {
   test(`scalar_mult_vfy aborts on the low-order point ${name}`, () => {
     assert.throws(
       () => scalarMultVfy(LOW_ORDER_SCALAR, h(u)),
-      (/** @type {any} */ err) => err.code === 'ERR_CPACE_NEUTRAL',
+      // With the library's own error kept as the cause, so a log shows
+      // what the curve code said and not only our translation of it.
+      (/** @type {any} */ err) => err.code === 'ERR_CPACE_NEUTRAL' && err.cause instanceof Error,
       `${name} drives the result to the neutral element for every scalar, so ` +
       'continuing would agree a key the peer who sent it already knows'
     )

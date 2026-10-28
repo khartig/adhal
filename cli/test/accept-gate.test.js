@@ -35,7 +35,11 @@ const {
   TYPE_ACCEPT,
   TYPE_DECLINE,
   TYPE_CHECKPOINT,
-  TYPE_RESULT
+  TYPE_RESULT,
+  TransferError,
+  Channel,
+  validateManifest,
+  DEFAULT_MAX_SIZE
 } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
@@ -599,4 +603,178 @@ test('any other DECLINE from a sender is a protocol error, first frame or not', 
     assert.equal(result.error.code, 'ERR_PROTOCOL')
   }
   assert.deepEqual(await fs.promises.readdir(outputDir), [])
+})
+
+// --- the offer's limits and its refusals, pinned ---------------------------
+
+test('with no cap passed, the largest offer a receiver takes is 8 GiB exactly', () => {
+  // The default cap is the only size limit a caller who forgot one has,
+  // and PROTOCOL.md states its value. The tests that refuse an oversize
+  // offer are written against the exported constant, so they move with
+  // it; this one is written against the number.
+  const GiB = 1024 * 1024 * 1024
+  assert.equal(DEFAULT_MAX_SIZE, 8 * GiB)
+  const body = Buffer.from('x')
+  // `undefined` is what an options object without maxSize passes.
+  validateManifest(manifestFor(body, { size: 8 * GiB }), undefined)
+  assert.throws(() => validateManifest(manifestFor(body, { size: 8 * GiB + 1 }), undefined), (/** @type {any} */ err) => {
+    assert.equal(err.code, 'ERR_MANIFEST_INVALID')
+    assert.equal(err.field, 'size')
+    return true
+  })
+})
+
+test('an onOffer hook that throws is reported to the sender as ERR_RECEIVER_FAILED, whatever it threw', async (t) => {
+  // The DECLINE code is protocol vocabulary, and only the receiver's own
+  // refusals choose it. A hook's TransferError with some other code, a
+  // plain Error that happens to carry a decline code, and a bare `null`
+  // are all local faults: the sender hears ERR_RECEIVER_FAILED, promptly,
+  // and not the hook's choice of code -- or, for the `null`, silence
+  // until its accept wait runs out.
+  const thrown = [
+    new TransferError('ERR_PROTOCOL', 'not a decline code'),
+    Object.assign(new Error('a decline code on an Error'), { code: 'ERR_EXISTS' }),
+    null
+  ]
+  for (const value of thrown) {
+    const { sourcePath, outputDir } = await fixture(t, 'gate-hook-throws', 1024)
+    const [txSocket, rxSocket] = duplexPair()
+    const keys = channelKeys()
+    const [sent, received] = await Promise.all([
+      settle(sendFile(txSocket, sourcePath, { ...keys.sender, acceptTimeout: 1000 })),
+      settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, onOffer: () => { throw value } }))
+    ])
+    assert.equal(received.ok, false)
+    assert.equal(sent.ok, false)
+    assert.equal(sent.error.code, 'ERR_DECLINED', `for ${value}: ${sent.error.message}`)
+    assert.equal(sent.error.declineCode, 'ERR_RECEIVER_FAILED', `for ${value}`)
+  }
+})
+
+test('a receiver that cancels or hangs up before answering leaves the sender reporting no bytes sent', async (t) => {
+  // `bytes` is how a log or a retry tells "nothing moved" from "it died
+  // partway", and before the answer nothing has moved.
+  const { sourcePath } = await fixture(t, 'gate-early-end', 1024)
+  for (const [what, act] of /** @type {Array<[string, (p: any) => void]>} */ ([
+    ['a CANCEL', (p) => p.answer(TYPE_CANCEL, cancelBody('not now'))],
+    ['a hang-up', (p) => p.peer.end()]
+  ])) {
+    const p = receiverPeer()
+    const sent = settle(sendFile(p.txSocket, sourcePath, { ...p.keys }))
+    await p.manifest
+    act(p)
+    const outcome = await sent
+    assert.equal(outcome.ok, false, what)
+    assert.equal(outcome.error.bytes, 0, what)
+  }
+})
+
+test('a reply that arrived split from the handshake, however it was split, still answers the offer', async (t) => {
+  // The handshake hands over whatever it read past its own last message
+  // as `pending`, and where that cut falls is up to the network and the
+  // peer's writes -- including one byte into the receiver's first frame.
+  // Every split point has to reassemble into the same ACCEPT.
+  const { sourcePath, body, sha256 } = await fixture(t, 'gate-pending-split', 1000)
+  const probe = new Channel({ ...channelKeys().receiver, onMessage: () => {} })
+  const frameLength = probe.seal(TYPE_ACCEPT, acceptBody({ resumeFrom: 0 })).length
+
+  for (let cut = 1; cut < frameLength; cut++) {
+    const [txSocket, peer] = duplexPair()
+    const keys = channelKeys()
+    const rx = sealedPeer(peer, keys.receiver, {
+      onMessage: (type, frame) => {
+        if (type === TYPE_MANIFEST) peer.write(accept.subarray(cut))
+        if (type === TYPE_CHUNK && frame.length === body.length) rx.send(TYPE_RESULT, resultBody({ ok: true, sha256 }))
+      }
+    })
+    // Sealed first, so it takes the receiver's first nonce, as a real
+    // reply sent right after the handshake does.
+    const accept = rx.channel.seal(TYPE_ACCEPT, acceptBody({ resumeFrom: 0 }))
+    const outcome = await settle(sendFile(txSocket, sourcePath, { ...keys.sender, pending: accept.subarray(0, cut), acceptTimeout: 300 }))
+    assert.equal(outcome.ok, true, `cut at ${cut} of ${frameLength}: ${outcome.error && outcome.error.message}`)
+  }
+})
+
+test('the last of the thousand suffixed partial names is still used before an offer is declined', async (t) => {
+  // "A receiver that cannot open any partial" takes every name; this one
+  // leaves only `.part.1000`, the last candidate openPartial tries, so a
+  // search that stops one short declines a file it had room for.
+  const { outputDir, body } = await fixture(t, 'gate-last-part', 16)
+  const base = path.join(outputDir, 'payload.bin.part')
+  fs.writeFileSync(base, '')
+  for (let n = 1; n < 1000; n++) fs.writeFileSync(`${base}.${n}`, '')
+  const { socket, keys, offer } = sealedSender()
+
+  const received = settle(receiveFile(socket, outputDir, { ...keys }))
+  const reply = await offer(manifestFor(body), body)
+  assert.equal(reply.type, TYPE_ACCEPT)
+  const outcome = await received
+  assert.equal(outcome.ok, true, outcome.error && outcome.error.message)
+  assertSameBytes(await fs.promises.readFile(outcome.value.path), body)
+})
+
+/**
+ * What onOffer is told about a partial for `manifest`, with resume
+ * negotiated; the offer is declined, so nothing is opened.
+ * @param {string} outputDir @param {any} manifest
+ */
+async function partialHinted (outputDir, manifest) {
+  const { socket, keys, offer } = sealedSender()
+  let seen = -1
+  const received = settle(receiveFile(socket, outputDir, { ...keys, caps: ['resume'], onOffer: (o) => { seen = o.partial; return false } }))
+  await offer(manifest)
+  await received
+  return seen
+}
+
+test('onOffer hears of a partial only when one is there and reopening could take it', async (t) => {
+  // The hint is the accept screen's "an earlier attempt left N bytes", so
+  // it has to say 0 when there is no partial, and 0 for one reopenPartial
+  // will refuse -- one longer than the offer -- while a partial that
+  // already holds every byte is the best case there is, not nothing.
+  const { outputDir, body } = await fixture(t, 'gate-hint-edges', 4096)
+  const partPath = path.join(outputDir, 'payload.bin.part')
+  const manifest = manifestFor(body)
+
+  assert.equal(await partialHinted(outputDir, manifest), 0, 'no partial at all')
+  await fs.promises.writeFile(partPath, body)
+  assert.equal(await partialHinted(outputDir, manifest), body.length, 'a partial of every byte')
+  await fs.promises.writeFile(partPath, crypto.randomBytes(body.length + 1))
+  assert.equal(await partialHinted(outputDir, manifest), 0, 'a partial longer than the offer')
+})
+
+test('onOffer is not told of a hard-linked partial', { skip: process.platform === 'win32' ? 'hard-link semantics differ on Windows' : false }, async (t) => {
+  // reopenPartial refuses a .part with a second link, because appending
+  // to it would write into the other file; the hint must agree.
+  const { dir, outputDir, body } = await fixture(t, 'gate-hint-hardlink', 4096)
+  const other = path.join(dir, 'bashrc')
+  await fs.promises.writeFile(other, body.subarray(0, 1000))
+  await fs.promises.link(other, path.join(outputDir, 'payload.bin.part'))
+  assert.equal(await partialHinted(outputDir, manifestFor(body)), 0)
+})
+
+test('an offer that arrived split from the handshake, however it was split, is still read', async (t) => {
+  // The receiving twin of "a reply that arrived split from the
+  // handshake": acceptOnce hands over what it read past the handshake as
+  // `pending`, and the cut can fall one byte into the sender's MANIFEST.
+  // Every split point has to reassemble.
+  const { outputDir, body, sha256 } = await fixture(t, 'gate-pending-offer', 1000)
+  const manifest = Buffer.from(JSON.stringify(manifestFor(body, { blockSize: 1000 })), 'utf8')
+  const probe = new Channel({ ...channelKeys().sender, onMessage: () => {} })
+  const frameLength = probe.seal(TYPE_MANIFEST, manifest).length
+
+  for (const cut of [1, 2, frameLength - 1]) {
+    const [peer, socket] = duplexPair()
+    const keys = channelKeys()
+    const tx = sealedPeer(peer, keys.sender, {
+      onMessage: (type) => { if (type === TYPE_ACCEPT) tx.send(TYPE_CHUNK, body) }
+    })
+    const frame = tx.channel.seal(TYPE_MANIFEST, manifest)
+    const received = settle(receiveFile(socket, outputDir, { ...keys.receiver, pending: frame.subarray(0, cut), manifestTimeout: 300 }))
+    peer.write(frame.subarray(cut))
+    const outcome = await received
+    assert.equal(outcome.ok, true, `cut at ${cut} of ${frameLength}: ${outcome.error && outcome.error.message}`)
+    assert.equal(outcome.value.sha256, sha256)
+    await fs.promises.rm(outcome.value.path)
+  }
 })

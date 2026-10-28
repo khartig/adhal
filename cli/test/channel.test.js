@@ -366,6 +366,15 @@ test('one key for both directions is refused outright', () => {
       TypeError
     )
   }
+
+  // Refused when built, not at the first frame from the peer, which is
+  // where a missing handler would otherwise surface; and a body that is
+  // not a Buffer is refused by name before any nonce is spent on it.
+  assert.throws(() => new Channel({ sendKey: K_R2S, receiveKey: K_S2R, onMessage: /** @type {any} */ (undefined) }), /onMessage must be a function/)
+  const sender = new Channel({ sendKey: K_R2S, receiveKey: K_S2R, onMessage: () => {} })
+  for (const body of ['x', new Uint8Array(3)]) {
+    assert.throws(() => sender.seal(TYPE_CHUNK, /** @type {any} */ (body)), /body must be a Buffer/)
+  }
 })
 
 test('maxChunk is an equation, and the boundary is exact', () => {

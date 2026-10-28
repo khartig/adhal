@@ -15,6 +15,7 @@
 
 const test = require('node:test')
 const assert = require('node:assert/strict')
+const { EventEmitter } = require('node:events')
 
 const { closeAfterResult } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
@@ -137,4 +138,101 @@ test('a socket already gone is lost unless the sender had ended it', async () =>
   ended.destroy()
   await wait(0)
   assert.equal((await closeAfterResult(ended)).outcome, 'closed')
+})
+
+// --- what the transport says, read literally ------------------------------
+
+test('a flush that fails, or reports the socket going, is not an acknowledgment', async () => {
+  // flush() is the only delivery signal there is, so only a flush that
+  // resolves true may count as one. A rejected flush and a flush that
+  // answers false both mean the socket is on its way out, and a close
+  // after either is a connection that died with RESULT unconfirmed.
+  for (const flush of [() => Promise.reject(new Error('flush failed')), () => Promise.resolve(false)]) {
+    const [socket, peer] = duplexPair()
+    Object.assign(socket, { flush })
+    peer.resume()
+    const waited = closeAfterResult(socket, { deliveryTimeout: 1000, grace: 1000 })
+    await wait(20)
+    socket.destroy()
+
+    const { outcome, acked } = await waited
+    assert.equal(outcome, 'lost')
+    assert.equal(acked, false)
+  }
+})
+
+test('a socket error with no message is still reported as something', async () => {
+  // `error` goes into the receiver's log beside the outcome. An error
+  // whose message is empty must not turn into an empty string there,
+  // which reads as "no error" to anyone scanning for one.
+  const { socket } = flushable()
+  const waited = closeAfterResult(socket, { deliveryTimeout: 1000, grace: 1000 })
+  await wait(20)
+  socket.destroy(new Error())
+
+  const { outcome, error } = await waited
+  assert.equal(outcome, 'lost')
+  assert.equal(error, 'Error')
+})
+
+test('an end that was never read still counts as the reply on a socket already gone', async () => {
+  // Nothing read the socket, so its 'end' event never fired and
+  // readableEnded is false -- but the sender's end of stream did arrive,
+  // and the stream's state says so. That state is the only record of it.
+  const [socket, peer] = duplexPair()
+  peer.end()
+  await wait(10)
+  socket.destroy()
+  await wait(0)
+  assert.equal(socket.readableEnded, false, 'the premise: no end event was emitted')
+  assert.equal((await closeAfterResult(socket)).outcome, 'closed')
+})
+
+// A socket with a streamx stream's readable state (the Hyperswarm socket):
+// no readableEnded, `ended` once the end of stream is delivered, and
+// `ending` in the moment before. The Node duplex pair above has neither
+// `ending` nor streamx's ordering, so the cases that hinge on them are
+// played here by hand.
+function streamxLike ({ ended = false } = {}) {
+  const socket = /** @type {any} */ (new EventEmitter())
+  socket.destroyed = false
+  socket._readableState = { ended, ending: false }
+  socket.resume = () => {}
+  socket.end = () => {}
+  return socket
+}
+
+test('on a streamx socket, an end delivered before the wait began counts as the reply', async () => {
+  // Hyperswarm's socket has no readableEnded, so the readable state is
+  // the only way to see an end whose event fired before this was called.
+  const socket = streamxLike({ ended: true })
+  const waited = closeAfterResult(socket, { deliveryTimeout: 1000, grace: 1000 })
+  await wait(10)
+  socket.emit('close')
+  assert.equal((await waited).outcome, 'closed')
+})
+
+test('on a streamx socket, an end still being delivered when the close lands counts as the reply', async () => {
+  // streamx marks the end as `ending` before it emits 'end'. A close in
+  // that window comes with no end event, and the state is all there is.
+  const socket = streamxLike()
+  const waited = closeAfterResult(socket, { deliveryTimeout: 1000, grace: 1000 })
+  await wait(10)
+  socket._readableState.ending = true
+  socket.emit('close')
+  assert.equal((await waited).outcome, 'closed')
+})
+
+test('on a streamx socket, a close with no end is not the sender\'s reply', async () => {
+  // The 2026-10-13 trial again, on the transport it happened on: a
+  // connection that died after RESULT, with no end from the sender, is
+  // not "closed by sender", whatever else it is.
+  const socket = streamxLike()
+  socket.flush = () => new Promise(() => {})
+  const waited = closeAfterResult(socket, { deliveryTimeout: 1000, grace: 1000 })
+  await wait(10)
+  socket.emit('close')
+  const { outcome, acked } = await waited
+  assert.equal(outcome, 'lost')
+  assert.equal(acked, false)
 })

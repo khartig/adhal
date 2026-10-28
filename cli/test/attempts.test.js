@@ -25,7 +25,9 @@ const {
   AttemptCap,
   attemptCapError,
   sidReusedError,
+  replyUnansweredError,
   ERR_SID_REUSED,
+  ERR_REPLY_UNANSWERED,
   MAX_ATTEMPTS,
   MAX_DELAY_MS,
   BASE_DELAY_MS,
@@ -173,6 +175,15 @@ test('the error carries the code section 10 specifies, and the counts with it', 
   // repeat by chance, but a buggy peer reusing one lands here too.
   assert.match(reused.message, /reused the session id/)
   assert.match(reused.message, /MUST NOT/)
+
+  // A REPLY left unanswered keeps the socket error that ended it as its
+  // cause, and invents none when the connection simply closed.
+  const reset = new Error('connection reset by peer')
+  const unanswered = /** @type {any} */ (replyUnansweredError(reset))
+  assert.equal(unanswered.code, ERR_REPLY_UNANSWERED)
+  assert.equal(unanswered.cause, reset)
+  assert.match(unanswered.message, /connection reset by peer/)
+  assert.ok(!('cause' in replyUnansweredError()), 'no cause when nothing failed')
 })
 
 test('the CLI reports the cap as a report, not as a generic error', () => {

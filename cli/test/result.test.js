@@ -29,6 +29,8 @@ const {
   receiveFile,
   resultBody,
   acceptBody,
+  cancelBody,
+  TYPE_CANCEL,
   TYPE_MANIFEST,
   TYPE_CHUNK,
   TYPE_ACCEPT,
@@ -36,6 +38,7 @@ const {
 } = require('@ad-hal/engine')
 const { duplexPair } = require('../test-helpers/duplex-pair')
 const { channelKeys, sealedPeer, sealedSender } = require('../test-helpers/sealed')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 async function fixture (t, label, size = 256 * 1024) {
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), `adhal-${label}-`))
@@ -348,4 +351,94 @@ test('a file that shrinks after it was offered fails the send instead of passing
   assert.equal(outcome.error.code, 'ERR_SIZE_MISMATCH')
   assert.equal(outcome.error.bytes, 1000)
   assert.equal(outcome.error.size, 256 * 1024)
+})
+
+test('a file that grows after its size was taken is sent exactly as it was offered', async (t) => {
+  // Q-16's promise, from the side the shrink test above does not cover:
+  // the size, the digest, and the bytes sent all describe the same first
+  // `size` bytes, however much is appended in between. The growth is
+  // planted at the one moment that tests both reads -- right after the
+  // size is taken, before the hash and the send -- by wrapping the
+  // descriptor's stat().
+  const { sourcePath, outputDir, body, sha256 } = await fixture(t, 'result-grow')
+  const realOpen = fs.promises.open
+  t.mock.method(fs.promises, 'open', async (/** @type {any[]} */ ...args) => {
+    const handle = await realOpen.apply(fs.promises, /** @type {any} */ (args))
+    if (args[0] === sourcePath) {
+      const realStat = handle.stat.bind(handle)
+      handle.stat = async (/** @type {any[]} */ ...a) => {
+        const stats = await realStat(...a)
+        fs.appendFileSync(sourcePath, 'appended after the size was taken')
+        return stats
+      }
+    }
+    return handle
+  })
+
+  const [txSocket, rxSocket] = duplexPair()
+  const keys = channelKeys()
+  const [sent, received] = await Promise.all([
+    settle(sendFile(txSocket, sourcePath, { ...keys.sender, resultTimeout: 2000 })),
+    settle(receiveFile(rxSocket, outputDir, { ...keys.receiver, progressTimeout: 2000 }))
+  ])
+  assert.equal(sent.ok, true, sent.error && sent.error.message)
+  assert.equal(received.ok, true, received.error && received.error.message)
+  assert.equal(sent.value.size, body.length)
+  assert.equal(sent.value.sha256, sha256, 'the digest offered is of the bytes as they were')
+  assertSameBytes(await fs.promises.readFile(received.value.path), body)
+})
+
+test('a digest refusal on a transfer that was not resumed does not claim it was', async (t) => {
+  // The resume clause in ERR_HASH_MISMATCH's message tells the person a
+  // partial was discarded and the retry starts over. For a transfer that
+  // started at zero, there was no partial to discard.
+  const { body, outputDir } = await fixture(t, 'result-mismatch-fresh', 1024)
+  const { rxSocket, keys, offer } = senderPeer()
+  const received = settle(receiveFile(rxSocket, outputDir, { ...keys }))
+  offer({ v: 2, name: 'payload.bin', size: body.length, sha256: 'f'.repeat(64), blockSize: 64 * 1024 }, body)
+  const outcome = await received
+  assert.equal(outcome.error.code, 'ERR_HASH_MISMATCH')
+  assert.equal(outcome.error.resumedFrom, 0)
+  assert.doesNotMatch(outcome.error.message, /resumed/)
+})
+
+test('a frame that rides in behind the last byte cannot reopen a transfer that has ended', async (t) => {
+  // The last CHUNK ends the transfer, but a peer can put another frame in
+  // the same write, and the channel opens every frame a write carries. The
+  // verdict reached on the last byte -- published, or refused on its
+  // digest -- must stand, and the frame behind it must not run the
+  // failure path a second time: doing so after the channel's keys are
+  // wiped threw out of the RESULT it was trying to send. That throw would
+  // end this test process, so it is caught here and reported as a failure.
+  const { body, sha256, outputDir } = await fixture(t, 'result-trailing', 1024)
+  /** @type {any[]} */
+  const escaped = []
+  const onEscape = (/** @type {any} */ err) => { escaped.push(err) }
+  process.on('unhandledRejection', onEscape)
+  process.on('uncaughtException', onEscape)
+  t.after(() => {
+    process.removeListener('unhandledRejection', onEscape)
+    process.removeListener('uncaughtException', onEscape)
+  })
+
+  for (const [digest, verdict] of [['f'.repeat(64), 'ERR_HASH_MISMATCH'], [sha256, 'published']]) {
+    const [peer, socket] = duplexPair()
+    const keys = channelKeys()
+    const tx = sealedPeer(peer, keys.sender, {
+      onMessage: (type) => {
+        if (type !== TYPE_ACCEPT) return
+        peer.write(Buffer.concat([tx.channel.seal(TYPE_CHUNK, body), tx.channel.seal(TYPE_CANCEL, cancelBody('too late'))]))
+      }
+    })
+    const received = settle(receiveFile(socket, outputDir, { ...keys.receiver }))
+    tx.send(TYPE_MANIFEST, Buffer.from(JSON.stringify({ v: 2, name: 'payload.bin', size: body.length, sha256: digest, blockSize: 64 * 1024 })))
+    const outcome = await received
+    await tick()
+    assert.deepEqual(escaped.map((e) => String(e && e.message)), [], `${verdict}: nothing escaped the receive`)
+    assert.equal(outcome.ok ? 'published' : outcome.error.code, verdict, outcome.error && outcome.error.message)
+    const results = tx.received.filter((f) => f.type === TYPE_RESULT)
+    assert.equal(results.length, 1, `${verdict}: exactly one RESULT`)
+    if (outcome.ok) await fs.promises.rm(outcome.value.path)
+    assert.deepEqual(await fs.promises.readdir(outputDir), [], `${verdict}: no partial left`)
+  }
 })

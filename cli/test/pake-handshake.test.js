@@ -63,6 +63,8 @@ const {
   ERR_CONFIRMATION,
   LENGTH_PREFIX_SIZE,
   HELLO_FIXED,
+  HELLO_MAX_BODY,
+  REPLY_MAX_BODY,
   ELEMENT_SIZE
 } = require('@ad-hal/engine')
 const { slow } = require('../test-helpers/tiers')
@@ -424,6 +426,85 @@ test('a wire-version skew is named rather than left to present as corruption', (
     assert.match(err.message, /redeploy both sides/)
     return true
   })
+})
+
+test('each half of the handshake refuses to run twice, or out of order', () => {
+  // More than tidiness. Each half wipes its secret material once it has
+  // used it -- the initiator its scalar, the responder its password -- so
+  // a second run would compute with zeros, which anyone can do: a party
+  // without the code could then forge a REPLY the initiator accepts, or
+  // complete a HELLO the responder answers. The connection code never
+  // calls either twice, but both classes are exported.
+  const { initiator } = exchange()
+  assert.throws(() => initiator.readReply(new MessageReader()), { code: 'ERR_PROTOCOL', message: /the handshake has already completed/ })
+
+  const { nameplate, secret } = splitCode(generateCode())
+  const responder = new Responder({ nameplate, secret })
+  assert.throws(() => responder.readConfirm(new MessageReader()), { code: 'ERR_PROTOCOL', message: /CONFIRM arrived before HELLO/ })
+  const atSender = new MessageReader()
+  atSender.push(new Initiator({ nameplate, secret }).hello())
+  assert.ok(responder.readHello(atSender))
+  assert.throws(() => responder.readHello(new MessageReader()), { code: 'ERR_PROTOCOL', message: /HELLO has already been read on this connection/ })
+})
+
+test('a caps field of exactly the cap is accepted, ours and a peer\'s, at the largest HELLO and REPLY', () => {
+  // PROTOCOL.md caps the field at MAX_CAPS_BYTES, and a peer may fill it.
+  // Every check on the way -- encoding ours, parsing theirs, and the
+  // declared body length of HELLO and REPLY -- has to admit the maximum
+  // itself; a check drawn one short refuses a legitimate peer.
+  // Eight tokens: seven of 16 characters, one of 9, and seven commas.
+  const max = ['a', 'b', 'c', 'd', 'e', 'f', 'g'].map((c) => c.repeat(16)).concat('h'.repeat(9))
+  assert.equal(encodeCaps(max).length, MAX_CAPS_BYTES)
+  assert.deepEqual(parseCaps(Buffer.from(max.join(','), 'utf8')), max)
+
+  const { nameplate, secret } = splitCode(generateCode())
+  const initiator = new Initiator({ nameplate, secret, caps: max })
+  const responder = new Responder({ nameplate, secret, caps: max })
+  const hello = initiator.hello()
+  assert.equal(hello.length, LENGTH_PREFIX_SIZE + HELLO_MAX_BODY)
+  const atSender = new MessageReader()
+  atSender.push(hello)
+  const answered = responder.readHello(atSender)
+  assert.ok(answered, 'a HELLO at the maximum length is read')
+  assert.equal(answered.reply.length, LENGTH_PREFIX_SIZE + REPLY_MAX_BODY)
+  const atReceiver = new MessageReader()
+  atReceiver.push(answered.reply)
+  const confirmed = initiator.readReply(atReceiver)
+  assert.ok(confirmed, 'a REPLY at the maximum length is read')
+  atSender.push(confirmed.confirm)
+  assert.ok(responder.readConfirm(atSender))
+
+  // And caps must be an array: a string is iterable, and would otherwise
+  // be read as one-letter tokens.
+  assert.throws(() => encodeCaps(/** @type {any} */ ('resume')), /caps must be an array of strings/)
+})
+
+test('a confirmation matches only the same 32 bytes, in a Buffer', () => {
+  // The callers only ever pass exactly CONFIRM_SIZE bytes, so this is the
+  // function's own contract, pinned because its failure is the worst kind:
+  // a check that answered yes to a short or empty value would accept a
+  // confirmation the peer never computed.
+  const expected = crypto.randomBytes(CONFIRM_SIZE)
+  assert.equal(confirmationMatches(expected, Buffer.from(expected)), true)
+  for (const actual of [expected.subarray(0, CONFIRM_SIZE - 1), Buffer.alloc(0), new Uint8Array(expected), undefined, 'x'.repeat(CONFIRM_SIZE)]) {
+    assert.equal(confirmationMatches(expected, /** @type {any} */ (actual)), false)
+  }
+})
+
+test('the reader hands on every byte after the handshake, even one, and null when there are none', () => {
+  // The last handshake message and the first sealed frame can arrive in
+  // one chunk, so whatever the reader holds after the handshake is the
+  // start of the channel and is passed on as `pending`. Dropping it, even
+  // a single byte of it, desyncs the channel.
+  const reader = new MessageReader()
+  reader.push(Buffer.from('abc'))
+  reader.take(2)
+  assert.deepEqual(reader.rest(), Buffer.from('c'))
+
+  const drained = new MessageReader()
+  drained.push(Buffer.from('ab'))
+  drained.take(2)
+  assert.equal(drained.rest(), null)
 })
 
 test('a declared body length outside the permitted range is refused before buffering', () => {
