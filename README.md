@@ -33,8 +33,10 @@ rather than a custom NAT-traversal stack.
 
 **A drop works end to end, over the public DHT and across ISPs. Protocol
 v2 is implemented, and a security review of it has been worked through
-(W15). The wire format is frozen as v2 (W17), and 0.1.0 is published on
-npm as `@ad-hal/cli`.**
+(W15). The wire format is frozen as v2 (W17). The command-line tools are
+published on npm as `@ad-hal/cli`, and the engine they are built on as
+`@ad-hal/engine`, for other programs to use. What each version changed is
+in the [release notes](https://github.com/khartig/adhal/releases).**
 
 What a drop does today:
 
