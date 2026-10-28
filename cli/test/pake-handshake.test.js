@@ -59,6 +59,7 @@ const {
   KNOWN_CAPS,
   CONFIRM_SIZE,
   SID_SIZE,
+  VERSION,
   MAX_CAPS_BYTES,
   ERR_CONFIRMATION,
   LENGTH_PREFIX_SIZE,
@@ -445,6 +446,53 @@ test('each half of the handshake refuses to run twice, or out of order', () => {
   atSender.push(new Initiator({ nameplate, secret }).hello())
   assert.ok(responder.readHello(atSender))
   assert.throws(() => responder.readHello(new MessageReader()), { code: 'ERR_PROTOCOL', message: /HELLO has already been read on this connection/ })
+})
+
+test('a handshake that fails is over: neither half runs again on the same object', () => {
+  // Q-22. By the time a step fails, its half has wiped the secret material
+  // it used, so a retry on the same object computed with zeros: a REPLY
+  // forged without the code was accepted, a HELLO under an all-zero
+  // password was answered with keys the forger shared. One object is one
+  // attempt, however it ends.
+  const { nameplate, secret } = splitCode(generateCode())
+
+  // The initiator, after a REPLY that fails its confirmation.
+  const initiator = new Initiator({ nameplate, secret })
+  const impostor = new Responder({ nameplate, secret: splitCode(generateCode()).secret })
+  const atImpostor = new MessageReader()
+  atImpostor.push(initiator.hello())
+  const atReceiver = new MessageReader()
+  atReceiver.push(/** @type {any} */ (impostor.readHello(atImpostor)).reply)
+  assert.throws(() => initiator.readReply(atReceiver), { code: ERR_CONFIRMATION })
+  assert.throws(() => initiator.readReply(new MessageReader()), { code: 'ERR_PROTOCOL', message: /the handshake has already failed/ })
+
+  // The responder, after a CONFIRM that fails, and then 32 zero bytes:
+  // what its confirmation was wiped to.
+  const responder = new Responder({ nameplate, secret })
+  const atSender = new MessageReader()
+  atSender.push(new Initiator({ nameplate, secret }).hello())
+  assert.ok(responder.readHello(atSender))
+  atSender.push(Buffer.alloc(CONFIRM_SIZE, 7))
+  assert.throws(() => responder.readConfirm(atSender), { code: ERR_CONFIRMATION })
+  atSender.push(Buffer.alloc(CONFIRM_SIZE))
+  assert.throws(() => responder.readConfirm(atSender), { code: 'ERR_PROTOCOL', message: /the handshake has already failed/ })
+
+  // The responder, after a HELLO whose point is low-order: its password
+  // was wiped on that abort too, so a second HELLO must not be answered.
+  const struck = new Responder({ nameplate, secret })
+  const body = Buffer.concat([Buffer.from([VERSION]), crypto.randomBytes(SID_SIZE), Buffer.alloc(ELEMENT_SIZE)])
+  const framed = Buffer.concat([Buffer.alloc(LENGTH_PREFIX_SIZE), body])
+  framed.writeUInt16BE(body.length, 0)
+  const atStruck = new MessageReader()
+  atStruck.push(framed)
+  assert.throws(() => struck.readHello(atStruck), { code: 'ERR_CPACE_NEUTRAL' })
+  const again = new MessageReader()
+  again.push(new Initiator({ nameplate, secret }).hello())
+  assert.throws(() => struck.readHello(again), { code: 'ERR_PROTOCOL', message: /the handshake has already failed/ })
+
+  // And one that succeeds is over as well: CONFIRM is read once.
+  const { responder: finished } = exchange()
+  assert.throws(() => finished.readConfirm(new MessageReader()), { code: 'ERR_PROTOCOL', message: /the handshake has already completed/ })
 })
 
 test('a caps field of exactly the cap is accepted, ours and a peer\'s, at the largest HELLO and REPLY', () => {

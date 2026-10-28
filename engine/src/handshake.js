@@ -466,6 +466,33 @@ function wipe (...buffers) {
   for (const b of buffers) if (b) b.fill(0)
 }
 
+/**
+ * Runs one step of a handshake, and ends the handshake if the step throws.
+ *
+ * ONE OBJECT, ONE ATTEMPT. Each step wipes the secret material it used on
+ * the way out, whether it succeeded or failed: the initiator its scalar,
+ * the responder its password and, after CONFIRM, its confirmation. A step
+ * run again after a failure would compute with those zeros, and anyone
+ * can do that: a second readReply accepted a REPLY forged without the
+ * code, a second readHello answered under an all-zero password, and a
+ * second readConfirm accepted 32 zero bytes (Q-22). The connection code
+ * never retries on the same object, but the classes are exported, so the
+ * object enforces it itself.
+ *
+ * @template T
+ * @param {{ _ended: null | 'completed' | 'failed' }} handshake
+ * @param {() => T} step
+ * @returns {T}
+ */
+function endsOnFailure (handshake, step) {
+  try {
+    return step()
+  } catch (err) {
+    handshake._ended = 'failed'
+    throw err
+  }
+}
+
 class Initiator {
   /**
    * @param {{ secret: string, nameplate: string, caps?: string[] }} options
@@ -488,7 +515,9 @@ class Initiator {
       wipe(prs, g)
     }
     this._adA = associatedData(this._caps)
-    this._done = false
+    // How the handshake ended, once it has. See endsOnFailure.
+    /** @type {null | 'completed' | 'failed'} */
+    this._ended = null
   }
 
   /** @returns {Buffer} the sid, so ./swarm.js can report it (see section 3.2) */
@@ -517,7 +546,12 @@ class Initiator {
    *   null if REPLY has not fully arrived yet.
    */
   readReply (reader) {
-    if (this._done) throw handshakeError('the handshake has already completed')
+    if (this._ended) throw handshakeError(`the handshake has already ${this._ended}`)
+    return endsOnFailure(this, () => this._readReply(reader))
+  }
+
+  /** @param {InstanceType<(typeof import('./reader'))['MessageReader']>} reader */
+  _readReply (reader) {
     const body = takeLengthPrefixed(reader, REPLY_FIXED, REPLY_MAX_BODY, 'REPLY')
     if (!body) return null
 
@@ -548,7 +582,7 @@ class Initiator {
         throw handshakeError(CONFIRMATION_FAILED, ERR_CONFIRMATION)
       }
 
-      this._done = true
+      this._ended = 'completed'
       return {
         confirm: derived.confirmR,
         // The receiver sends under k_r2s and receives under k_s2r.
@@ -581,6 +615,9 @@ class Responder {
     this._capsTokens = parseCaps(this._caps)
     /** @type {null | { sid: Buffer, derived: any, theirTokens: string[] }} */
     this._pending = null
+    // How the handshake ended, once it has. See endsOnFailure.
+    /** @type {null | 'completed' | 'failed'} */
+    this._ended = null
   }
 
   /**
@@ -591,7 +628,13 @@ class Responder {
    *   null if HELLO has not fully arrived yet.
    */
   readHello (reader) {
+    if (this._ended) throw handshakeError(`the handshake has already ${this._ended}`)
     if (this._pending) throw handshakeError('HELLO has already been read on this connection')
+    return endsOnFailure(this, () => this._readHello(reader))
+  }
+
+  /** @param {InstanceType<(typeof import('./reader'))['MessageReader']>} reader */
+  _readHello (reader) {
     const body = takeLengthPrefixed(reader, HELLO_FIXED, HELLO_MAX_BODY, 'HELLO')
     if (!body) return null
 
@@ -648,7 +691,15 @@ class Responder {
    *   null if CONFIRM has not fully arrived yet.
    */
   readConfirm (reader) {
+    if (this._ended) throw handshakeError(`the handshake has already ${this._ended}`)
+    // A caller's mistake, not the peer's, so it ends nothing: thrown
+    // before endsOnFailure, a HELLO can still be read after it.
     if (!this._pending) throw handshakeError('CONFIRM arrived before HELLO')
+    return endsOnFailure(this, () => this._readConfirm(reader))
+  }
+
+  /** @param {InstanceType<(typeof import('./reader'))['MessageReader']>} reader */
+  _readConfirm (reader) {
     const theirConfirm = reader.take(CONFIRM_SIZE)
     if (!theirConfirm) return null
 
@@ -661,6 +712,7 @@ class Responder {
       throw handshakeError(CONFIRMATION_FAILED, ERR_CONFIRMATION)
     }
     wipe(derived.confirmR)
+    this._ended = 'completed'
 
     return {
       // The sender sends under k_s2r and receives under k_r2s -- the
