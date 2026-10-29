@@ -826,3 +826,47 @@ killed all 82 of its mutants.
   runs them. Whatever failed, it fails less often than about 1 run in
   20, and its output was not kept. The runner keeps a phase's output only
   when the phase is killed for memory or time.
+
+## Stage 2 — W13: the pipe and scripting contract
+
+**Planned.** A receive that writes to stdout, and a stable `--json`
+event stream on both CLIs, built on the error codes (PROTOCOL §10). The
+contract was drafted first, as [`CLI-CONTRACT.md`](../CLI-CONTRACT.md),
+and its four open decisions settled before any code, 2026-10-28: stream
+rather than spool, events on stdout unless `--stdout` takes it, `--json`
+never asks, and `ERR_OUTPUT_CLOSED` exits 1.
+
+**What was built.**
+- **`ad-hal-receive --stdout`.** The bytes reach stdout as they arrive,
+  so exit 0 is the only proof they were verified; every other line moves
+  to stderr. The receiver leaves `resume` out of the capabilities it
+  advertises, so no wire change was needed. It refuses to write to a
+  terminal, and a reader that closes the pipe stops the transfer with
+  CANCEL to the sender.
+- **`--json` on both CLIs.** Thirteen events, one JSON object per line,
+  each with `v`, `event`, `ms`, and `role`, and exactly one `done` or
+  `failed` as the last line. Three CLI-level codes: `ERR_USAGE`,
+  `ERR_CODE_INVALID`, and `ERR_OUTPUT_CLOSED`.
+- **Four engine API additions, none on the wire:** `receiveFile`'s
+  `sink`, `caps` on `acceptOnce`, `onAccepted` on the sender, and
+  `counted` as `onCandidateDropped`'s fourth argument.
+
+**Tests.** `cli/test/sink.test.js` (7, fast) and
+`cli/test/json-events.test.js` (5 fast, 6 on a local testnet). Three of
+the sink tests were checked by planting the bug each is for: dropping
+`caps` in `acceptOnce`, the CANCEL on a sink error, and `onAccepted`.
+Each failed with its plant and passed without it. The CANCEL plant
+failed by the 120 s test timeout, not an assertion, because a sender
+told nothing waits.
+
+**Found along the way.** The conformance harness's planted bug for
+RESULT's digest matches its source text exactly once, and the first
+version of the sink path copied that text, so the harness refused to run.
+Both paths now confirm through one `confirm` in `finalize`, which is the
+better shape anyway: one confirmation to get right. `pnpm test`
+afterward: 615 of 616 CLI tests passed with one platform skip, and 92 of
+92 conformance tests.
+
+**Not done.** No real two-machine drop on the public DHT. Nothing on the
+transport changed, which is what the verification standard's fifth line
+asks it for, but `--stdout` has been run only on a local testnet.

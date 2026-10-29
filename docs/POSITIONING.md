@@ -60,8 +60,9 @@ and none of the tools below headlines that.
 **4. Streaming and scripting.** A blob-addressed design has to hash a file
 before it can address it, so it cannot send a stream of unknown length.
 A framed stream with a trailing digest can:
-`tar c dir | ad-hal-send <code> -` works today. A receive that writes to
-stdout and stable `--json` events built on the error codes are W13. That
+`tar c dir | ad-hal-send <code> -` works, and so does
+`ad-hal-receive --stdout | tar x`, with stable `--json` events built on
+the error codes ([`CLI-CONTRACT.md`](CLI-CONTRACT.md); W13). That
 serves developers, CI, headless servers, and machines without SSH, which
 GUI-first tools ignore, and it lands naturally on macOS and Linux first.
 

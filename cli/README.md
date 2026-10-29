@@ -35,6 +35,21 @@ The receiver is shown the file's name, size, and SHA-256, and is asked
 before anything is written. `--help` on either command lists every flag.
 `ad-hal-code` prints a fresh drop code and its QR symbol.
 
+For pipes and scripts:
+
+```bash
+# stream a directory across, and unpack it on arrival
+tar c ./project | ad-hal-send <code> - --name=project.tar --code-on-argv
+set -o pipefail; ad-hal-receive --stdout --yes | tar x
+
+# one JSON event per line, for a program to read
+ad-hal-receive --json --yes ~/Downloads
+```
+
+With `--stdout`, the bytes are verified only if `ad-hal-receive` exits 0,
+so check it. What each exit status and event means is in
+[`docs/CLI-CONTRACT.md`](https://github.com/khartig/adhal/blob/main/docs/CLI-CONTRACT.md).
+
 ## Before you use it
 
 - **The code is a bearer capability.** Whoever holds it can complete the

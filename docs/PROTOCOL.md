@@ -554,7 +554,7 @@ with a different source, sharing one state machine.)
   digest matches. A receiver that wrote the stream to stdout, for
   `… | tar x`, could not keep that property, because its consumer would
   see bytes before the digest arrived. That output contract is W13's, and
-  not specified here.
+  not specified here: see [`CLI-CONTRACT.md`](CLI-CONTRACT.md) §2.
 
 ### 4.4 The state machine (W15d)
 

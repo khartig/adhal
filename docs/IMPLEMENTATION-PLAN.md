@@ -45,8 +45,9 @@ identity, per-drop keys, nothing linking two drops
 ([`THREAT-MODEL.md`](THREAT-MODEL.md) §4). Enforced in code since W15b. It
 cannot be retrofitted once linkage exists in records other people hold.
 
-**4. Streaming and scripting.** `tar c dir | ad-hal-send <code> -` works
-today; a receive that writes to stdout and stable `--json` events are W13.
+**4. Streaming and scripting.** `tar c dir | ad-hal-send <code> -` and
+`ad-hal-receive --stdout | tar x` both work, and `--json` reports a drop
+as a stable event stream ([`CLI-CONTRACT.md`](CLI-CONTRACT.md); W13).
 It serves developers, CI, and headless machines, and it lands naturally on
 macOS and Linux first (§3).
 
@@ -103,6 +104,7 @@ project's story.
 | | **W17**: the freeze gate | Every line checked by running it, the last 40 drops between macOS and Linux on the public DHT at `8bc808a`, all confirmed on both sides; the Q-01 nonce test's fsync race found on Linux and fixed; PROTOCOL.md tagged `v2-final`, 2026-10-15 | `5c5029e`, `8bc808a` |
 | | **Q-08**: supply chain | Advisories fail CI through `pnpm audit` and OSV-Scanner, under [`DEPENDENCY-POLICY.md`](DEPENDENCY-POLICY.md); a CycloneDX SBOM per package on each GitHub Release, from v0.1.0; from 0.1.1, publishing by `release.yml` through npm trusted publishing with a required reviewer, so npm provenance, plus tarballs, `SHA256SUMS`, and a Sigstore-signed attestation on the release. 0.1.1 published 2026-10-22 | `609f814`, `e5961d1`, `f50ebbb`, `eefc4c8` |
 | Stage 2 | **W12**: the conformance material | The vectors moved out of the test files into `conformance/vectors/` as JSON; `conformance/src/wire.js`, a second implementation of the wire format, reproduces them; a harness that drives any implementation through 81 scenarios over loopback TCP, with eleven planted bugs showing each kind of check can fail; [`CONFORMANCE.md`](CONFORMANCE.md); property-based tests and a mutation runner (Q-06) | `6595d41` |
+| | **W13**: the pipe and scripting contract | `ad-hal-receive --stdout`, which streams the file and is verified only by exit 0; `--json` on both CLIs, one event per line, on the error codes; three CLI-level codes and the exit statuses, written down in [`CLI-CONTRACT.md`](CLI-CONTRACT.md). Four engine API additions, none on the wire: a receive sink, `caps` on `acceptOnce`, `onAccepted`, and `counted` on `onCandidateDropped`. 2026-10-28 | |
 | | **W12, the rest**: the first full mutation run | 751 mutants over the nine engine modules that enforce the protocol; every one of the 174 survivors triaged ([`history/W12-MUTATION-TRIAGE.md`](history/W12-MUTATION-TRIAGE.md)), 111 of them gaps, and a test for each, so 92.5% killed, from 76.8%; the runner bounded in memory and journaled after three runs hung the machine; Q-06 closed, and Q-22 found and fixed (a handshake object ends at its first failure), 2026-10-27 | |
 
 The security review's 21 findings and their status are in
@@ -138,9 +140,6 @@ has all 21).
 
 ## 7. Stage 2 — prove and publish the thesis
 
-- **W13 — Streaming/pipe contract + `--json` events** (#4), built on the
-  existing error codes: a receive that writes to stdout, and a stable,
-  documented event stream.
 - **W14 — Head-to-head reliability** against other peer-to-peer
   file-transfer tools, on identical network pairs, including
   **CGNAT↔CGNAT** and symmetric NAT. Reuse `scratch-trials.js`. **This

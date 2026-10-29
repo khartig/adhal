@@ -75,9 +75,10 @@ What to know before using it:
   required CI leg. Some of the filesystem defenses fall back to weaker,
   racy checks there (Q-07).
 
-Not built yet: LAN discovery, the optional relay, and a receive that
-writes to stdout with stable `--json` events (W13). See the
-[roadmap](docs/IMPLEMENTATION-PLAN.md).
+Not built yet: LAN discovery and the optional relay. See the
+[roadmap](docs/IMPLEMENTATION-PLAN.md). For scripts, `ad-hal-receive
+--stdout` writes the file to stdout, and `--json` reports a drop as one
+JSON event per line: [`docs/CLI-CONTRACT.md`](docs/CLI-CONTRACT.md).
 
 Reliability is measured, not assumed. `engine/scratch-trials.js` runs
 repeated real drops and classifies every failure. On Starlink CGNAT to
