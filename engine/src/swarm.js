@@ -444,11 +444,12 @@ function watchForAnswer (socket, ms, onDead) {
  *   refreshInterval?: number,
  *   handshakeTimeout?: number,
  *   unansweredTimeout?: number,
+ *   caps?: string[],
  *   signal?: AbortSignal,
  *   onAnnounced?: () => void,
  *   onCandidate?: (peerInfo: any) => void,
  *   attemptCap?: InstanceType<typeof AttemptCap>,
- *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void,
+ *   onCandidateDropped?: (peerInfo: any, reason: string, code: string | undefined, counted: boolean) => void,
  *   onDropTaken?: (peerInfo: any) => void
  * }} options not optional, because `secret` and `nameplate` are not
  *   `attemptCap` counts failed confirmations for THIS drop (section 6);
@@ -458,6 +459,10 @@ function watchForAnswer (socket, ms, onDead) {
  *   `secret` and `nameplate` are the two halves of the drop code -- see
  *   splitCode in ./code.js and resolveCode in ./resolve-code.js. The
  *   secret is the PAKE password and must be the canonical form.
+ *   `caps` is the capability set this receiver advertises in HELLO, all
+ *   it knows by default. A receiver writing to a sink leaves out
+ *   `resume`, having no partial to resume from; what both sides act on is
+ *   still the intersection, from the transcript.
  *   `onDropTaken` hears each late candidate that proved the secret and
  *   was told the drop is taken (see declineLate); after pairing, a late
  *   candidate that fails is reported through `onCandidateDropped` only if
@@ -472,7 +477,7 @@ function watchForAnswer (socket, ms, onDead) {
  *   receiveFile, which seals every frame under them. `stopAnswering`
  *   stops telling late candidates the drop is taken.
  */
-function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, unansweredTimeout = UNANSWERED_CONNECTION_MS, attemptCap = new AttemptCap(), signal, onAnnounced, onCandidate, onCandidateDropped, onDropTaken }) {
+function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, unansweredTimeout = UNANSWERED_CONNECTION_MS, attemptCap = new AttemptCap(), caps, signal, onAnnounced, onCandidate, onCandidateDropped, onDropTaken }) {
   // Validated up front rather than per connection, and required rather
   // than defaulted. A missing secret can only mean a caller that was not
   // updated for v2, and the failure mode of quietly carrying on without
@@ -550,7 +555,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       //
       // It is also why ./handshake.js offers no way to inject a scalar or
       // a sid: there is no correct caller for one.
-      const handshake = new Initiator({ secret, nameplate })
+      const handshake = new Initiator({ secret, nameplate, caps })
       const reader = new MessageReader()
       /** @type {NodeJS.Timeout | null} */
       let helloTimer = null
@@ -628,7 +633,8 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
           onCandidateDropped(
             peerInfo,
             err ? err.message : 'closed before confirming',
-            err ? err.code : undefined
+            err ? err.code : undefined,
+            counted
           )
         }
 
@@ -780,7 +786,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   attemptCap?: InstanceType<typeof AttemptCap>,
  *   signal?: AbortSignal,
  *   onCandidate?: (peerInfo: any) => void,
- *   onCandidateDropped?: (peerInfo: any, reason: string, code?: string) => void,
+ *   onCandidateDropped?: (peerInfo: any, reason: string, code: string | undefined, counted: boolean) => void,
  *   onDropTaken?: (peerInfo: any) => void
  * }} options not optional, because `secret` and `nameplate` are not
  *   `unansweredTimeout` is as for acceptOnce.
@@ -945,7 +951,8 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
           onCandidateDropped(
             peerInfo,
             err ? err.message : 'closed before confirming',
-            err ? err.code : undefined
+            err ? err.code : undefined,
+            counted
           )
         }
 

@@ -523,6 +523,7 @@ function progressReporter (onProgress, total) {
  *   receiveKey: Buffer,
  *   caps?: string[],
  *   onCheckpoint?: (c: { offset: number, total: number }) => void,
+ *   onAccepted?: (a: { resumeFrom: number }) => void,
  *   chunkSize?: number,
  *   signal?: AbortSignal,
  *   onProgress?: (p: { bytes: number, total: number }) => void,
@@ -537,6 +538,9 @@ function progressReporter (onProgress, total) {
  *   file is sent from there; without it such an ACCEPT is refused.
  *   `onCheckpoint` hears each offset the receiver reports as fsynced --
  *   delivery, where onProgress is only hand-off.
+ *   `onAccepted` hears the offer's final answer, once, just before the
+ *   first byte is sent: after a resume's PREFIX has been checked, so its
+ *   `resumeFrom` is the offset actually sent from.
  *   `chunkSize` is declared to the receiver as the manifest's `blockSize`.
  *   `pending` is any payload the readiness handshake read off the socket
  *   before handing it over -- see connectOnce in ./swarm.js.
@@ -619,6 +623,7 @@ async function sendFile (socket, filePath, options = /** @type {any} */ ({})) {
  *   sendKey: Buffer,
  *   receiveKey: Buffer,
  *   chunkSize?: number,
+ *   onAccepted?: (a: { resumeFrom: number }) => void,
  *   signal?: AbortSignal,
  *   onProgress?: (p: { bytes: number, total: number | null }) => void,
  *   pending?: Buffer | null,
@@ -661,6 +666,7 @@ async function offerAndSend (socket, {
   receiveKey,
   caps = [],
   onCheckpoint,
+  onAccepted,
   chunkSize = DEFAULT_CHUNK_SIZE,
   signal,
   onProgress,
@@ -692,7 +698,7 @@ async function offerAndSend (socket, {
     const source = await describe()
     try {
       return await offerSource(socket, channel, source, {
-        caps, onCheckpoint, chunkSize, signal, onProgress, pending, acceptTimeout, resultTimeout
+        caps, onCheckpoint, onAccepted, chunkSize, signal, onProgress, pending, acceptTimeout, resultTimeout
       }, (handler) => { onInbound = handler })
     } finally {
       // The descriptor sendFile opened, released however the transfer ended.
@@ -716,7 +722,7 @@ async function offerAndSend (socket, {
  * @returns {Promise<{ name: string, size: number, sha256: string, resumedFrom: number }>}
  */
 async function offerSource (socket, channel, source, {
-  caps, onCheckpoint, chunkSize, signal, onProgress, pending, acceptTimeout, resultTimeout
+  caps, onCheckpoint, onAccepted, chunkSize, signal, onProgress, pending, acceptTimeout, resultTimeout
 }, setInbound) {
   const { size } = source
   const streamed = size === null
@@ -897,6 +903,7 @@ async function offerSource (socket, channel, source, {
       durable = from
       clearTimer()
       phase = 'send'
+      if (onAccepted) onAccepted({ resumeFrom: from })
       startSending(from)
     }
 
@@ -1594,11 +1601,12 @@ async function checkFreeSpace (dir, size) {
 // an ACCEPT means the file is already open and ready for the first chunk.
 /**
  * @param {any} socket
- * @param {string} outputDir
+ * @param {string | null} outputDir
  * @param {{
  *   sendKey: Buffer,
  *   receiveKey: Buffer,
  *   caps?: string[],
+ *   sink?: NodeJS.WritableStream,
  *   onOffer?: (offer: { name: string, declaredName: string, size: number | null, sha256: string | null, blockSize: number, partial: number }) => boolean | string | Promise<boolean | string>,
  *   onManifest?: (manifest: any, accepted: { resumeFrom: number }) => void,
  *   pending?: Buffer | null,
@@ -1638,13 +1646,20 @@ async function checkFreeSpace (dir, size) {
  *   before handing it over -- see acceptOnce in ./swarm.js, which pauses
  *   the socket and returns leftover bytes rather than swallowing them.
  *   `replace: true` opts back in to overwriting an existing file.
+ *   `sink` takes the file's bytes in place of `outputDir`, which is then
+ *   ignored: they are written to it as they arrive, with backpressure,
+ *   and there is no `.part`, no free-space check, no resume, and nothing
+ *   published. The digest is still checked and reported in RESULT, but
+ *   the sink has seen every byte by then -- see "THE SINK" below. The
+ *   sink is never ended, since process.stdout cannot be.
  *   Timeouts are in ms; 0 disables one.
- * @returns {Promise<{ name: string, declaredName: string, size: number, sha256: string, path: string, resumedFrom: number, published: 'link' | 'check-then-rename' | 'replace' }>}
+ * @returns {Promise<{ name: string, declaredName: string, size: number, sha256: string, path: string | null, resumedFrom: number, published: 'link' | 'check-then-rename' | 'replace' | null }>}
  */
 function receiveFile (socket, outputDir, {
   sendKey,
   receiveKey,
   caps = [],
+  sink,
   onOffer,
   onManifest,
   pending,
@@ -1947,7 +1962,12 @@ function receiveFile (socket, outputDir, {
           { field: 'size' }
         )
       }
-      const safe = safeOutputName(outputDir, parsed.name, { platform })
+      // A sink has no directory to land in, but the name is still checked:
+      // it is shown to a person and handed to whoever reads the sink, and
+      // either may use it.
+      const safe = sink
+        ? { name: safeWriteName(parsed.name, { platform }), outputPath: null }
+        : safeOutputName(/** @type {string} */ (outputDir), parsed.name, { platform })
 
       manifest = parsed
       declaredName = parsed.name
@@ -1961,8 +1981,8 @@ function receiveFile (socket, outputDir, {
           size: parsed.size,
           sha256: parsed.sha256,
           blockSize: parsed.blockSize,
-          partial: caps.includes('resume') && parsed.size !== null
-            ? await partialHint(safe.outputPath, parsed.size)
+          partial: !sink && caps.includes('resume') && parsed.size !== null
+            ? await partialHint(/** @type {string} */ (safe.outputPath), parsed.size)
             : 0
         })
         if (settled) return
@@ -1984,6 +2004,12 @@ function receiveFile (socket, outputDir, {
     // resume if there is one we can trust to be ours, otherwise a fresh
     // one, exclusively.
     async function beginFile (parsed, safe) {
+      if (sink) {
+        progress = progressReporter(onProgress, parsed.size)
+        hash = crypto.createHash('sha256')
+        attachWriteStream(/** @type {any} */ (sink))
+        return
+      }
       resumable = caps.includes('resume') && parsed.size !== null
       const prior = resumable ? await reopenPartial(safe.outputPath, parsed.size) : null
       // A stream declares nothing to check. Its bytes are capped by
@@ -2021,7 +2047,27 @@ function receiveFile (socket, outputDir, {
       writeStream = stream
       received = resumeFrom
       durable = resumeFrom
-      writeStream.on('error', (err) => fail(err))
+      // THE SINK'S ERRORS ARE TOLD TO THE SENDER. A file's write error
+      // ends the transfer with a close, as it always has. A sink's is
+      // usually its reader going away -- `| head` exiting -- and the
+      // sender is owed the reason, as with a stream past the limit.
+      writeStream.on('error', (/** @type {any} */ err) => {
+        if (!sink || settled) return fail(err)
+        // How far it got, as every TransferError says: what the reader
+        // had been handed when its end went away.
+        err.bytes = received
+        const reason = err.code === 'EPIPE'
+          ? "the receiver's output was closed"
+          : "the receiver could not write its output"
+        /** @type {Buffer | null} */
+        let notice = null
+        try {
+          notice = channel.seal(TYPE_CANCEL, cancelBody(reason))
+        } catch {
+          // The counter-exhaustion assertion; see decline.
+        }
+        fail(err, notice)
+      })
       writeStream.on('drain', onWriteDrain)
       progress.emit(received)
     }
@@ -2270,6 +2316,9 @@ function receiveFile (socket, outputDir, {
       // Unconditional: this is the comparison the data path always
       // specified and nothing in the shipping code ever performed.
       if (digest !== expected) {
+        // THE SINK. Its reader already has every byte, and nothing here
+        // can take them back; what is left is to say so, on both sides.
+        // The CLI's only success signal for a sink is its exit status.
         // A prefix that was not ours no longer reaches here: the sender's
         // PREFIX caught it before a byte was sent (section 7.5). What is
         // left is a remainder that did not match -- a file that changed
@@ -2286,25 +2335,45 @@ function receiveFile (socket, outputDir, {
         return
       }
 
+      // RESULT{ok}, and then the caller's answer. One place for both a
+      // published file and a sink, so there is one confirmation to get
+      // right (and one for conformance/test/planted.test.js to break).
+      /**
+       * @param {string | null} finalPath
+       * @param {'link' | 'check-then-rename' | 'replace' | null} published
+       */
+      const confirm = (finalPath, published) => {
+        progress.final()
+        writeFlushed(socket, channel.seal(TYPE_RESULT, resultBody({ ok: true, sha256: digest }))).then(() => resolve({
+          name: finalPath === null ? name : path.basename(finalPath),
+          declaredName,
+          size: received,
+          sha256: digest,
+          path: finalPath,
+          resumedFrom: resumeFrom,
+          published
+        }))
+      }
+
+      if (sink) {
+        // Flushed, not ended: a write's callback runs once it and every
+        // write before it have gone, so RESULT{ok} never confirms bytes
+        // still sitting in the sink's buffer.
+        sink.write(Buffer.alloc(0), (/** @type {any} */ err) => {
+          if (err) refuse(err)
+          else confirm(null, null)
+        })
+        return
+      }
+
       writeStream.end(() => {
         // Link-then-unlink rather than rename, so a file we did not
         // create is never destroyed. See `publish`.
         publish(partPath, outputPath, { replace }).then(
-          ({ path: finalPath, method: published }) => {
-            progress.final()
-            // After the publish, not after the digest: {ok} tells the
-            // sender the file is on disk under its name, and a publish
-            // that fails must not have been confirmed first.
-            writeFlushed(socket, channel.seal(TYPE_RESULT, resultBody({ ok: true, sha256: digest }))).then(() => resolve({
-              name: path.basename(finalPath),
-              declaredName,
-              size: received,
-              sha256: digest,
-              path: finalPath,
-              resumedFrom: resumeFrom,
-              published
-            }))
-          },
+          // After the publish, not after the digest: {ok} tells the
+          // sender the file is on disk under its name, and a publish
+          // that fails must not have been confirmed first.
+          ({ path: finalPath, method: published }) => confirm(finalPath, published),
           (err) => discardPartial().then(() => refuse(err), () => refuse(err))
         )
       })
