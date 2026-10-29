@@ -133,7 +133,7 @@ has all 21).
 | Q-04 layered throttling (per-source, per-key budgets) | After W14 | A Sybil attacker rotates both identifiers. W15c makes the attack visible, and W14's data shows whether it happens. |
 | Q-05 independent cryptographic review | After W17 | Reviewing a moving spec wastes the review. |
 | Q-07 Windows as a required CI leg | Stage 3 | Documented as unsupported for security purposes until then (W16). |
-| Q-09 length padding, re-announce back-off | Post-freeze | Neither changes the wire. Padding only if file-size confidentiality ever becomes a stated goal. |
+| Q-09 length padding, re-announce back-off | Padding: only if file-size confidentiality becomes a stated goal. Back-off: after W14 | Padding is a protocol change, a negotiated capability and a new message type, since v2 has nowhere to carry it. Back-off changes nothing on the wire, but it matters only for a join timeout the user lengthens, and the 4 s refresh was set by measurement. |
 | Q-10 relay invariants | Before any relay code | Written into THREAT-MODEL §8 as merge gates (W16); enforced when a relay exists. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
 
 ---

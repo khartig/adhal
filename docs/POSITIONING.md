@@ -352,7 +352,7 @@ them is a transfer between two people who share nothing beforehand.
 
 ## 4. Comparison testing (W14, planned)
 
-Not done yet. This is the method, so that when it is run the result can
+Not done yet. This is the method so that when it is run the result can
 be trusted, and it is where the results will go.
 
 **The experiment.** The same file, sent by each tool on identical network

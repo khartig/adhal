@@ -98,14 +98,22 @@ cover traffic. See §7.
 
 Both sides re-run their own DHT announce/lookup every 4 s by default
 (`ADHAL_REFRESH_INTERVAL`), because Hyperswarm's own 10-minute refresh loses
-a race that measurably killed transfers. The cost is that an idle receiver
-showing a QR code emits a DHT record roughly every 4 seconds for as long
-as it waits — a louder, longer-lived signature than one announce, and more
-opportunities for a node near the topic to observe it. A receiver left open
-for an hour has announced ~900 times.
+a race that measurably killed transfers. The cost is that a waiting
+receiver emits a DHT record roughly every 4 seconds for as long as it
+waits — a louder signature than one announce, and more opportunities for
+a node near the topic to observe it.
 
-Worth revisiting when the drop code becomes short-lived; not worth changing
-on speculation, because the 4 s value was arrived at by measurement.
+How long that is, is bounded by the join timeout. By default a receiver
+gives up after 30 s with no peer, about 8 announces, and a sender after
+120 s, about 30 (`ADHAL_JOIN_TIMEOUT`; `joinTimeout()` in each swarm CLI).
+Only a wait the user lengthens is long: with `ADHAL_JOIN_TIMEOUT=0`, which
+waits indefinitely, a receiver left open for an hour announces about 900
+times.
+
+A back-off for such long waits would change nothing on the wire. It is
+not worth doing on speculation, because the 4 s value was arrived at by
+measurement: any back-off has to be measured as not costing reliability,
+which is W14's kind of run.
 
 ---
 
@@ -416,8 +424,12 @@ it stays open.
   [`PROTOCOL.md`](PROTOCOL.md) §12. The review that produced W15 was
   AI-assisted ([`SECURITY-REVIEW.md`](SECURITY-REVIEW.md)).
 - **No traffic-analysis resistance** (Q-09). There is no padding (§3.3,
-  §7). That is post-freeze, and only if file-size confidentiality ever
-  becomes a stated goal.
+  §7), and only if file-size confidentiality ever becomes a stated goal.
+  It would be a protocol change: v2 has nowhere to carry padding, since
+  every CHUNK byte counts toward the size and the digest, the manifest's
+  fields are closed, and an unknown frame type is refused in every state
+  ([`PROTOCOL.md`](PROTOCOL.md) §4.4). It would need a negotiated
+  capability and a new message type.
 - **No per-source or per-key throttling** (Q-04). A Sybil attacker rotating
   identities meets only the drop-wide cap (§5.4). Deferred until W14 shows
   whether the attack happens.
@@ -445,4 +457,5 @@ it stays open.
   drops such a connection after 5 s, but a pairing can still take tens of
   seconds (W15d; `UNANSWERED_CONNECTION_MS` in `engine/src/swarm.js`).
   This is availability, not security, and the fix belongs upstream.
-- **An idle receiver re-announces every 4 s** (§3.4).
+- **A waiting peer re-announces every 4 s**, for at most 30 s on the
+  receiver and 120 s on the sender by default (§3.4).

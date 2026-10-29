@@ -53,7 +53,7 @@ that the review did not are `RR-n`, and they are numbered only here.
 | Check | Status | Evidence, and what remains |
 |---|---|---|
 | The relay never holds plaintext or key material | n/a | There is no relay. Security does not depend on the transport: the plain-TCP case in `sealed-transfer.test.js` runs the protocol with no Noise underneath. A relay merges only through the six gates in [`THREAT-MODEL.md`](THREAT-MODEL.md) §8 (Q-10). |
-| Metadata the transport leaks | Accepted | Both IPs are visible to the peer and to DHT nodes near the topic. Size and timing are visible on the path, and an idle receiver re-announces every 4 s. Both CLIs say Adhal is not anonymous. There is no padding (Q-09, post-freeze). See THREAT-MODEL §3. |
+| Metadata the transport leaks | Accepted | Both IPs are visible to the peer and to DHT nodes near the topic. Size and timing are visible on the path, and a waiting peer re-announces every 4 s, for at most 30 s on the receiver by default. Both CLIs say Adhal is not anonymous. There is no padding (Q-09), and adding it would be a protocol change. See THREAT-MODEL §3. |
 | A hostile path forces a fallback to an unsafe mode | Covered | There is no weaker mode to fall back to. A downgrade aborts the handshake. An opaque code needs `--insecure-opaque-code` (Q-15). A v1 peer gets a version-skew error, not a v1 session (`handshake.js`). Stalling or dropping is a denial of service, bounded by the stall timers (PROTOCOL §4.4), and it is not claimed against (§12.3.6). |
 
 ## 4. NAT traversal
@@ -216,7 +216,7 @@ Ordered by how expensive each gets to fix later.
   homoglyphs are not refused. These are display spoofs, not traversal:
   `safeOutputName` still keeps the write inside the output directory.
 - [ ] **Q-04** per-source and per-key throttling, after W14.
-- [ ] **Q-09** length padding and re-announce back-off, post-freeze.
+- [ ] **Q-09** length padding (a protocol change, only if file-size confidentiality becomes a goal) and re-announce back-off (after W14).
 - [ ] **Q-07** Windows as a required CI leg, Stage 3.
 - [ ] **Fuzzing the native layer** (`sodium-native`, `udx-native`). It is
   upstream's code, and probably upstream's job. Ask before assuming.
