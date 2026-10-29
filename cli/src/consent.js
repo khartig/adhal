@@ -15,7 +15,9 @@
 //   - a terminal on stdin: show the offer and ask, defaulting to no.
 //   - neither: decline, and say how to accept unattended. Hanging on a
 //     prompt nobody can see, or silently accepting, are the two failures
-//     this replaces.
+//     this replaces. `ask: false` is "neither" on purpose, for --json,
+//     which never asks (docs/CLI-CONTRACT.md section 3): the event stream
+//     is for a program, and a question beside it is for nobody.
 //
 // A risky name is warned about in every case, `--yes` included: the flag
 // says "take whatever arrives", not "and don't tell me what it was".
@@ -120,6 +122,7 @@ function describeOffer (offer) {
  * @param {{
  *   yes: boolean,
  *   label: string,
+ *   ask?: boolean,
  *   log?: (line: string) => void,
  *   input?: NodeJS.ReadableStream & { isTTY?: boolean },
  *   output?: NodeJS.WritableStream,
@@ -138,6 +141,7 @@ function describeOffer (offer) {
 function createConsent ({
   yes,
   label,
+  ask = true,
   log = console.log,
   input = process.stdin,
   output = process.stderr,
@@ -179,7 +183,7 @@ function createConsent ({
     for (const line of describeOffer(offer)) say(line)
     if (risk) say(`WARNING: ${risk}`)
 
-    if (!input.isTTY) {
+    if (!ask || !input.isTTY) {
       say('no terminal to ask on, so the offer is declined. Pass --yes to accept offers without being asked.')
       // What the sender reads. It says why without saying anything about
       // this machine.

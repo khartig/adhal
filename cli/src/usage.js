@@ -22,12 +22,19 @@ const USAGE = {
 Usage: ad-hal-receive [--new] [outputDir]      generate a code and show it (the default)
        ad-hal-receive - [outputDir]            read a code from stdin, or type it at the prompt
        ad-hal-receive <code> [outputDir] --code-on-argv
+       ad-hal-receive [-] --stdout | tar x     write the file to stdout instead
 
 With one argument and no --new, the argument is the code, not the directory.
 
 Options:
   --yes                   accept the offer without being asked. A risky file
                           name is still warned about.
+  --stdout                write the file to stdout, and everything else to
+                          stderr. The bytes are verified only if this exits 0:
+                          check it (set -o pipefail). No resume.
+  --json                  report the drop as JSON lines, on stdout, or on
+                          stderr with --stdout. Never asks: without --yes, the
+                          offer is declined. See docs/CLI-CONTRACT.md.
   --replace               overwrite an existing file of the same name
   --code-stdin            the same as passing - as the code
   --code-on-argv          allow a code as an argument. It is then in your shell
@@ -56,6 +63,8 @@ Options:
   --code-on-argv          allow a code as an argument. It is then in your shell
                           history and visible to \`ps\` for as long as the drop runs.
   --name=<name>           what a stream is offered as (default "stdin")
+  --json                  report the drop as JSON lines on stdout, in place of
+                          these lines. See docs/CLI-CONTRACT.md.
   --insecure-opaque-code  accept a code that is not drop-code words. This
                           removes the protection the code's secret half gives.
   --verbose               also print the DHT topic

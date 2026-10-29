@@ -35,7 +35,9 @@ const CONFIRMATION_THRESHOLD = 3
 const SILENT_THRESHOLD = 5
 
 /**
- * @param {{ label: string, log?: (line: string) => void, maxAttempts?: number }} options
+ * @param {{ label: string, log?: (line: string, details: { failed: number, silent: number, keys: number, message: string }) => void, maxAttempts?: number }} options
+ *   `log` gets the line, and the counts behind it for the --json
+ *   `warning` event, with `message` the line without its label.
  * @returns {{ dropped: (peerInfo: any, reason: string, code?: string) => void, paired: () => void }}
  */
 function createContentionMonitor ({ label, log = console.log, maxAttempts = MAX_ATTEMPTS }) {
@@ -46,6 +48,9 @@ function createContentionMonitor ({ label, log = console.log, maxAttempts = MAX_
   let nextSilentWarning = SILENT_THRESHOLD
   /** @type {Set<string>} */
   const keys = new Set()
+
+  /** @param {string} message */
+  const report = (message) => log(`[${label}] ${message}`, { failed, silent, keys: keys.size, message })
 
   /**
    * Feed it everything onCandidateDropped hears.
@@ -61,18 +66,18 @@ function createContentionMonitor ({ label, log = console.log, maxAttempts = MAX_
       if (failed < nextFailedWarning) return
       nextFailedWarning *= 2
       const limit = `${failed} of the ${maxAttempts} failures this drop allows before it ends`
-      log(keys.size > 1
-        ? `[${label}] WARNING: ${failed} peers, from ${keys.size} different keys, found this drop and could not prove its code, and none has succeeded. ` +
+      report(keys.size > 1
+        ? `WARNING: ${failed} peers, from ${keys.size} different keys, found this drop and could not prove its code, and none has succeeded. ` +
           'Either another drop is using the same first two words (a code collision), or someone is guessing. ' +
           `That is ${limit}. If your sender is not reporting a wrong code, cancel and use a new one.`
-        : `[${label}] WARNING: one peer has failed to prove the code ${failed} times. Most likely the sender has mistyped it: ` +
+        : `WARNING: one peer has failed to prove the code ${failed} times. Most likely the sender has mistyped it: ` +
           `check the code on both sides. That is ${limit}.`)
       return
     }
     silent++
     if (silent < nextSilentWarning) return
     nextSilentWarning *= 2
-    log(`[${label}] note: ${silent} candidates connected and went silent before finishing the handshake. ` +
+    report(`note: ${silent} candidates connected and went silent before finishing the handshake. ` +
       'That is usually the network (stale DHT records, or hole punches that failed), not an attack, and it does not count toward the attempt limit.')
   }
 

@@ -17,6 +17,9 @@
 // engine/src/resolve-code.js for how that is distinguished from an opaque secret.
 //
 // See swarm-receive.js for the ADHAL_BOOTSTRAP override.
+//
+// --json replaces the human lines with the event stream in ./events.js, on
+// stdout: docs/CLI-CONTRACT.md section 3.
 
 const { createSwarm, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@ad-hal/engine')
 
@@ -25,6 +28,7 @@ const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
 const { parseBootstrap } = require('./env')
+const { createEventStream, peerId, version } = require('./events')
 const { usage, NOT_ANONYMOUS } = require('./usage')
 
 
@@ -73,8 +77,25 @@ async function main () {
     console.log(usage('swarm-send'))
     return
   }
+
+  // The human lines, or nothing: with --json the events are the output.
+  const events = argv.includes('--json') ? createEventStream({ role: 'send' }) : null
+  const say = events ? () => {} : (/** @type {string} */ line) => { process.stdout.write(`${line}\n`) }
+  const sayError = events ? () => {} : (/** @type {string} */ line) => { process.stderr.write(`${line}\n`) }
+  /**
+   * A failure before the drop began; see swarm-receive.js.
+   * @param {string} code
+   * @param {string} message
+   */
+  const refuse = (code, message) => {
+    if (events) events.failed({ code }, message)
+    else sayError(`[swarm-send] ${message}`)
+    process.exitCode = 1
+  }
+
   if (!codeArg || !filePathArg) {
-    console.error(usage('swarm-send'))
+    if (events) refuse('ERR_USAGE', 'a code and a file are both needed')
+    else console.error(usage('swarm-send'))
     process.exitCode = 1
     return
   }
@@ -83,24 +104,37 @@ async function main () {
   // it out of the data, and the receiver would verify a stream that
   // silently began at the second line.
   if (streaming && codeArg === '-') {
-    console.error('[swarm-send] stdin can carry the code or the data, not both: when streaming, pass the code as an argument, with --code-on-argv')
-    process.exitCode = 1
+    refuse('ERR_USAGE', 'stdin can carry the code or the data, not both: when streaming, pass the code as an argument, with --code-on-argv')
     return
   }
   // Typing a file into the terminal by hand is never what was meant, and
   // the transfer would sit waiting for an EOF nobody knows to send.
   if (streaming && process.stdin.isTTY) {
-    console.error('[swarm-send] refusing to stream from a terminal: pipe the data in, e.g. tar c dir | ad-hal-send <code> - --code-on-argv')
-    process.exitCode = 1
+    refuse('ERR_USAGE', 'refusing to stream from a terminal: pipe the data in, e.g. tar c dir | ad-hal-send <code> - --code-on-argv')
+    return
+  }
+
+  let timeout, refresh
+  try {
+    timeout = joinTimeout()
+    refresh = refreshInterval()
+  } catch (err) {
+    refuse('ERR_USAGE', err.message)
     return
   }
 
   let codeInput
   try {
-    codeInput = await readCode({ argvCode: codeArg, label: 'swarm-send', allowArgv })
+    codeInput = await readCode({
+      argvCode: codeArg,
+      label: 'swarm-send',
+      allowArgv,
+      warn: events
+        ? (line) => events.emit('warning', { kind: 'code-on-argv', message: line.replace(/^\[swarm-send\] note: /, '') })
+        : undefined
+    })
   } catch (err) {
-    console.error(`[swarm-send] ${err.message}`)
-    process.exitCode = 1
+    refuse('ERR_CODE_INVALID', err.message)
     return
   }
 
@@ -110,8 +144,7 @@ async function main () {
   try {
     ({ topic, code, nameplate, secret } = resolveCode(codeInput, { allowOpaque: allowOpaque || undefined }))
   } catch (err) {
-    console.error(`[swarm-send] ${err.message}`)
-    process.exitCode = 1
+    refuse('ERR_CODE_INVALID', err.message)
     return
   }
   // Echo only the NAMEPLATE when the input needed normalizing, so a code
@@ -127,26 +160,31 @@ async function main () {
   // secret never lands anywhere persistent -- wrote it into scrollback,
   // tmux and script logs, and CI output. A sender has no reason to
   // display the code at all: it is not showing it to anybody.
-  if (code !== codeInput) console.log(`[swarm-send] code resolved to nameplate ${nameplate} (secret not shown)`)
+  if (code !== codeInput) say(`[swarm-send] code resolved to nameplate ${nameplate} (secret not shown)`)
 
   let bootstrap
   try {
     bootstrap = parseBootstrap()
   } catch (err) {
-    console.error(`[swarm-send] ${err.message}`)
-    process.exitCode = 1
+    refuse('ERR_USAGE', err.message)
     return
   }
 
   const swarm = createSwarm({ bootstrap })
-  const cancel = installCancelHandler({ label: 'swarm-send' })
-  const progress = createProgressReporter({ label: 'swarm-send' })
+  const cancel = installCancelHandler({ label: 'swarm-send', log: say })
+  const progress = events
+    ? { onProgress: events.onProgress, close: events.flushProgress }
+    : createProgressReporter({ label: 'swarm-send' })
   /** @type {Error | null} */
   let socketError = null
+  if (events) {
+    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stream: streaming })
+    events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
+  }
   // See swarm-receive.js: the topic hex only on request (Q-17).
-  console.log(`[swarm-send] joining topic${verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
+  say(`[swarm-send] joining topic${verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refresh ?? 4000}ms, timeout=${timeout}ms)`)
   // Q-09; see swarm-receive.js.
-  console.log(`[swarm-send] note: ${NOT_ANONYMOUS}`)
+  say(`[swarm-send] note: ${NOT_ANONYMOUS}`)
 
   try {
     // Set once connectOnce resolves; see swarm-receive.js.
@@ -159,8 +197,8 @@ async function main () {
       // whoever answered first. See engine/src/handshake.js.
       nameplate,
       secret,
-      timeout: joinTimeout(),
-      refreshInterval: refreshInterval(),
+      timeout,
+      refreshInterval: refresh,
       // Ctrl-C while still looking for a peer. This is the likeliest
       // moment for someone to give up -- it is the part of a drop that
       // can sit for two minutes with nothing to show -- and until the failure-reporting work
@@ -170,21 +208,25 @@ async function main () {
       // that all died before confirming" is indistinguishable from
       // "never found anyone".
       onCandidate: (info) => {
-        console.log(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., awaiting HELLO`)
+        if (events) events.emit('candidate', { peer: peerId(info) })
+        say(`[swarm-send] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., awaiting HELLO`)
       },
       // See swarm-receive.js: after pairing, only counted failures arrive.
-      onCandidateDropped: (info, reason) => {
+      onCandidateDropped: (info, reason, code, counted) => {
+        if (events) events.emit('candidate-dropped', { peer: peerId(info), code: code ?? null, counted: Boolean(counted), paired })
         const who = `candidate ${info.publicKey.toString('hex').slice(0, 12)}...`
-        console.log(paired
+        say(paired
           ? `[swarm-send] ${who} failed to prove the code during the transfer (${reason}); it counts toward this drop's attempt limit`
           : `[swarm-send] ${who} dropped before proving (${reason}); still looking`)
       },
       onDropTaken: (info) => {
-        console.log(`[swarm-send] another receiver (${info.publicKey.toString('hex').slice(0, 12)}...) also has this code; it was told the drop is taken. If you gave the code to only one person, someone else has it.`)
+        if (events) events.emit('drop-taken', { peer: peerId(info) })
+        say(`[swarm-send] another receiver (${info.publicKey.toString('hex').slice(0, 12)}...) also has this code; it was told the drop is taken. If you gave the code to only one person, someone else has it.`)
       }
     })
     paired = true
-    console.log(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
+    if (events) events.emit('paired', { peer: peerId(peerInfo) })
+    say(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // Without a listener, a late socket-level error (e.g. after the
     // transfer completes, while tearing down) throws as an uncaught
     // exception instead of something we can handle gracefully.
@@ -216,7 +258,8 @@ async function main () {
       // exactly the message the CANCEL frame exists to deliver.
       pending,
       signal: cancel.signal,
-      onProgress: progress.onProgress
+      onProgress: progress.onProgress,
+      onAccepted: events ? (/** @type {{ resumeFrom: number }} */ a) => events.emit('accepted', a) : undefined
     }
     const result = streaming
       // The capability list the handshake negotiated: sendStream refuses
@@ -230,14 +273,14 @@ async function main () {
     // Our own file's name, not a peer-supplied one -- but printed
     // through the same sanitizer anyway, so there is one rule for names
     // reaching a terminal rather than one rule and an exception.
-    console.log(`[swarm-send] done: ${displayName(result.name)}`)
+    say(`[swarm-send] done: ${displayName(result.name)}`)
     if (result.resumedFrom > 0) {
-      console.log(`[swarm-send] resumed: the receiver already held ${result.resumedFrom} of ${result.size} bytes from an earlier attempt`)
+      say(`[swarm-send] resumed: the receiver already held ${result.resumedFrom} of ${result.size} bytes from an earlier attempt`)
     }
-    console.log(`[swarm-send] sha256: ${result.sha256}`)
+    say(`[swarm-send] sha256: ${result.sha256}`)
     // sendFile resolves only on the receiver's RESULT carrying this same
     // digest, so this line is the receiver's claim, not our hope.
-    console.log(`[swarm-send] verified: the receiver confirmed all ${result.size} bytes with the same digest`)
+    say(`[swarm-send] verified: the receiver confirmed all ${result.size} bytes with the same digest`)
 
     // The file is confirmed, so nothing below can lose data. This wait
     // used to be the only thing standing between "sent" and "delivered",
@@ -255,11 +298,24 @@ async function main () {
       })
     })
     await closed
+    if (events) {
+      events.emit('done', {
+        name: result.name,
+        declaredName: result.name,
+        size: result.size,
+        sha256: result.sha256,
+        resumedFrom: result.resumedFrom
+      })
+    }
   } catch (err) {
     progress.close()
-    console.error(`[swarm-send] ${describeError(err)}`)
-    if (socketError && !isCancellation(err)) {
-      console.error(`[swarm-send] the socket also reported: ${socketError.message}`)
+    const message = describeError(err)
+    const alsoSocket = socketError && !isCancellation(err) ? socketError.message : null
+    if (events) {
+      events.failed(err, message, alsoSocket ? { socketError: alsoSocket } : {})
+    } else {
+      sayError(`[swarm-send] ${message}`)
+      if (alsoSocket) sayError(`[swarm-send] the socket also reported: ${alsoSocket}`)
     }
     // A cancellation already set 130/143 in the signal handler. Flattening
     // it to 1 would throw away the distinction this item is about.

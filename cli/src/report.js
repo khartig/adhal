@@ -206,6 +206,14 @@ function describeUnescaped (err) {
         'Nothing was transferred. If you expected no one else to have the code, someone ' +
         'else does: check with the other person, and use a new code rather than this one.'
 
+    case 'EPIPE':
+      // --stdout, and the reader went away: `| head` that had enough, or
+      // a consumer that crashed. Reported as ERR_OUTPUT_CLOSED in --json
+      // (./events.js); here it is the sentence. What it had already read
+      // was never verified, which is the thing worth saying.
+      return `FAILED: the program reading stdout closed it after ${typeof err.bytes === 'number' ? `${err.bytes} bytes` : 'part of the file'}, so the transfer was stopped and the sender was told. ` +
+        'What it had read was never verified.'
+
     case 'ERR_NO_PEER':
     case 'ERR_NO_HANDSHAKE':
       // These already carry long, carefully-worded diagnostics from

@@ -125,14 +125,16 @@ function renderQr (payload, { wide = false, color = true } = {}) {
 }
 
 /**
- * Prints the symbol to stdout, honoring two environment overrides:
- * ADHAL_QR_WIDE=1 for the full-block variant, and NO_COLOR (the usual
- * convention) to drop the ANSI colors.
+ * Prints the symbol, to stdout unless `log` says otherwise, honoring two
+ * environment overrides: ADHAL_QR_WIDE=1 for the full-block variant, and
+ * NO_COLOR (the usual convention) to drop the ANSI colors.
  *
  * @param {string} payload
+ * @param {(text: string) => void} [log] where the lines go; a receiver
+ *   writing the file to stdout sends them to stderr
  */
-function printQr (payload) {
-  console.log(renderQr(payload, {
+function printQr (payload, log = console.log) {
+  log(renderQr(payload, {
     wide: process.env.ADHAL_QR_WIDE === '1',
     color: !process.env.NO_COLOR
   }))

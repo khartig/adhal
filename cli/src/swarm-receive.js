@@ -19,10 +19,17 @@
 // ADHAL_BOOTSTRAP=<json bootstrap array> overrides the DHT bootstrap nodes
 // -- used by the automated test to run against an isolated local testnet
 // instead of the public DHT.
+//
+// --stdout writes the file to stdout, for `ad-hal-receive --stdout | tar
+// x`, and moves every other line to stderr. --json replaces the human
+// lines with the event stream in ./events.js. Both are the contract in
+// docs/CLI-CONTRACT.md, and the first thing that contract says is the one
+// to remember here: with --stdout, the bytes are verified only once this
+// process exits 0.
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, receiveFile, closeAfterResult, generateCode, encodeQrPayload, resolveCode, displayName } = require('@ad-hal/engine')
+const { createSwarm, acceptOnce, receiveFile, closeAfterResult, generateCode, encodeQrPayload, resolveCode, displayName, KNOWN_CAPS } = require('@ad-hal/engine')
 
 const { printQr } = require('./qr')
 const { readCode } = require('./read-code')
@@ -30,8 +37,9 @@ const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
 const { parseBootstrap } = require('./env')
-const { createConsent } = require('./consent')
+const { createConsent, riskWarning } = require('./consent')
 const { createContentionMonitor } = require('./contention')
+const { createEventStream, peerId, version } = require('./events')
 const { usage, NOT_ANONYMOUS } = require('./usage')
 
 
@@ -72,7 +80,7 @@ function maxSize () {
 // stays unambiguously "that's a code", exactly as the Hyperswarm CLI defined it: a bare
 // path and a bare code are not reliably distinguishable, and guessing wrong
 // would silently save into a directory named after a word.
-const KNOWN_FLAGS = new Set(['--new', '--insecure-opaque-code', '--replace', '--code-stdin', '--verbose', '--yes', '--code-on-argv', '--help'])
+const KNOWN_FLAGS = new Set(['--new', '--insecure-opaque-code', '--replace', '--code-stdin', '--verbose', '--yes', '--code-on-argv', '--stdout', '--json', '--help'])
 
 function parseArgs (argv) {
   const flags = argv.filter((a) => a.startsWith('--'))
@@ -94,15 +102,21 @@ function parseArgs (argv) {
     // Accept the offer without asking; see ./consent.js.
     yes: flags.includes('--yes'),
     allowArgv: flags.includes('--code-on-argv'),
+    // The file to stdout, everything else to stderr; see the top.
+    toStdout: flags.includes('--stdout'),
+    json: flags.includes('--json'),
     help: flags.includes('--help')
   }
 
-  if (wantsNew) {
-    if (positional.length > 1) throw new Error('too many arguments')
-    return { codeArg: null, outputDirArg: positional[0], ...common }
-  }
-  if (positional.length > 2) throw new Error('too many arguments')
-  return { codeArg: positional[0] || null, outputDirArg: positional[1], ...common }
+  const parsed = wantsNew
+    ? { codeArg: null, outputDirArg: positional[0], ...common }
+    : { codeArg: positional[0] || null, outputDirArg: positional[1], ...common }
+  if (positional.length > (wantsNew ? 1 : 2)) throw new Error('too many arguments')
+  // One place for the bytes. --replace is about a file that already
+  // exists, and stdout has none.
+  if (parsed.toStdout && parsed.outputDirArg !== undefined) throw new Error('--stdout takes the place of an output directory; pass one or the other')
+  if (parsed.toStdout && parsed.replace) throw new Error('--replace has nothing to replace with --stdout')
+  return parsed
 }
 
 // ADHAL_REFRESH_INTERVAL overrides how often we re-run our own DHT
@@ -122,17 +136,63 @@ function refreshInterval () {
 }
 
 async function main () {
+  const argv = process.argv.slice(2)
   let parsed
   try {
-    parsed = parseArgs(process.argv.slice(2))
+    parsed = parseArgs(argv)
   } catch (err) {
-    console.error(`[swarm-receive] ${err.message}`)
-    console.error(usage('swarm-receive'))
+    // Asked for by flag, so honored even when the flags did not parse:
+    // a script that passed --json reads events, not prose.
+    if (argv.includes('--json')) {
+      createEventStream({ role: 'receive', stream: argv.includes('--stdout') ? process.stderr : process.stdout })
+        .failed({ code: 'ERR_USAGE' }, err.message)
+    } else {
+      console.error(`[swarm-receive] ${err.message}`)
+      console.error(usage('swarm-receive'))
+    }
     process.exitCode = 1
     return
   }
   if (parsed.help) {
     console.log(usage('swarm-receive'))
+    return
+  }
+
+  // WHERE EACH KIND OF OUTPUT GOES (docs/CLI-CONTRACT.md sections 2-3).
+  // With --stdout, stdout carries the file's bytes and nothing else, so
+  // the human lines move to stderr; with --json, the events go wherever
+  // the file does not, and the human lines are not written at all.
+  const humanOut = parsed.toStdout ? process.stderr : process.stdout
+  const events = parsed.json
+    ? createEventStream({ role: 'receive', stream: parsed.toStdout ? process.stderr : process.stdout })
+    : null
+  const say = events ? () => {} : (/** @type {string} */ line = '') => { humanOut.write(`${line}\n`) }
+  const sayError = events ? () => {} : (/** @type {string} */ line) => { process.stderr.write(`${line}\n`) }
+  /**
+   * A failure before the drop began. `code` is CLI-level (CONTRACT
+   * section 4), since none of these touched the network.
+   * @param {string} code
+   * @param {any} err
+   */
+  const refuse = (code, err) => {
+    if (events) events.failed({ code }, err.message)
+    else sayError(`[swarm-receive] ${err.message}`)
+    process.exitCode = 1
+  }
+
+  // Binary on a terminal is never what was meant: the mirror of
+  // ad-hal-send refusing to stream from one.
+  if (parsed.toStdout && process.stdout.isTTY) {
+    refuse('ERR_USAGE', new Error('refusing to write a file to a terminal: redirect or pipe stdout, e.g. ad-hal-receive --stdout | tar x'))
+    return
+  }
+
+  let timeout, refresh
+  try {
+    timeout = joinTimeout()
+    refresh = refreshInterval()
+  } catch (err) {
+    refuse('ERR_USAGE', err)
     return
   }
 
@@ -145,11 +205,17 @@ async function main () {
   try {
     const input = generated
       ? generateCode()
-      : await readCode({ argvCode: parsed.fromStdin ? '-' : parsed.codeArg, label: 'swarm-receive', allowArgv: parsed.allowArgv })
+      : await readCode({
+        argvCode: parsed.fromStdin ? '-' : parsed.codeArg,
+        label: 'swarm-receive',
+        allowArgv: parsed.allowArgv,
+        warn: events
+          ? (line) => events.emit('warning', { kind: 'code-on-argv', message: line.replace(/^\[swarm-receive\] note: /, '') })
+          : undefined
+      })
     resolved = resolveCode(input, { allowOpaque: parsed.allowOpaque || undefined })
   } catch (err) {
-    console.error(`[swarm-receive] ${err.message}`)
-    process.exitCode = 1
+    refuse('ERR_CODE_INVALID', err)
     return
   }
   const { code, topic, nameplate, secret } = resolved
@@ -158,27 +224,41 @@ async function main () {
   try {
     bootstrap = parseBootstrap()
   } catch (err) {
-    console.error(`[swarm-receive] ${err.message}`)
-    process.exitCode = 1
+    refuse('ERR_USAGE', err)
     return
   }
 
-  const outputDir = parsed.outputDirArg ? path.resolve(parsed.outputDirArg) : process.cwd()
-  await fs.promises.mkdir(outputDir, { recursive: true })
+  const outputDir = parsed.toStdout ? null : parsed.outputDirArg ? path.resolve(parsed.outputDirArg) : process.cwd()
+  if (outputDir) await fs.promises.mkdir(outputDir, { recursive: true })
+  // A reader that goes away mid-file is reported through the transfer
+  // (ERR_OUTPUT_CLOSED); one that goes away after it must not be an
+  // uncaught exception.
+  if (parsed.toStdout) process.stdout.on('error', () => {})
 
   const swarm = createSwarm({ bootstrap })
-  const cancel = installCancelHandler({ label: 'swarm-receive' })
-  const progress = createProgressReporter({ label: 'swarm-receive' })
+  const cancel = installCancelHandler({ label: 'swarm-receive', log: say })
+  const progress = events
+    ? { onProgress: events.onProgress, close: events.flushProgress, log: () => {} }
+    : createProgressReporter({ label: 'swarm-receive', stream: humanOut })
   /** @type {Error | null} */
   let socketError = null
+  if (events) {
+    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stdout: parsed.toStdout })
+    events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
+  }
   // The topic is a commitment to the nameplate, and this line lands in
   // scrollback, CI logs, and bug reports. It is shown only when asked for
   // (Q-17); the nameplate itself is already on screen in the code.
-  console.log(`[swarm-receive] joining topic${parsed.verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refreshInterval() ?? 4000}ms, timeout=${joinTimeout()}ms)`)
+  say(`[swarm-receive] joining topic${parsed.verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refresh ?? 4000}ms, timeout=${timeout}ms)`)
   // Q-09: before anything connects, so nobody learns it afterwards.
-  console.log(`[swarm-receive] note: ${NOT_ANONYMOUS}`)
-  const contention = createContentionMonitor({ label: 'swarm-receive' })
-  const consent = createConsent({ yes: parsed.yes, label: 'swarm-receive', signal: cancel.signal })
+  say(`[swarm-receive] note: ${NOT_ANONYMOUS}`)
+  const contention = createContentionMonitor({
+    label: 'swarm-receive',
+    log: events
+      ? (_line, { message, ...counts }) => events.emit('warning', { kind: 'contention', message, ...counts })
+      : say
+  })
+  const consent = createConsent({ yes: parsed.yes, ask: !events, label: 'swarm-receive', log: say, signal: cancel.signal })
 
   try {
     // Set once acceptOnce resolves; the late-candidate callbacks above
@@ -196,8 +276,12 @@ async function main () {
       // (PROTOCOL.md section 6). See engine/src/handshake.js.
       nameplate,
       secret,
-      timeout: joinTimeout(),
-      refreshInterval: refreshInterval(),
+      timeout,
+      refreshInterval: refresh,
+      // Stdout has no partial to resume from, so this receiver does not
+      // offer to. The sender then sends from byte 0, and never waits on a
+      // CHECKPOINT nobody will send.
+      caps: parsed.toStdout ? KNOWN_CAPS.filter((/** @type {string} */ c) => c !== 'resume') : undefined,
       // Ctrl-C while waiting for a peer -- which, for a receiver showing
       // a QR code, is almost the whole of its life. Before that work, this
       // was the one state with no way out but killing the process, and
@@ -207,14 +291,16 @@ async function main () {
       // because peers connect and then vanish looks identical to one that
       // found nobody unless these lines are visible.
       onCandidate: (info) => {
-        console.log(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., sent HELLO, awaiting REPLY`)
+        if (events) events.emit('candidate', { peer: peerId(info) })
+        say(`[swarm-receive] candidate ${info.publicKey.toString('hex').slice(0, 12)}..., sent HELLO, awaiting REPLY`)
       },
       // After pairing, the engine reports only failures it COUNTED -- a
       // peer guessing at the code while the transfer runs -- so the line
       // stops saying "still waiting", which is no longer true.
-      onCandidateDropped: (info, reason, code) => {
+      onCandidateDropped: (info, reason, code, counted) => {
+        if (events) events.emit('candidate-dropped', { peer: peerId(info), code: code ?? null, counted: Boolean(counted), paired })
         const who = `candidate ${info.publicKey.toString('hex').slice(0, 12)}...`
-        console.log(paired
+        say(paired
           ? `[swarm-receive] ${who} failed to prove the code during the transfer (${reason}); it counts toward this drop's attempt limit`
           : `[swarm-receive] ${who} dropped before proving (${reason}); still waiting`)
         // The pattern, once there is one (Q-04); see ./contention.js.
@@ -224,7 +310,8 @@ async function main () {
       // drop is taken. The race is invisible to this human otherwise, and
       // it means someone other than the intended sender holds the code.
       onDropTaken: (info) => {
-        console.log(`[swarm-receive] another peer (${info.publicKey.toString('hex').slice(0, 12)}...) also has this code and tried to send; it was told the drop is taken. If you gave the code to only one person, someone else has it.`)
+        if (events) events.emit('drop-taken', { peer: peerId(info) })
+        say(`[swarm-receive] another peer (${info.publicKey.toString('hex').slice(0, 12)}...) also has this code and tried to send; it was told the drop is taken. If you gave the code to only one person, someone else has it.`)
       },
       // Only now are we actually discoverable. The sender must not start
       // looking before this point -- see engine/src/swarm.js. This is
@@ -234,19 +321,27 @@ async function main () {
       // that engine/src/swarm.js documents. demo-swarm.js waits for this
       // line before spawning the sender.
       onAnnounced: () => {
-        console.log('[swarm-receive] announced, waiting for a peer...')
-        if (generated) {
-          console.log()
-          printQr(encodeQrPayload(code))
-          console.log()
-          console.log(`  scan the code above, or type:  ${code}`)
-          console.log()
+        if (events) {
+          events.emit('announced')
+          // The secret, in the event stream: the same exposure as the
+          // human output's, which prints it for a person to read out
+          // (CLI-CONTRACT.md section 3.2).
+          if (generated) events.emit('code', { code, payload: encodeQrPayload(code) })
+        }
+        say('[swarm-receive] announced, waiting for a peer...')
+        if (generated && !events) {
+          say()
+          printQr(encodeQrPayload(code), say)
+          say()
+          say(`  scan the code above, or type:  ${code}`)
+          say()
         }
       }
     })
     paired = true
     contention.paired()
-    console.log(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
+    if (events) events.emit('paired', { peer: peerId(peerInfo) })
+    say(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // Without a listener, a late socket-level error (e.g. after the
     // transfer completes, while tearing down) throws as an uncaught
     // exception instead of something we can handle gracefully.
@@ -275,6 +370,8 @@ async function main () {
       // What the same handshake negotiated. A streamed offer is declined
       // unless "stream" is in it.
       caps,
+      // The file's bytes, as they arrive, in place of a directory.
+      sink: parsed.toStdout ? process.stdout : undefined,
       // Bytes the handshake read alongside the ACK, if the sender
       // coalesced them; dropping these would corrupt the first frame.
       pending,
@@ -291,8 +388,16 @@ async function main () {
       // A person says yes before anything is written, unless --yes said it
       // for them (Q-02). The engine has already refused what it would
       // refuse anyway, so nobody is asked about an unsafe name.
-      onOffer: consent.onOffer,
+      onOffer: (offer) => {
+        if (events) {
+          const risk = riskWarning(offer.name)
+          events.emit('offer', { name: offer.name, declaredName: offer.declaredName, size: offer.size, sha256: offer.sha256, partial: offer.partial, risk })
+          if (risk) events.emit('warning', { kind: 'risky-name', message: risk })
+        }
+        return consent.onOffer(offer)
+      },
       onManifest: (manifest, { resumeFrom }) => {
+        if (events) events.emit('accepted', { resumeFrom })
         // THE FIRST PEER-CHOSEN STRING THIS PROCESS PRINTS. Straight to a
         // terminal, before anything has validated that it is printable.
         // A name carrying ESC or a bidi override forged whatever it liked
@@ -306,24 +411,26 @@ async function main () {
     })
 
     progress.close()
-    console.log(`[swarm-receive] done: ${displayName(result.name)}`)
-    console.log(`[swarm-receive] sha256: ${result.sha256}`)
+    say(`[swarm-receive] done: ${displayName(result.name)}`)
+    say(`[swarm-receive] sha256: ${result.sha256}`)
     // The line that turns plan phase-1 bar the drop-code work from an eyeball
     // comparison of two hex strings into an assertion the receiver makes
     // for itself. Until that work, this comparison happened nowhere that
     // shipped.
-    console.log('[swarm-receive] verified: the file matches the sender\'s manifest digest')
+    say('[swarm-receive] verified: the file matches the sender\'s manifest digest')
     if (result.name !== result.declaredName) {
       // Covers both reasons the name can differ -- the write policy
       // transformed it, or an existing file meant it landed suffixed --
       // and shows the peer's original so nothing is silently substituted.
-      console.log(`[swarm-receive] renamed: the peer asked for ${JSON.stringify(displayName(result.declaredName))}`)
+      say(`[swarm-receive] renamed: the peer asked for ${JSON.stringify(displayName(result.declaredName))}`)
     }
-    console.log(`[swarm-receive] saved to: ${result.path}`)
+    say(result.path === null ? '[swarm-receive] written to stdout' : `[swarm-receive] saved to: ${result.path}`)
     // See `publish` in engine/src/transfer.js (Q-19).
     if (result.published === 'check-then-rename') {
-      console.log('[swarm-receive] note: this filesystem has no hard links, so the file was landed with a check-then-rename; ' +
-        'another process creating the same name at that instant could have been overwritten. Prefer an output directory on a local disk.')
+      const note = 'this filesystem has no hard links, so the file was landed with a check-then-rename; ' +
+        'another process creating the same name at that instant could have been overwritten. Prefer an output directory on a local disk.'
+      if (events) events.emit('warning', { kind: 'check-then-rename', message: note })
+      say(`[swarm-receive] note: ${note}`)
     }
 
     // receiveFile has written RESULT, but "written" is a local flush.
@@ -334,16 +441,35 @@ async function main () {
     // covers a sender that vanished: the file is already verified and
     // saved. See closeAfterResult in engine/src/transfer.js.
     const { outcome } = await closeAfterResult(socket)
-    if (outcome === 'lost' || outcome === 'timeout') {
-      console.log('[swarm-receive] note: the sender never acknowledged the confirmation, so it may report the file as unconfirmed. The file here is complete and verified.')
+    const acknowledged = outcome !== 'lost' && outcome !== 'timeout'
+    if (!acknowledged) {
+      say('[swarm-receive] note: the sender never acknowledged the confirmation, so it may report the file as unconfirmed. The file here is complete and verified.')
+    }
+    // Last, after the close wait, so it can say whether the sender heard
+    // (CLI-CONTRACT.md section 3.2).
+    if (events) {
+      events.emit('done', {
+        name: result.name,
+        declaredName: result.declaredName,
+        size: result.size,
+        sha256: result.sha256,
+        resumedFrom: result.resumedFrom,
+        path: result.path,
+        published: result.published,
+        acknowledged
+      })
     }
   } catch (err) {
     // First, so the reason does not land on the question's line.
     consent.close()
     progress.close()
-    console.error(`[swarm-receive] ${describeError(err)}`)
-    if (socketError && !isCancellation(err)) {
-      console.error(`[swarm-receive] the socket also reported: ${socketError.message}`)
+    const message = describeError(err)
+    const alsoSocket = socketError && !isCancellation(err) ? socketError.message : null
+    if (events) {
+      events.failed(err, message, alsoSocket ? { socketError: alsoSocket } : {})
+    } else {
+      sayError(`[swarm-receive] ${message}`)
+      if (alsoSocket) sayError(`[swarm-receive] the socket also reported: ${alsoSocket}`)
     }
     if (!cancel.cancelled()) process.exitCode = 1
   } finally {
