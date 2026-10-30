@@ -64,11 +64,18 @@ function failureCode (err) {
  *   clock: performance.now() is exactly that.
  */
 function createEventStream ({ role, stream = process.stdout, now = () => performance.now() }) {
+  // Nothing moves before the offer is answered, but the engine reports 0
+  // bytes as soon as it sets a transfer up, which on both sides is before
+  // ACCEPT. Reported then, it would put `progress` ahead of `accepted`,
+  // against the order CLI-CONTRACT.md section 3.2 gives.
+  let accepted = false
+
   /**
    * @param {string} event
    * @param {Record<string, any>} [fields]
    */
   function emit (event, fields = {}) {
+    if (event === 'accepted') accepted = true
     stream.write(`${JSON.stringify({ v: SCHEMA_VERSION, event, ms: Math.round(now()), role, ...fields })}\n`)
   }
 
@@ -79,6 +86,7 @@ function createEventStream ({ role, stream = process.stdout, now = () => perform
 
   /** @param {{ bytes: number, total: number | null }} p */
   function onProgress ({ bytes, total }) {
+    if (!accepted) return
     const at = now()
     const complete = total !== null && bytes >= total
     if (lastAt !== null && !complete && at - lastAt < PROGRESS_MS) {

@@ -100,6 +100,7 @@ test('a peer-chosen string with controls and a bidi override still makes one val
 
 test('progress is throttled, never drops the completing event, and flushes what it held back', () => {
   const h = harness()
+  h.events.emit('accepted', { resumeFrom: 0 })
   h.events.onProgress({ bytes: 0, total: 100 })
   h.advance(10)
   h.events.onProgress({ bytes: 10, total: 100 })
@@ -109,16 +110,30 @@ test('progress is throttled, never drops the completing event, and flushes what 
   h.events.onProgress({ bytes: 30, total: 100 })
   h.advance(1)
   h.events.onProgress({ bytes: 100, total: 100 })
-  assert.deepEqual(h.lines().map((e) => e.bytes), [0, 30, 100])
+  assert.deepEqual(h.lines().filter((e) => e.event === 'progress').map((e) => e.bytes), [0, 30, 100])
 
   // A stream has no total to complete at: its last count waits for the flush.
   const s = harness()
+  s.events.emit('accepted', { resumeFrom: 0 })
   s.events.onProgress({ bytes: 0, total: null })
   s.advance(1)
   s.events.onProgress({ bytes: 5, total: null })
-  assert.deepEqual(s.lines().map((e) => e.bytes), [0])
+  const bytes = () => s.lines().filter((e) => e.event === 'progress').map((e) => e.bytes)
+  assert.deepEqual(bytes(), [0])
   s.events.flushProgress()
-  assert.deepEqual(s.lines().map((e) => e.bytes), [0, 5])
+  assert.deepEqual(bytes(), [0, 5])
+})
+
+test('no progress before accepted: the engine reports 0 bytes while the offer is still unanswered', () => {
+  // Found on the first real two-machine run (2026-10-29): both sides sent
+  // progress{bytes: 0} ahead of accepted.
+  const h = harness()
+  h.events.onProgress({ bytes: 0, total: 100 })
+  h.events.flushProgress()
+  assert.deepEqual(h.lines(), [])
+  h.events.emit('accepted', { resumeFrom: 0 })
+  h.events.onProgress({ bytes: 0, total: 100 })
+  assert.deepEqual(h.lines().map((e) => e.event), ['accepted', 'progress'])
 })
 
 test('failed takes its code from err.code, maps EPIPE, and copies the fields a script needs', () => {
@@ -234,6 +249,8 @@ test('--stdout --json: stdout is exactly the file, stderr is exactly the events,
         assert.equal(events.at(-1).sha256, sha)
         assert.ok(events.some((e) => e.event === 'warning' && e.kind === 'not-anonymous'))
         assert.ok(events.findIndex((e) => e.event === 'paired') < events.findIndex((e) => e.event === 'accepted'))
+        const firstProgress = events.findIndex((e) => e.event === 'progress')
+        assert.ok(firstProgress === -1 || firstProgress > events.findIndex((e) => e.event === 'accepted'), 'no progress before accepted')
         const ms = events.map((e) => e.ms)
         assert.deepEqual(ms, [...ms].sort((a, b) => a - b), 'ms never goes backwards')
       }
@@ -372,4 +389,19 @@ test('--stdout without --json: the human lines move to stderr, and stdout is the
       if (rx.child.exitCode === null) rx.child.kill()
     }
   })
+})
+
+test('a warning raised while the code is read comes after start, not before it', slow, async () => {
+  // Found on the first real two-machine run (2026-10-29): with
+  // --code-on-argv, the code-on-argv warning was the first line. Nothing
+  // answers at this bootstrap, so the drop ends in ERR_NO_PEER quickly.
+  const env = { ...process.env, ADHAL_BOOTSTRAP: '[{"host":"127.0.0.1","port":9}]', ADHAL_JOIN_TIMEOUT: '1500' }
+  const code = require('@ad-hal/engine').generateCode()
+  const tx = run(SEND, [code, __filename, '--code-on-argv', '--json'], env, null)
+  assert.equal(await tx.exited, 1)
+  const events = eventsIn(tx.stdout().toString('utf8'))
+  assert.equal(events[0].event, 'start')
+  const argvWarning = events.findIndex((e) => e.event === 'warning' && e.kind === 'code-on-argv')
+  assert.ok(argvWarning > 0, 'the warning is still reported')
+  assert.equal(events.at(-1).event, 'failed')
 })

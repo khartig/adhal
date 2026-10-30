@@ -81,6 +81,8 @@ async function main () {
   // The human lines, or nothing: with --json the events are the output.
   const events = argv.includes('--json') ? createEventStream({ role: 'send' }) : null
   const say = events ? () => {} : (/** @type {string} */ line) => { process.stdout.write(`${line}\n`) }
+  /** @type {Array<{ kind: string, message: string }>} warnings raised before `start` */
+  const held = []
   const sayError = events ? () => {} : (/** @type {string} */ line) => { process.stderr.write(`${line}\n`) }
   /**
    * A failure before the drop began; see swarm-receive.js.
@@ -129,8 +131,10 @@ async function main () {
       argvCode: codeArg,
       label: 'swarm-send',
       allowArgv,
+      // Held, not emitted: the code is read before `start`, which the
+      // contract puts first (CLI-CONTRACT.md section 3.2).
       warn: events
-        ? (line) => events.emit('warning', { kind: 'code-on-argv', message: line.replace(/^\[swarm-send\] note: /, '') })
+        ? (line) => { held.push({ kind: 'code-on-argv', message: line.replace(/^\[swarm-send\] note: /, '') }) }
         : undefined
     })
   } catch (err) {
@@ -180,6 +184,7 @@ async function main () {
   if (events) {
     events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stream: streaming })
     events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
+    for (const warning of held) events.emit('warning', warning)
   }
   // See swarm-receive.js: the topic hex only on request (Q-17).
   say(`[swarm-send] joining topic${verbose ? ` ${topic.toString('hex')}` : ''} (refresh=${refresh ?? 4000}ms, timeout=${timeout}ms)`)

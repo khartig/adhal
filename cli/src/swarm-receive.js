@@ -167,6 +167,8 @@ async function main () {
     ? createEventStream({ role: 'receive', stream: parsed.toStdout ? process.stderr : process.stdout })
     : null
   const say = events ? () => {} : (/** @type {string} */ line = '') => { humanOut.write(`${line}\n`) }
+  /** @type {Array<{ kind: string, message: string }>} warnings raised before `start` */
+  const held = []
   const sayError = events ? () => {} : (/** @type {string} */ line) => { process.stderr.write(`${line}\n`) }
   /**
    * A failure before the drop began. `code` is CLI-level (CONTRACT
@@ -209,8 +211,10 @@ async function main () {
         argvCode: parsed.fromStdin ? '-' : parsed.codeArg,
         label: 'swarm-receive',
         allowArgv: parsed.allowArgv,
+        // Held, not emitted: the code is read before `start`, which the
+        // contract puts first (CLI-CONTRACT.md section 3.2).
         warn: events
-          ? (line) => events.emit('warning', { kind: 'code-on-argv', message: line.replace(/^\[swarm-receive\] note: /, '') })
+          ? (line) => { held.push({ kind: 'code-on-argv', message: line.replace(/^\[swarm-receive\] note: /, '') }) }
           : undefined
       })
     resolved = resolveCode(input, { allowOpaque: parsed.allowOpaque || undefined })
@@ -245,6 +249,7 @@ async function main () {
   if (events) {
     events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stdout: parsed.toStdout })
     events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
+    for (const warning of held) events.emit('warning', warning)
   }
   // The topic is a commitment to the nameplate, and this line lands in
   // scrollback, CI logs, and bug reports. It is shown only when asked for

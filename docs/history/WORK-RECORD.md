@@ -852,7 +852,7 @@ never asks, and `ERR_OUTPUT_CLOSED` exits 1.
   `counted` as `onCandidateDropped`'s fourth argument.
 
 **Tests.** `cli/test/sink.test.js` (7, fast) and
-`cli/test/json-events.test.js` (5 fast, 6 on a local testnet). Three of
+`cli/test/json-events.test.js` (now 6 fast, 7 on a local testnet, with the two below). Three of
 the sink tests were checked by planting the bug each is for: dropping
 `caps` in `acceptOnce`, the CANCEL on a sink error, and `onAccepted`.
 Each failed with its plant and passed without it. The CANCEL plant
@@ -867,6 +867,25 @@ better shape anyway: one confirmation to get right. `pnpm test`
 afterward: 615 of 616 CLI tests passed with one platform skip, and 92 of
 92 conformance tests.
 
-**Not done.** No real two-machine drop on the public DHT. Nothing on the
-transport changed, which is what the verification standard's fifth line
-asks it for, but `--stdout` has been run only on a local testnet.
+**The first real drops, 2026-10-29,** on the public DHT between macOS on
+Comcast and Linux on Starlink, by hand: `--json` into a directory,
+`--stdout`, a `tar` pipe at both ends, and a reader that closes stdout
+early. Every completed drop ended in `done` on both sides with the same
+digest and `acknowledged: true`, and the early close ended in
+`ERR_OUTPUT_CLOSED` on the receiver and `ERR_CANCELLED_PEER` with the
+reason on the sender. Two coverage gaps: the Linux sender's test file in
+the directory and `--stdout` runs was empty, so Linux to macOS carried
+only the 716,800-byte stream, and the early close was run only with
+Linux receiving.
+
+The run found two departures from the contract's event order, both now
+fixed, each with a test that fails with the bug planted back:
+- **A warning before `start`.** With `--code-on-argv`, the code-on-argv
+  warning is raised while the code is read, which is before `start`. It
+  is now held and emitted after `start`.
+- **`progress` before `accepted`.** The engine reports 0 bytes as soon as
+  it sets a transfer up, before ACCEPT, on both sides. The event stream
+  now drops progress until `accepted`.
+
+`pnpm test` afterward: 617 of 618 CLI tests passed with the one platform
+skip, and 92 of 92 conformance tests.
