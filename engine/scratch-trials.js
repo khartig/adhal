@@ -29,6 +29,8 @@
 // --lookup-isp to record the AS this side's public address belongs to (it
 // sends that address to a DNS lookup), --note <text> (repeatable) for what
 // the machine cannot detect, such as the router's firewall settings.
+// --environment-only probes the machine and its NAT, writes that to --out,
+// and exits: tools/cli-trials.js uses it.
 // engine/scratch-trials-environment.js turns a run's JSON into the
 // ENVIRONMENT.md beside its logs.
 //
@@ -58,7 +60,6 @@
 const os = require('node:os')
 const fs = require('node:fs')
 const path = require('node:path')
-const crypto = require('node:crypto')
 const { execFileSync } = require('node:child_process')
 const { createRequire } = require('node:module')
 const {
@@ -71,10 +72,11 @@ const {
   closeAfterResult,
   RESULT_DELIVERY_TIMEOUT_MS,
   CLOSE_GRACE_MS,
-  WORD_COUNT,
   ERR_CONFIRMATION
 } = require('./src')
-const { WORDS } = require('./src/wordlist')
+// Shared with tools/cli-trials.js, so the two harnesses derive the same
+// codes, keep the same schedule, and bucket failures the same way.
+const { trialCode, OUTCOME_BY_CODE, SENDER_LEAD_MS, TEARDOWN_MS, startMsFor, percentile } = require('./scratch-trials-shared')
 
 function flag (name, fallback = undefined) {
   const i = process.argv.indexOf(`--${name}`)
@@ -96,27 +98,22 @@ const refreshMs = flag('refresh') === undefined ? undefined : Number(flag('refre
 // the link beyond the first hop -- in the operator's words. Repeatable.
 const notes = process.argv.flatMap((arg, i) => arg === '--note' && process.argv[i + 1] !== undefined ? [process.argv[i + 1]] : [])
 const lookupIspFlag = process.argv.includes('--lookup-isp')
+// Probe this machine and its NAT, write that to --out, and exit without
+// running a trial. tools/cli-trials.js runs this once before a run, so the
+// two harnesses describe a machine with the same code.
+const environmentOnly = process.argv.includes('--environment-only')
 
-if (!['receiver', 'sender'].includes(role) || !seed || !Number.isInteger(trials) || trials < 1) {
+if (!environmentOnly && (!['receiver', 'sender'].includes(role) || !seed || !Number.isInteger(trials) || trials < 1)) {
   console.error('Usage: scratch-trials.js --role <receiver|sender> --seed <string> --trials <n>')
   console.error('                         [--file <path>] [--slot 135] [--refresh <ms>] [--start-epoch <s>] [--out <path>]')
   console.error('                         [--record-addresses] [--lookup-isp] [--note <text>]...')
   console.error('The sender requires --file. Both sides need the same --seed and --trials.')
   process.exit(1)
 }
-if (role === 'sender' && !filePath) {
+if (!environmentOnly && role === 'sender' && !filePath) {
   console.error('scratch-trials: --role sender requires --file <path>')
   process.exit(1)
 }
-
-// The sender waits this long into each slot before dialing, so the
-// receiver has announced first -- the lookup-before-announce race in
-// engine/src/swarm.js is a real effect, and measuring it here would just be
-// measuring our own starting order.
-const SENDER_LEAD_MS = 10000
-// Leave the tail of each slot free so a trial that runs long still tears
-// down before the next slot opens.
-const TEARDOWN_MS = 5000
 
 // The default --slot of 135 is not arbitrary: the sender's per-trial budget
 // works out to SLOT - SENDER_LEAD - TEARDOWN = 120s, which is exactly
@@ -125,46 +122,17 @@ const TEARDOWN_MS = 5000
 // and under-report the success rate relative to the actual CLI.
 
 const SLOT_MS = slotSeconds * 1000
-// Align to a 5-minute boundary at least a minute out. Wide enough that two
-// hosts started within the same few minutes pick the same schedule; the
-// chosen value is printed so a mismatch is obvious rather than silent.
-const ALIGN_MS = 300000
 const startEpoch = flag('start-epoch')
 // Off by default because these logs are committed: docs/trials/ holds two
 // home networks' worth of them. Without it, every address is reduced to its
 // kind (public, private, CGNAT, ...), which is what the analysis needs.
 const recordAddresses = process.argv.includes('--record-addresses')
-const startMs = startEpoch
-  ? Number(startEpoch) * 1000
-  : Math.ceil((Date.now() + 60000) / ALIGN_MS) * ALIGN_MS
+const startMs = startMsFor(startEpoch)
 
 const t0 = Date.now()
 const log = (...a) => console.log(`+${((Date.now() - t0) / 1000).toFixed(1)}s`, ...a)
 
-// Deterministic per-trial code: a real five-word drop code, derived from
-// (seed, trial index) so that both roles compute the same one without
-// exchanging anything.
-//
-// Rejection sampled rather than plain modulo, for the same reason
-// generateCode uses crypto.randomInt: 7772 is not a power of two, so
-// reducing a 16-bit window modulo 7772 would favor the front of the list.
-// It does not matter much for a rendezvous label on a private topic, but a
-// harness that quietly draws from a skewed distribution is not the thing to
-// leave lying around in a repo whose codes are its security argument.
-const SAMPLE_LIMIT = 65536 - (65536 % WORDS.length)
-
-function codeForTrial (i) {
-  const words = []
-  for (let counter = 0; words.length < WORD_COUNT; counter++) {
-    const digest = crypto.createHash('sha256').update(`adhal-trial:${seed}:${i}:${counter}`).digest()
-    for (let off = 0; off + 2 <= digest.length && words.length < WORD_COUNT; off += 2) {
-      const n = digest.readUInt16BE(off)
-      if (n >= SAMPLE_LIMIT) continue
-      words.push(WORDS[n % WORDS.length])
-    }
-  }
-  return words.join('-')
-}
+const codeForTrial = (/** @type {number} */ i) => trialCode(seed, i)
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)))
 
@@ -583,52 +551,9 @@ function describeNat (nat) {
   return parts.join(', ')
 }
 
-// Classifies a failure into something countable.
-//
-// KEYED ON err.code SINCE ITEM 5, and that is not a cleanup. This harness
-// used to classify by regex-matching error *messages*, which coupled the
-// project's only measurement instrument to prose: rewording a sentence in
-// engine/src/swarm.js silently re-bucketed results, and nothing would have
-// said so. engine/src/errors.js exists largely for this.
-//
-// The failure-reporting work also changed what this function has to catch. The engine now
-// verifies the received file against the manifest itself, so a corrupted
-// transfer arrives here as a REJECTION rather than as a successful receive
-// with a mismatching digest. Without the ERR_HASH_MISMATCH entry below it
-// would land in the generic 'transfer-error' bucket, and the loudest
-// output this tool has -- ">> N HASH MISMATCH(ES) ... stop feature work"
-// -- would never fire again.
-const OUTCOME_BY_CODE = {
-  ERR_NO_PEER: 'no-peer',
-  ERR_NO_HANDSHAKE: 'no-handshake',
-  // Should never appear in an unattended run on a private topic. If it
-  // does, the run is not measuring the network at all -- somebody reached
-  // the nameplate and spent the drop's hundred guesses (section 6).
-  ERR_ATTEMPT_CAP: 'attempt-cap',
-  ERR_HASH_MISMATCH: 'hash-mismatch',
-  ERR_SIZE_MISMATCH: 'size-mismatch',
-  ERR_CONNECTION: 'connection-lost',
-  ERR_STALLED: 'stalled',
-  // Sender only: the receiver had every byte and said, in RESULT, that it
-  // could not keep the file. Its own record for the trial says why.
-  ERR_RECEIVER_FAILED: 'receiver-failed',
-  // The accept gate. This harness's receiver asks no person, so a decline
-  // here is the engine's own: a name, a size, the disk. ERR_DECLINED is
-  // what the sender sees of any of them, with the receiver's reason.
-  ERR_DECLINED: 'declined',
-  ERR_NO_SPACE: 'no-space',
-  ERR_EXISTS: 'exists',
-  // Someone else holding this trial's code paired first. On a derived,
-  // private code that should not happen; if it does, a second machine is
-  // running the same --seed.
-  ERR_DROP_TAKEN: 'drop-taken',
-  ERR_UNSAFE_NAME: 'unsafe-name',
-  ERR_MANIFEST_INVALID: 'manifest-invalid',
-  ERR_PROTOCOL: 'protocol-error',
-  ERR_CANCELLED_PEER: 'cancelled-by-peer',
-  ABORT_ERR: 'cancelled-locally'
-}
-
+// Classifies a failure into something countable, keyed on err.code through
+// OUTCOME_BY_CODE (./scratch-trials-shared.js says why it is keyed on the
+// code and never the message).
 function classify (err) {
   if (err && OUTCOME_BY_CODE[err.code]) return OUTCOME_BY_CODE[err.code]
 
@@ -895,12 +820,6 @@ async function runSenderTrial (i, budgetMs) {
   return out
 }
 
-function percentile (sorted, p) {
-  if (sorted.length === 0) return null
-  const idx = Math.min(sorted.length - 1, Math.floor((p / 100) * sorted.length))
-  return sorted[idx]
-}
-
 function summarise (results, startNat) {
   const ok = results.filter((r) => r.outcome === 'ok')
   const rate = results.length ? (ok.length / results.length) * 100 : 0
@@ -1064,6 +983,10 @@ async function main () {
     isp,
     notes,
     addressesRecorded: recordAddresses
+  }
+  if (environmentOnly) {
+    if (outPath) await fs.promises.writeFile(outPath, JSON.stringify(environment, null, 2))
+    return
   }
   let file = null
   if (role === 'sender') {
