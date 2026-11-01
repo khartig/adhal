@@ -310,6 +310,12 @@ derives each trial's code from a shared seed, and classifies every
 failure. Its flags, failure classes, and output are documented in
 [`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md).
 
+To measure the CLIs rather than the engine, run `tools/cli-trials.js` in
+place of `engine/scratch-trials.js` in the commands below. It takes the
+same flags, plus `--mode stdout` on the receiver to measure `--stdout`
+([`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md#through-the-clis-toolscli-trialsjs)).
+Both machines must run the same harness for a run.
+
 The commands below run 20 trials in each direction as one unattended
 sequence per machine. Machine 1 receives in run A and sends in run B.
 Machine 2 does the opposite.

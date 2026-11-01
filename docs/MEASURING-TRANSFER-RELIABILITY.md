@@ -110,6 +110,7 @@ minutes off, use `--start-epoch` computed on that host.
 | `--record-addresses` | off | Keep IP addresses (public host and port, the peer's address) in the log and JSON. Off because these files get committed; without it, each address is recorded only as its kind. |
 | `--lookup-isp` | off | Record the AS (number, name, country) that this side's DHT-observed public address belongs to. **Sends that address off the machine**, as a DNS query to Team Cymru's IP-to-ASN service, which is why it is off. The address itself is not recorded. |
 | `--note <text>` | — | Free text for the log and JSON, for what the machine cannot detect: the router's firewall settings, the uplink beyond the first hop. Repeatable. |
+| `--environment-only` | off | Probe this machine and its NAT, write the result to `--out`, and exit without running a trial. `tools/cli-trials.js` uses it (below). |
 
 ### Why `--slot` defaults to 135
 
@@ -390,6 +391,80 @@ node engine/scratch-trials.js ... --seed ab-30000 --refresh 30000
 
 Use a different `--seed` per arm so the two arms never share topics. Do not
 change the default in `swarm.js` on anything less than this.
+
+## Through the CLIs: `tools/cli-trials.js`
+
+`scratch-trials.js` calls the engine directly, so it measures the engine,
+not what a user runs. `tools/cli-trials.js` runs the same schedule through
+the two CLIs: each trial spawns `ad-hal-receive` or `ad-hal-send`, gives it
+the trial's code on stdin, reads its `--json` events, and takes its exit
+status. That is how every other tool in W14 has to be driven, so it is the
+Adhal half of that comparison
+([`POSITIONING.md`](POSITIONING.md) §4). It was built on 2026-10-31.
+
+What it shares with `scratch-trials.js`, through
+`engine/scratch-trials-shared.js`: the same codes for the same seed, the
+same slots and 10 s sender lead, and the same failure buckets. So a seed
+means the same trials in both, and their outcomes read the same way. Two
+sides of one run must still use the same harness.
+
+```bash
+# receiver
+node tools/cli-trials.js --role receiver --seed "$D-$CONFIG-a" --trials 20 \
+  --start-epoch "$E" --out "$RUN_DIR/$D-cli-a-rx.json" 2>&1 | tee "$RUN_DIR/$D-cli-a-rx.log"
+# sender
+node tools/cli-trials.js --role sender --seed "$D-$CONFIG-a" --trials 20 \
+  --start-epoch "$E" --file /tmp/test.bin --out "$RUN_DIR/$D-cli-a-tx.json" 2>&1 | tee "$RUN_DIR/$D-cli-a-tx.log"
+```
+
+**What it checks that `scratch-trials.js` cannot,** because it sees the
+process from outside:
+
+- **The bytes, by a reader independent of Adhal.** The receiver's harness
+  hashes the landed file, or stdout with `--mode stdout`, and compares it
+  with the CLI's `done.sha256`. The sender's compares the digest the
+  receiver confirmed with its own hash of the source. A disagreement is
+  `hash-crosscheck-disagreed`, the loudest line in the summary.
+- **The event contract** ([`CLI-CONTRACT.md`](CLI-CONTRACT.md)): `start`
+  first, one final event and it last, and an exit status that agrees with
+  it. A trial that breaks any of these is listed under `CONTRACT`,
+  whatever its outcome.
+- **The rate with its interval.** The summary prints the 95% Wilson
+  interval beside the rate: 3 of 3 is 44% to 100%, which is why a handful
+  of trials settles nothing.
+
+**What it does not record:** the NAT and path per trial. The CLIs do not
+report them. It records each machine's environment once, at the start,
+by running `scratch-trials.js --environment-only`, so
+`scratch-trials-environment.js` writes `ENVIRONMENT.md` from its JSON as
+it does for `scratch-trials.js`.
+
+**Options** beyond those it shares with `scratch-trials.js` (`--role`,
+`--seed`, `--trials`, `--file`, `--slot`, `--start-epoch`, `--refresh`,
+`--out`, `--note`, `--lookup-isp`, `--record-addresses`):
+
+| Flag | Default | Meaning |
+| --- | --- | --- |
+| `--mode` | `dir` | Receiver only. `dir` lands each file in a temporary directory; `stdout` runs the receiver with `--stdout` and hashes what it writes. |
+| `--receiver-timeout` | the rest of the slot | The receiver's `ADHAL_JOIN_TIMEOUT`. The default matches what `scratch-trials.js` gives its receiver; `30000` measures the CLI's own default instead. |
+| `--no-environment` | probe on | Skip the environment probe. For tests: the probe uses the public DHT. |
+| `--lead` | `10` | The sender's start within its slot, in seconds. For tests: a different lead measures something else. |
+
+**Outcomes** are the buckets in [Failure classes](#failure-classes), keyed
+on the final event's `code`, plus four of its own:
+
+| Outcome | Meaning |
+| --- | --- |
+| `killed-at-slot-end` | The CLI was still running when the slot ran out, and the harness stopped it, with SIGINT and then SIGKILL. A CLI's own join timeout fires first, so this is not a peer that never came: it is a hang, or a transfer too slow for the slot. `completedMs` is null; `bytes` says how far it got. Raise `--slot` for a large file or a slow path. |
+| `no-final-event` | The CLI exited without a `done` or `failed`: it crashed. |
+| `hash-crosscheck-disagreed` | The CLI said `done`, and this harness hashed different bytes. |
+| `output-closed`, `usage-error`, `code-invalid` | The CLI-level codes (CLI-CONTRACT.md §4). In an unattended run, any of them means the harness is misconfigured. |
+
+**One trap, found building it.** Each CLI's budget is its
+`ADHAL_JOIN_TIMEOUT`, but the CLI starts that timer only once Node has
+loaded it. Stopping the CLI at the budget's end therefore beat its own
+timeout, and a trial that found no peer was recorded as stopped. The
+harness now stops a CLI 1.5 s after its budget, inside the 5 s teardown.
 
 ## Interpreting honestly
 

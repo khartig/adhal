@@ -142,7 +142,9 @@ has all 21).
 
 - **W14 — Head-to-head reliability** against other peer-to-peer
   file-transfer tools, on identical network pairs, including
-  **CGNAT↔CGNAT** and symmetric NAT. Reuse `scratch-trials.js`. **This
+  **CGNAT↔CGNAT** and symmetric NAT. Adhal's side runs through its CLIs,
+  as every other tool's must, with `tools/cli-trials.js` (built
+  2026-10-31; the other tools' drivers are still to write). **This
   single experiment tests the central thesis and decides how much the
   relay matters.** The method, the tools, and the network pairs are in
   [`POSITIONING.md`](POSITIONING.md) §4, and so will the results be.

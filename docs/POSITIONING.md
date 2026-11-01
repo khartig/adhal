@@ -357,9 +357,11 @@ be trusted, and it is where the results will go.
 
 **The experiment.** The same file, sent by each tool on identical network
 pairs, many times, with a success rate and a timing distribution for each
-pair. `scratch-trials.js` is the harness for Adhal
-([`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md));
-the other tools need an equivalent driver. **This single experiment tests
+pair. `tools/cli-trials.js` is the harness for Adhal: it drives the CLIs,
+as the other tools must be driven, on the schedule and failure buckets
+`scratch-trials.js` uses
+([`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md#through-the-clis-toolscli-trialsjs)).
+The other tools need an equivalent driver. **This single experiment tests
 the central thesis**, serverless-by-default rendezvous, and decides how
 much the relay matters.
 
