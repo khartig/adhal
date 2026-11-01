@@ -66,7 +66,11 @@ The contract, then:
 
 - **Exit `0` is the only success.** A script must check it, with
   `set -o pipefail` in a shell pipeline, since a pipeline's status is
-  otherwise its last command's.
+  otherwise its last command's. Read it from `$?`, not from bash's
+  `PIPESTATUS`, at an interactive prompt. A terminal integration built
+  on bash-preexec runs a `DEBUG` trap before every command, and the trap
+  overwrites `PIPESTATUS` before the next command can read it. Found on
+  2026-10-31, when one printed `0` for a receiver that exited 1.
 - On a failure after the first byte, stdout is closed where it stopped,
   the exit status is nonzero, and the `failed` event (§3) says how many
   bytes were written (`bytes`).

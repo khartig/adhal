@@ -889,3 +889,62 @@ fixed, each with a test that fails with the bug planted back:
 
 `pnpm test` afterward: 617 of 618 CLI tests passed with the one platform
 skip, and 92 of 92 conformance tests.
+
+**`--json` into a directory again, 2026-10-31,** after both fixes, with a
+10 MiB file each way. The event files were kept outside the repository.
+
+| | Linux (Starlink) to macOS (Comcast) | macOS (Comcast) to Linux (Starlink) |
+| --- | --- | --- |
+| Digest, sender and receiver | `b39aeb3b…`, the same on both | `f2e1b08f…`, the same on both |
+| Paired, from the sender's start | 2.8 s | 4.0 s |
+| `accepted` to `done` | 11.3 s, about 0.93 MB/s | 29.9 s, about 0.35 MB/s |
+| Receiver's `acknowledged` | true | true |
+
+All four event files parse as JSON lines, each starts with `start` and
+ends with exactly one `done`, `ms` never goes backward, and no `progress`
+comes before `accepted`. Progress events were at least 250 ms apart. The
+file macOS received hashes to the sender's digest on disk; the Linux copy
+was not hashed separately. Both receivers landed the file as
+`test (1).bin` and `test (2).bin`, with `declaredName` still `test.bin`,
+because earlier runs had left a `test.bin` in each directory: the
+no-overwrite rule, working. None of these runs passed `--code-on-argv`,
+so the moved warning was not exercised on the real path. The 29.9 s is
+one run, and the same direction took 11.3 s on 2026-10-29: it says
+nothing about the path until there are repeated trials.
+
+**`--stdout` from Linux to macOS, 2026-10-31,** with a 10 MiB file, the
+receiver run as `ad-hal-receive --stdout --json --yes | shasum -a 256`
+under `set -o pipefail`. The bytes `shasum` read from stdout hashed to
+`8485a578…`, the digest in both sides' `done`, and the pipeline exited 0.
+The sender paired 4.8 s after it started, `accepted` to `done` took
+14.4 s on both sides (about 0.73 MB/s), and `acknowledged` was true. Both
+event files parse, start with `start`, end with one `done`, and carry no
+`progress` before `accepted`. So `--stdout` has now carried a real file
+in both directions. Only this direction's stdout was hashed by a reader
+independent of Adhal: on 2026-10-29, macOS to Linux ended in matching
+`done` digests, but the digest `sha256sum` printed was not recorded.
+
+**The early close with macOS receiving, 2026-10-31.** The receiver ran
+as `ad-hal-receive --stdout --json --yes | head -c 100000`, and Linux
+sent a 10 MiB file. The receiver ended in `ERR_OUTPUT_CLOSED` after
+196,608 bytes, and the sender in `ERR_CANCELLED_PEER` with `peerReason`
+"the receiver's output was closed", after handing 1,507,328 bytes to the
+transport. Both event files parse, start with `start`, and end with one
+`failed`. The exit status was not confirmed: the Mac terminal printed
+`exit 0` for `${PIPESTATUS[@]}`, where `1 0` was expected, and the Linux
+side recorded none. The same pipeline under macOS's `/bin/bash` 3.2,
+against a local testnet with the real CLIs, printed `exit 1 0`, and
+cli/test/json-events.test.js asserts exit 1 for this case. The cause was the
+shell, not Adhal. The terminal is Warp, which runs bash with
+bash-preexec's `DEBUG` trap (`__bp_preexec_invoke_exec`) installed, and running the trap before the
+`echo` overwrote `PIPESTATUS`: in that terminal, `false | true` leaves
+`PIPESTATUS=[0]`. So that terminal cannot report a pipeline's statuses
+through `PIPESTATUS` at all. `CLI-CONTRACT.md` §2.1 now says to read `$?`.
+Rerun the same evening with `echo "exit $?"` under `pipefail`, it is
+confirmed: the receiver exited 1, ending in `ERR_OUTPUT_CLOSED` after
+196,608 bytes, and the sender exited 1, ending in `ERR_CANCELLED_PEER`
+with the reason, after 589,824 bytes.
+
+That completes the smoke tests on the real path, in both directions.
+What none of them exercised is the `code-on-argv` warning's place after
+`start`, which only cli/test/json-events.test.js checks.
