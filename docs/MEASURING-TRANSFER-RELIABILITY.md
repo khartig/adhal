@@ -417,6 +417,10 @@ node tools/cli-trials.js --role sender --seed "$D-$CONFIG-a" --trials 20 \
   --start-epoch "$E" --file /tmp/test.bin --out "$RUN_DIR/$D-cli-a-tx.json" 2>&1 | tee "$RUN_DIR/$D-cli-a-tx.log"
 ```
 
+`tools/cli-trials-run.sh` runs a run A and a run B in the other direction
+with it, on both machines, from a start time and a config name
+([`TESTING.md`](TESTING.md#a-measured-rate)).
+
 **What it checks that `scratch-trials.js` cannot,** because it sees the
 process from outside:
 

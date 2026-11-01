@@ -96,7 +96,9 @@ function readSide (jsonPath) {
     host: env
       ? { hostname: env.hostname, platform: env.os?.platform, arch: env.os?.arch, node: env.node }
       : log?.host ?? null,
-    build: env?.build ?? log?.build ?? null,
+    // tools/cli-trials.js writes `build` at the top level too, for a run
+    // made without the environment probe.
+    build: env?.build ?? data.build ?? log?.build ?? null,
     env,
     results: data.results
   }

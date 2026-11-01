@@ -316,6 +316,35 @@ same flags, plus `--mode stdout` on the receiver to measure `--stdout`
 ([`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md#through-the-clis-toolscli-trialsjs)).
 Both machines must run the same harness for a run.
 
+**`tools/cli-trials-run.sh` runs that whole sequence with the CLI
+harness,** and derives everything the two machines must agree on from two
+values: the start time and the config name. Start it on either machine
+first, without `--start`:
+
+```bash
+tools/cli-trials-run.sh --machine 1 --config starlink-cgnat-to-comcast-home-router \
+  --note "eero firewall on, default rules"
+```
+
+It picks a start time about 5 minutes out, prints it, and prints the
+command for the other machine with that time in it, for example:
+
+```bash
+tools/cli-trials-run.sh --machine 2 --config starlink-cgnat-to-comcast-home-router --start 1793564363
+```
+
+Machine 1 receives in run A and sends in run B, and machine 2 does the
+opposite. Run B starts once run A's last slot is over, plus `--gap`
+(5 minutes). The seeds and the file names come from the start time in
+UTC, so both machines name everything the same, and two runs on one
+config in one day do not collide:
+`~/trials/20261101T2019Z/<config>/20261101T2019Z-cli-a-rx.json`. It
+creates the 10 MiB `/tmp/test.bin` if it is missing, and refuses one that
+is empty. `--plan` prints the schedule and the names without running
+anything; `--help` lists the rest. When both machines are done, copy the
+other machine's files into the run directory and write `ENVIRONMENT.md`,
+as below.
+
 The commands below run 20 trials in each direction as one unattended
 sequence per machine. Machine 1 receives in run A and sends in run B.
 Machine 2 does the opposite.
