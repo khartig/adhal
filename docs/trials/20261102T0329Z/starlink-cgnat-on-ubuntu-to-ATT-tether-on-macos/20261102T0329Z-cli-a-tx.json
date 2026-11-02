@@ -1,0 +1,1667 @@
+{
+  "tool": "cli-trials",
+  "role": "sender",
+  "seed": "20261102T0329Z-starlink-cgnat-on-ubuntu-to-ATT-tether-on-macos-a",
+  "trials": 20,
+  "slotSeconds": 240,
+  "refreshMs": 4000,
+  "leadMs": 10000,
+  "startEpoch": 1793590149,
+  "startedAtEpochMs": 1793589878146,
+  "endedAtEpochMs": 1793594803066,
+  "file": {
+    "path": "/tmp/test.bin",
+    "size": 10485760,
+    "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7"
+  },
+  "environment": {
+    "hostname": "DecentralizedDefender.local",
+    "os": {
+      "platform": "darwin",
+      "release": "27.0.0",
+      "arch": "arm64",
+      "name": "macOS",
+      "version": "27.0.1",
+      "build": "26A434",
+      "pretty": "macOS 27.0.1 (26A434)"
+    },
+    "node": "v24.22.1",
+    "build": {
+      "commit": "d188c2e4e902",
+      "dirty": false,
+      "versions": {
+        "hyperswarm": "4.17.1",
+        "hyperdht": "6.34.0",
+        "udx-native": "1.21.1"
+      }
+    },
+    "interfaces": {
+      "ipv4": 2,
+      "cgnatIpv4": 0,
+      "globalIpv6": true
+    },
+    "access": {
+      "interface": "en0",
+      "type": "wifi",
+      "detail": "Wi-Fi",
+      "gatewayKind": "private",
+      "hotspot": null
+    },
+    "vpn": {
+      "onRoute": false,
+      "tunnelInterfaces": [],
+      "services": [
+        {
+          "name": "ProtonVPN",
+          "status": "Disconnected"
+        }
+      ]
+    },
+    "hostFirewall": {
+      "tool": "macOS application firewall; pf not checked, it needs root",
+      "enabled": false,
+      "blockAll": false,
+      "stealth": false
+    },
+    "natAtStart": {
+      "kind": "consistent",
+      "firewalled": true,
+      "portPreserved": false,
+      "samples": 16
+    },
+    "isp": {
+      "asn": 7018,
+      "name": "ATT-INTERNET4 - AT&T Enterprises, LLC, US",
+      "country": "US",
+      "source": "Team Cymru IP-to-ASN (DNS)"
+    },
+    "notes": [
+      "AT&T tether via Samsung Galaxy S24+, 1-2 bars, 5G"
+    ],
+    "addressesRecorded": false
+  },
+  "environmentSkipped": false,
+  "environmentError": null,
+  "build": {
+    "commit": "d188c2e4e902",
+    "dirty": false
+  },
+  "notes": [
+    "AT&T tether via Samsung Galaxy S24+, 1-2 bars, 5G"
+  ],
+  "results": [
+    {
+      "trial": 0,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 4284,
+      "completedMs": 44910,
+      "transferMs": 40511,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 96,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 170,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T03:29:19.212Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 170,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3986,
+          "role": "send",
+          "peer": "a44025fef913"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 4276,
+          "role": "send",
+          "peer": "a44025fef913"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 4391,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 44902,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793590159008,
+      "endedAtEpochMs": 1793590206131
+    },
+    {
+      "trial": 1,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 5586,
+      "completedMs": 69889,
+      "transferMs": 64156,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 82,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 162,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T03:33:19.209Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 162,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 5191,
+          "role": "send",
+          "peer": "57024e08afa9"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 5584,
+          "role": "send",
+          "peer": "57024e08afa9"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 5731,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 69887,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793590399002,
+      "endedAtEpochMs": 1793590470048
+    },
+    {
+      "trial": 2,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 5393,
+      "completedMs": 56355,
+      "transferMs": 50644,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 114,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 176,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T03:37:19.228Z",
+          "joinTimeout": 224996,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 177,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 5184,
+          "role": "send",
+          "peer": "bd319a521504"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 5388,
+          "role": "send",
+          "peer": "bd319a521504"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 5706,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 56350,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793590639005,
+      "endedAtEpochMs": 1793590696662
+    },
+    {
+      "trial": 3,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 5801,
+      "completedMs": 55129,
+      "transferMs": 49190,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 113,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 198,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T03:41:19.247Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 198,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 5241,
+          "role": "send",
+          "peer": "72a51fd94c34"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 5797,
+          "role": "send",
+          "peer": "72a51fd94c34"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 5935,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 55125,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793590879004,
+      "endedAtEpochMs": 1793590935712
+    },
+    {
+      "trial": 4,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 4361,
+      "completedMs": 102864,
+      "transferMs": 98365,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 90,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 157,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T03:45:19.196Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 158,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3903,
+          "role": "send",
+          "peer": "b5c1e0b4b6e9"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 4358,
+          "role": "send",
+          "peer": "b5c1e0b4b6e9"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 4496,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 102861,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793591119003,
+      "endedAtEpochMs": 1793591223056
+    },
+    {
+      "trial": 5,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 5627,
+      "completedMs": 59089,
+      "transferMs": 53310,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 126,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 153,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T03:49:19.194Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 153,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 5423,
+          "role": "send",
+          "peer": "e35d1efedc0a"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 5624,
+          "role": "send",
+          "peer": "e35d1efedc0a"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 5776,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 59086,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793591359003,
+      "endedAtEpochMs": 1793591419639
+    },
+    {
+      "trial": 6,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 4892,
+      "completedMs": 76497,
+      "transferMs": 71272,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 83,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 203,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T03:53:19.270Z",
+          "joinTimeout": 224996,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 203,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 4579,
+          "role": "send",
+          "peer": "c39d8e574d49"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 4887,
+          "role": "send",
+          "peer": "c39d8e574d49"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 5220,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 76492,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793591599005,
+      "endedAtEpochMs": 1793591676788
+    },
+    {
+      "trial": 7,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 6618,
+      "completedMs": 66272,
+      "transferMs": 59525,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 129,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 215,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T03:57:19.266Z",
+          "joinTimeout": 224992,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 216,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 6242,
+          "role": "send",
+          "peer": "602b69609d62"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 6609,
+          "role": "send",
+          "peer": "602b69609d62"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 6738,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 66263,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793591839009,
+      "endedAtEpochMs": 1793591906392
+    },
+    {
+      "trial": 8,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 3827,
+      "completedMs": 47804,
+      "transferMs": 43840,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 108,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 187,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:01:19.236Z",
+          "joinTimeout": 224995,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 188,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3528,
+          "role": "send",
+          "peer": "0d5ae2ed8088"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 3820,
+          "role": "send",
+          "peer": "0d5ae2ed8088"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 3957,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 47797,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793592079007,
+      "endedAtEpochMs": 1793592128048
+    },
+    {
+      "trial": 9,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 3987,
+      "completedMs": 43816,
+      "transferMs": 39577,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 51,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 214,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:05:19.255Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 215,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3789,
+          "role": "send",
+          "peer": "b649102b75b5"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 3984,
+          "role": "send",
+          "peer": "b649102b75b5"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 4236,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 43813,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793592319003,
+      "endedAtEpochMs": 1793592376457
+    },
+    {
+      "trial": 10,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 6202,
+      "completedMs": 51154,
+      "transferMs": 44748,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 112,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 170,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:09:19.220Z",
+          "joinTimeout": 224995,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 170,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 5811,
+          "role": "send",
+          "peer": "66f4784716a8"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 6195,
+          "role": "send",
+          "peer": "66f4784716a8"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 6399,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 51147,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793592559007,
+      "endedAtEpochMs": 1793592611450
+    },
+    {
+      "trial": 11,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 5030,
+      "completedMs": 61425,
+      "transferMs": 56230,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 130,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 161,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:13:19.203Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 162,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 4776,
+          "role": "send",
+          "peer": "b330ead122af"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 5026,
+          "role": "send",
+          "peer": "b330ead122af"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 5191,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 61421,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793592799004,
+      "endedAtEpochMs": 1793592861949
+    },
+    {
+      "trial": 12,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 5958,
+      "completedMs": 55143,
+      "transferMs": 49019,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 68,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 176,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:17:19.238Z",
+          "joinTimeout": 224999,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 176,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 5691,
+          "role": "send",
+          "peer": "a312513e6ef5"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 5956,
+          "role": "send",
+          "peer": "a312513e6ef5"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 6122,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 55141,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793593039002,
+      "endedAtEpochMs": 1793593095416
+    },
+    {
+      "trial": 13,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 4641,
+      "completedMs": 51263,
+      "transferMs": 46490,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 108,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 189,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:21:19.255Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 190,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 4312,
+          "role": "send",
+          "peer": "ec6a6cb464fb"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 4632,
+          "role": "send",
+          "peer": "ec6a6cb464fb"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 4764,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 51254,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793593279009,
+      "endedAtEpochMs": 1793593331836
+    },
+    {
+      "trial": 14,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 3888,
+      "completedMs": 47466,
+      "transferMs": 43363,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 62,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 175,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:25:19.229Z",
+          "joinTimeout": 224996,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 175,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3424,
+          "role": "send",
+          "peer": "24ced981c33c"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 3883,
+          "role": "send",
+          "peer": "24ced981c33c"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 4098,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 47461,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793593519005,
+      "endedAtEpochMs": 1793593567650
+    },
+    {
+      "trial": 15,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 4116,
+      "completedMs": 57927,
+      "transferMs": 53655,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 77,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 164,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:29:19.216Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 164,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3830,
+          "role": "send",
+          "peer": "31f57ddc12c4"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 4112,
+          "role": "send",
+          "peer": "31f57ddc12c4"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 4268,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 57923,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793593759004,
+      "endedAtEpochMs": 1793593818478
+    },
+    {
+      "trial": 16,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 3299,
+      "completedMs": 84938,
+      "transferMs": 81466,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 93,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 195,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:33:19.249Z",
+          "joinTimeout": 224996,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 195,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3022,
+          "role": "send",
+          "peer": "33cb93908ec6"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 3294,
+          "role": "send",
+          "peer": "33cb93908ec6"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 3467,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 84933,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793593999005,
+      "endedAtEpochMs": 1793594085090
+    },
+    {
+      "trial": 17,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 5106,
+      "completedMs": 100377,
+      "transferMs": 95104,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 92,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 160,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:37:19.211Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 160,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3787,
+          "role": "send",
+          "peer": "fafff96f8fdf"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 5102,
+          "role": "send",
+          "peer": "fafff96f8fdf"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 5269,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 100373,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793594239004,
+      "endedAtEpochMs": 1793594340654
+    },
+    {
+      "trial": 18,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 4594,
+      "completedMs": 93366,
+      "transferMs": 88579,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 89,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 167,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:41:19.216Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 167,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 4334,
+          "role": "send",
+          "peer": "f1af2584bf66"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 4591,
+          "role": "send",
+          "peer": "f1af2584bf66"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 4784,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 93363,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793594479003,
+      "endedAtEpochMs": 1793594573846
+    },
+    {
+      "trial": 19,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 3543,
+      "completedMs": 82597,
+      "transferMs": 78926,
+      "bytes": 10485760,
+      "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 138,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 173,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-02T04:45:19.212Z",
+          "joinTimeout": 224999,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 173,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 3256,
+          "role": "send",
+          "peer": "d5be1ae22eb2"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 3541,
+          "role": "send",
+          "peer": "d5be1ae22eb2"
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 3669,
+          "role": "send",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 82595,
+          "role": "send",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7",
+          "resumedFrom": 0
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793594719002,
+      "endedAtEpochMs": 1793594802894
+    }
+  ],
+  "summary": {
+    "succeeded": 20,
+    "trials": 20,
+    "skipped": 0,
+    "rate": 1,
+    "wilson95": {
+      "low": 0.8388748419471806,
+      "high": 1
+    },
+    "connectedMs": {
+      "median": 4892,
+      "p90": 6202,
+      "min": 3299,
+      "max": 6618
+    },
+    "completedMs": {
+      "median": 59089,
+      "p90": 100377,
+      "min": 43816,
+      "max": 102864
+    },
+    "transferMs": {
+      "median": 53655,
+      "p90": 95104,
+      "min": 39577,
+      "max": 98365
+    },
+    "failures": {},
+    "contractViolations": [],
+    "crossCheckDisagreed": [],
+    "badConfirmations": 0,
+    "unacknowledged": []
+  }
+}

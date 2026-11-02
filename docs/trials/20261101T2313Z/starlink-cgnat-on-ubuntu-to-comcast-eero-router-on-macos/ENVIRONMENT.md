@@ -17,7 +17,7 @@ Access type: Wi-Fi via wlp4s0b1 (driver b43) to the Starlink router, satellite u
 NAT: DHT saw consistent, port translated, firewalled at start; Starlink CGNAT, per the run's configuration (the host has no 100.64.0.0/10 address, so the CGNAT is beyond the Starlink router)
 Firewall/router: host firewall enabled: ufw; DHT finds it firewalled; router: Starlink, settings not recorded
 VPN/relay/hotspot: VPN: not on the route; hotspot: none detected; relay: none (the harness configures no relay)
-Notes: recorded as "eero firewall on, default rules". The --note was passed on this machine, but the eero is on Machine 2's side (see there)
+Notes: recorded as "eero firewall on, default rules". The --note was passed on this machine, but this side does not go through an eero. It describes Machine 2's router (see there)
 
 ## Machine 2
 
@@ -26,7 +26,7 @@ OS: macOS 27.0.1 (26A434)
 Network/carrier/ISP: Comcast Xfinity, per the run's configuration; not looked up for this run (no --lookup-isp)
 Access type: Wi-Fi via en0 (Wi-Fi) to an eero router on Comcast Xfinity, per the run's configuration; the eero's uplink not recorded
 NAT: DHT saw consistent, port preserved, firewalled at start; eero home router NAT; no CGNAT is known on this side
-Firewall/router: host firewall disabled, stealth mode off (macOS application firewall); DHT finds it firewalled; router: eero, firewall on, default rules (from the note recorded on Machine 1)
+Firewall/router: host firewall disabled, stealth mode off (macOS application firewall); DHT finds it firewalled; router: eero, firewall on, default rules (from the note, which was recorded on Machine 1)
 VPN/relay/hotspot: VPN: not on the route; configured services: ProtonVPN (disconnected); hotspot: none detected; relay: none (the harness configures no relay)
 
 ## Results
