@@ -17,7 +17,7 @@ Access type: Wi-Fi via wlp4s0b1 (driver b43) on the Starlink network, satellite 
 NAT: DHT saw consistent, port translated, firewalled at start; Starlink CGNAT, per the run's configuration (the host has no 100.64.0.0/10 address, so the CGNAT is upstream and not visible from here)
 Firewall/router: host firewall enabled: ufw; DHT finds it firewalled; router: Starlink, settings not recorded
 VPN/relay/hotspot: VPN: not on the route; hotspot: none detected; relay: none (the harness configures no relay)
-Notes: recorded as "starlnk wifi on Ubuntu server; eero firewall on, default rules". The Starlink Wi-Fi part is right. The eero part is left over from earlier runs and describes neither machine here: this side does not go through an eero, and Machine 2 was on a phone hotspot
+Notes: recorded as "starlnk wifi on Ubuntu server; eero firewall on, default rules". The Starlink Wi-Fi part is right. The eero part is left over from earlier runs and describes neither machine here: this side does not go through an eero, and Machine 2 was on a phone hotspot. That wording is not accurate either: the eero app has no firewall setting. It matches, word for word, an example note that `docs/TESTING.md` gave at the time.
 
 ## Machine 2
 

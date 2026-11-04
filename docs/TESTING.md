@@ -323,7 +323,7 @@ first, without `--start`:
 
 ```bash
 tools/cli-trials-run.sh --machine 1 --config starlink-cgnat-to-comcast-home-router \
-  --note "eero firewall on, default rules"
+  --note "eero behind an Xfinity gateway in router mode (double NAT)"
 ```
 
 It picks a start time about 5 minutes out, prints it, and prints the
@@ -368,7 +368,7 @@ E=<the start time>
 D=<today, e.g. 20261012>
 CONFIG=starlink-cgnat-to-comcast-home-router
 RUN_DIR=~/trials/$D/$CONFIG
-NOTES=(--note "<what this machine cannot detect, e.g. eero firewall on, default rules>")
+NOTES=(--note "<what this machine cannot detect, e.g. eero behind an Xfinity gateway in router mode (double NAT)>")
 mkdir -p "$RUN_DIR"
 node engine/scratch-trials.js --role receiver --seed "$D-$CONFIG-a" --trials 20 \
   --start-epoch "$E" --lookup-isp "${NOTES[@]}" \

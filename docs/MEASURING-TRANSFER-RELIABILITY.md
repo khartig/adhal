@@ -216,7 +216,7 @@ vpn: not on the route; services: ProtonVPN disconnected
 host firewall: disabled, stealth mode off (macOS application firewall; pf not checked, it needs root)
 nat at start: consistent, port preserved, firewalled, 16 samples
 isp: AS7922 COMCAST-7922 - Comcast Cable Communications, LLC, US
-note: eero firewall on
+note: eero behind an Xfinity gateway in router mode (double NAT)
 ```
 
 - **`build`** is the commit and the transport versions, so a write-up no

@@ -18,8 +18,9 @@ Host: DecentralizedDefender.local (darwin/arm64), node v24.21.0
 OS: macOS 26.5.2 (25F84), read on 2026-10-14; not recorded at the time of the run
 Network/carrier/ISP: Comcast Xfinity
 Access type: not recorded (Wi-Fi or Ethernet to the eero)
-NAT: eero home router NAT; type not recorded
-Firewall/router: eero, firewall enabled; rules not recorded
+NAT: double NAT (the eero, then the Xfinity gateway in router mode); type not recorded
+Firewall/router: eero router; host firewall not recorded. This line used to say "eero, firewall enabled", which was not accurate: the eero app has no firewall setting
+Router configuration: recorded on 2026-11-03, and the same for every run on this network. An eero Pro 6E in Automatic (DHCP & NAT) mode, behind an Xfinity gateway in router mode: a double NAT, with the eero's own internet address private. UPnP on, which Adhal does not use (hyperswarm 4.17.1 and hyperdht 6.34.0 have no UPnP code). Port forwarding enabled, with no rules and no reservations. IPv6 off. eero Labs off. eero software 26.13.0.36807 when checked; the version at the time of the run was not recorded. Uplink: Comcast Xfinity, about 300 Mbit/s down and 35 Mbit/s up in practice (the plan says up to 1.3 Gbit/s)
 VPN/relay/hotspot: not recorded
 
 ## Machine 2

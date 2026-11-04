@@ -25,8 +25,9 @@ Host: DecentralizedDefender.local (darwin/arm64), node v24.22.1
 OS: macOS 27.0.1 (26A434)
 Network/carrier/ISP: AS212238 CDNEXT - Datacamp Limited, GB. This is the network of the ProtonVPN exit server, which is all the lookup can see. The exit server's location was not recorded. Underneath the tunnel: Comcast Xfinity, per the run's configuration
 Access type: a VPN tunnel via utun4 (ProtonVPN, WireGuard protocol, per the note), carried over Wi-Fi to an eero router on Comcast Xfinity
-NAT: DHT saw randomized, firewalled at start. This is the VPN exit's NAT, the first randomizing NAT in these trials. `scratch-trials.js --environment-only`, run before the trials with the same VPN configuration, also saw it as randomized. The eero's NAT is inside the tunnel, so the DHT does not see it. No CGNAT is known on this side
-Firewall/router: host firewall disabled, stealth mode off (macOS application firewall); DHT finds it firewalled; router: eero, per the note; its rules not recorded for this run
+NAT: DHT saw randomized, firewalled at start. This is the VPN exit's NAT, the first randomizing NAT in these trials. `scratch-trials.js --environment-only`, run before the trials with the same VPN configuration, also saw it as randomized. The eero's NAT and the Xfinity gateway's are inside the tunnel, so the DHT does not see them. No CGNAT is known on this side
+Firewall/router: host firewall disabled, stealth mode off (macOS application firewall); DHT finds it firewalled; router: eero, per the note
+Router configuration: recorded on 2026-11-03, and the same for every run on this network. An eero Pro 6E in Automatic (DHCP & NAT) mode, behind an Xfinity gateway in router mode: a double NAT, with the eero's own internet address private. UPnP on, which Adhal does not use (hyperswarm 4.17.1 and hyperdht 6.34.0 have no UPnP code). Port forwarding enabled, with no rules and no reservations. IPv6 off. eero Labs off. eero software 26.13.0.36807 when checked; the version at the time of the run was not recorded. Uplink: Comcast Xfinity, about 300 Mbit/s down and 35 Mbit/s up in practice (the plan says up to 1.3 Gbit/s)
 VPN/relay/hotspot: VPN: the route to the internet went through a tunnel; configured services: ProtonVPN (connected); hotspot: none detected; relay: none (the harness configures no relay)
 Notes: Proton VPN. Wireguard protocol. Eero router
 

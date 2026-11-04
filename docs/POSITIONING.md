@@ -378,8 +378,10 @@ much the relay matters.
   guest Wi-Fi. Adhal's same-machine baseline is 20 of 20 (2026-10-18,
   [`ARCHITECTURE.md`](ARCHITECTURE.md)). The isolated case, guest and
   main Wi-Fi behind one eero Pro 6E, is 0 of 20 in both directions
-  (2026-10-19): the router did not hairpin, so only a relay connects
-  that pair. The other tools have not been run on it;
+  (2026-10-19): the punch through their shared address failed. That
+  address is an Xfinity gateway's, in router mode in front of the eero,
+  so it was not hairpinned, and only a relay connects that pair. The
+  other tools have not been run on it;
 - a mobile hotspot and a corporate network.
 
 **How it is read.**

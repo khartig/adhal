@@ -13,9 +13,10 @@ Run B: Machine 1 sender, Machine 2 receiver (seed `20261019-eero-guest-to-eero-m
 Host: DecentralizedDefender.local (darwin/arm64), node v24.21.0
 OS: macOS 26.5.2 (25F84)
 Network/carrier/ISP: AS7922 COMCAST-7922 - Comcast Cable Communications, LLC, US
-Access type: Wi-Fi via en0 (Wi-Fi) to the eero Pro 6E's guest network (gateway 192.168.12.1), per the run's configuration; the eero's uplink is Comcast Xfinity
-NAT: DHT saw consistent, port preserved, firewalled at start; per trial: consistent 20, port preserved on all 20; eero home router NAT, the same one as Machine 2's, and the same public IP; no CGNAT is known on this side
+Access type: Wi-Fi via en0 (Wi-Fi) to the eero Pro 6E's guest network (gateway 192.168.12.1), per the run's configuration; the eero's uplink is an Xfinity gateway in router mode, on Comcast Xfinity
+NAT: DHT saw consistent, port preserved, firewalled at start; per trial: consistent 20, port preserved on all 20; double NAT (the eero, then the Xfinity gateway in router mode), the same as Machine 2's, and the same public IP, which is the gateway's; no CGNAT is known on this side
 Firewall/router: host firewall disabled, stealth mode off (macOS application firewall); DHT finds it firewalled; router: eero Pro 6E, guest network isolation on, other rules not recorded
+Router configuration: recorded on 2026-11-03, and the same for every run on this network, except the guest network, which was on only for this run. An eero Pro 6E in Automatic (DHCP & NAT) mode, behind an Xfinity gateway in router mode: a double NAT, with the eero's own internet address private. UPnP on, which Adhal does not use (hyperswarm 4.17.1 and hyperdht 6.34.0 have no UPnP code). Port forwarding enabled, with no rules and no reservations. IPv6 off. eero Labs off. eero software 26.13.0.36807 when checked; the version at the time of the run was not recorded. Uplink: Comcast Xfinity, about 300 Mbit/s down and 35 Mbit/s up in practice (the plan says up to 1.3 Gbit/s)
 VPN/relay/hotspot: VPN: not on the route; configured services: ProtonVPN (disconnected); hotspot: none detected; relay: none (the harness configures no relay)
 Notes: eero guest Wi-Fi, isolated from the main LAN; same eero and Comcast public IP as the peer; router: eero Pro 6E
 
@@ -24,9 +25,10 @@ Notes: eero guest Wi-Fi, isolated from the main LAN; same eero and Comcast publi
 Host: agenticMaster (linux/x64), node v24.21.0
 OS: Ubuntu 24.04.4 LTS
 Network/carrier/ISP: AS7922 COMCAST-7922 - Comcast Cable Communications, LLC, US
-Access type: Wi-Fi via wlp4s0b1 (driver b43) to the eero Pro 6E's main network (gateway 192.168.4.1), per the run's configuration; the eero's uplink is Comcast Xfinity
-NAT: DHT saw consistent, port preserved, firewalled at start; per trial: consistent 20, port preserved on 19, translated on run B trial 1 (which failed like the rest); eero home router NAT, the same one as Machine 1's, and the same public IP; no CGNAT is known on this side
+Access type: Wi-Fi via wlp4s0b1 (driver b43) to the eero Pro 6E's main network (gateway 192.168.4.1), per the run's configuration; the eero's uplink is an Xfinity gateway in router mode, on Comcast Xfinity
+NAT: DHT saw consistent, port preserved, firewalled at start; per trial: consistent 20, port preserved on 19, translated on run B trial 1 (which failed like the rest); double NAT (the eero, then the Xfinity gateway in router mode), the same as Machine 1's, and the same public IP, which is the gateway's; no CGNAT is known on this side
 Firewall/router: host firewall enabled: ufw; DHT finds it firewalled; router: eero Pro 6E, main network, rules not recorded
+Router configuration: recorded on 2026-11-03, and the same for every run on this network, except the guest network, which was on only for this run. An eero Pro 6E in Automatic (DHCP & NAT) mode, behind an Xfinity gateway in router mode: a double NAT, with the eero's own internet address private. UPnP on, which Adhal does not use (hyperswarm 4.17.1 and hyperdht 6.34.0 have no UPnP code). Port forwarding enabled, with no rules and no reservations. IPv6 off. eero Labs off. eero software 26.13.0.36807 when checked; the version at the time of the run was not recorded. Uplink: Comcast Xfinity, about 300 Mbit/s down and 35 Mbit/s up in practice (the plan says up to 1.3 Gbit/s)
 VPN/relay/hotspot: VPN: not on the route; hotspot: none detected; relay: none (the harness configures no relay)
 Notes: eero main Wi-Fi on Comcast Xfinity; same eero and Comcast public IP as the peer; router: eero Pro 6E
 
@@ -86,7 +88,7 @@ Addresses: recorded with `--record-addresses`, then redacted before commit. Both
 
 ## What the run shows
 
-**No direct path, in either direction.** All 40 records are `no-peer`. Every receiver announced within 3.4 to 7.9 s of its slot, so each trial's peer was on the DHT for the whole 120 s the sender searched. The two machines are behind one eero with one public IP, on subnets the guest network's isolation keeps apart. With the same public IP on both sides, hyperdht 6.34.0 races a LAN ping against a hole punch to the shared public address (`lib/connect.js`, lines 248-270). Isolation drops the LAN ping, and the punch needs the router to hairpin, which it did not. Whether the eero does not hairpin at all, or its guest isolation also drops hairpinned traffic, cannot be told apart from here. Either way, a relay is the only path for this pair.
+**No direct path, in either direction.** All 40 records are `no-peer`. Every receiver announced within 3.4 to 7.9 s of its slot, so each trial's peer was on the DHT for the whole 120 s the sender searched. The two machines are behind one eero with one public IP, on subnets the guest network's isolation keeps apart. With the same public IP on both sides, hyperdht 6.34.0 races a LAN ping against a hole punch to the shared public address (`lib/connect.js`, lines 248-270). Isolation drops the LAN ping, and the punch needs a NAT to hairpin, which did not happen. The shared public address is the Xfinity gateway's, because the eero sits behind it in router mode (a double NAT, recorded on 2026-11-03). So the hairpin would have had to happen at the gateway, and the traffic would then have had to come back in through the eero. This run cannot tell apart three causes: the gateway does not hairpin, the eero dropped the hairpinned traffic, or the guest isolation dropped it. Either way, a relay is the only path for this pair.
 
 ## Diagnostics, 2026-10-19, between the first attempt and this run
 
