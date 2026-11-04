@@ -70,6 +70,8 @@ const {
   sendFile,
   receiveFile,
   closeAfterResult,
+  connectionStats,
+  addressKind,
   RESULT_DELIVERY_TIMEOUT_MS,
   CLOSE_GRACE_MS,
   ERR_CONFIRMATION
@@ -145,27 +147,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, m
 // relay -- and nothing in the records said which this was. Each side can
 // only see its own NAT, so read the two machines' logs together.
 
-// Classifies an address without recording it. `null` for no address.
-/** @param {string | null | undefined} host */
-function addressKind (host) {
-  if (!host) return null
-  let h = String(host).toLowerCase()
-  if (h.startsWith('::ffff:') && h.includes('.')) h = h.slice(7)
-  const v4 = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
-  if (v4) {
-    const [a, b] = [Number(v4[1]), Number(v4[2])]
-    if (a === 127) return 'loopback'
-    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return 'private'
-    if (a === 100 && b >= 64 && b <= 127) return 'cgnat'
-    if (a === 169 && b === 254) return 'link-local'
-    return 'public'
-  }
-  if (h === '::1') return 'loopback'
-  if (/^f[cd]/.test(h)) return 'private'
-  if (/^fe[89ab]/.test(h)) return 'link-local'
-  return 'public'
-}
-
 // This side's NAT as the DHT has sampled it, from the addresses other nodes
 // report seeing us at. 'consistent': they agree on a host and port, the
 // mapping hole punching relies on. 'randomized': they agree on the host but
@@ -205,18 +186,12 @@ function pathSnapshot (socket, dht) {
   const raw = socket && socket.rawStream
   if (!raw) return null
   try {
+    // The counters are engine/src/swarm.js connectionStats, which the CLIs
+    // report too, so the two harnesses record the same fields.
     return {
-      remoteKind: addressKind(raw.remoteHost),
+      ...connectionStats(socket),
       remoteFamily: raw.remoteFamily || null,
       onDhtSocket: !!dht && !!dht.io && (raw.socket === dht.io.serverSocket || raw.socket === dht.io.clientSocket),
-      rttMs: raw.rtt,
-      mtu: raw.mtu,
-      retransmits: raw.retransmits,
-      rtoCount: raw.rtoCount,
-      packetsSent: raw.packetsTransmitted,
-      packetsReceived: raw.packetsReceived,
-      bytesSent: raw.bytesTransmitted,
-      bytesReceived: raw.bytesReceived,
       ...(recordAddresses ? { remoteHost: raw.remoteHost, remotePort: raw.remotePort } : {})
     }
   } catch (err) {

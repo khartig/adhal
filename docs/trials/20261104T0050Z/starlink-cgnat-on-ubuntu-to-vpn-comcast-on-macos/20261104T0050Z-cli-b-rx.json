@@ -1,0 +1,2145 @@
+{
+  "tool": "cli-trials",
+  "role": "receiver",
+  "seed": "20261104T0050Z-starlink-cgnat-on-ubuntu-to-vpn-comcast-on-macos-b",
+  "trials": 20,
+  "slotSeconds": 240,
+  "refreshMs": 4000,
+  "mode": "dir",
+  "receiverTimeoutMs": null,
+  "leadMs": 10000,
+  "startEpoch": 1793758527,
+  "startedAtEpochMs": 1793758055063,
+  "endedAtEpochMs": 1793763123645,
+  "file": null,
+  "environment": {
+    "hostname": "DecentralizedDefender.local",
+    "os": {
+      "platform": "darwin",
+      "release": "27.0.0",
+      "arch": "arm64",
+      "name": "macOS",
+      "version": "27.0.1",
+      "build": "26A434",
+      "pretty": "macOS 27.0.1 (26A434)"
+    },
+    "node": "v24.22.1",
+    "build": {
+      "commit": "ec7c58c0a10a",
+      "dirty": false,
+      "versions": {
+        "hyperswarm": "4.17.1",
+        "hyperdht": "6.34.0",
+        "udx-native": "1.21.1"
+      }
+    },
+    "interfaces": {
+      "ipv4": 3,
+      "cgnatIpv4": 0,
+      "globalIpv6": false
+    },
+    "access": {
+      "interface": "utun4",
+      "type": "vpn",
+      "detail": null,
+      "gatewayKind": null,
+      "hotspot": null
+    },
+    "vpn": {
+      "onRoute": true,
+      "tunnelInterfaces": [],
+      "services": [
+        {
+          "name": "ProtonVPN",
+          "status": "Connected"
+        }
+      ]
+    },
+    "hostFirewall": {
+      "tool": "macOS application firewall; pf not checked, it needs root",
+      "enabled": false,
+      "blockAll": false,
+      "stealth": false
+    },
+    "natAtStart": {
+      "kind": "randomized",
+      "firewalled": true,
+      "portPreserved": null,
+      "samples": 16
+    },
+    "isp": {
+      "asn": 212238,
+      "name": "CDNEXT - Datacamp Limited, GB",
+      "country": "GB",
+      "source": "Team Cymru IP-to-ASN (DNS)"
+    },
+    "notes": [
+      "Proton VPN. Wireguard protocol. Eero router"
+    ],
+    "addressesRecorded": false
+  },
+  "environmentSkipped": false,
+  "environmentError": null,
+  "build": {
+    "commit": "ec7c58c0a10a",
+    "dirty": false
+  },
+  "notes": [
+    "Proton VPN. Wireguard protocol. Eero router"
+  ],
+  "results": [
+    {
+      "trial": 0,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 3573,
+      "completedMs": 15535,
+      "transferMs": 11735,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 15,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 211,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:15:27.255Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 212,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4121,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 13435,
+          "role": "receive",
+          "peer": "7322ebb7bcde"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 13556,
+          "role": "receive",
+          "peer": "7322ebb7bcde"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 13780,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 13783,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 25518,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-idXd3H/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793758527017,
+      "endedAtEpochMs": 1793758553669,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 1,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 37857,
+      "completedMs": 50687,
+      "transferMs": 12608,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 37,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 190,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:19:27.252Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 191,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4550,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 47623,
+          "role": "receive",
+          "peer": "47693e7ee497"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 47849,
+          "role": "receive",
+          "peer": "47693e7ee497"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 48067,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 48071,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 60679,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-mc0Xfs/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793758767008,
+      "endedAtEpochMs": 1793758828751,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 2,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 45706,
+      "completedMs": 57664,
+      "transferMs": 11764,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 15,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 193,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:23:27.240Z",
+          "joinTimeout": 234995,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 193,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4761,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 55608,
+          "role": "receive",
+          "peer": "09e60b233a4d"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 55692,
+          "role": "receive",
+          "peer": "09e60b233a4d"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 55884,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 55886,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 67650,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-DOfgTR/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793759007014,
+      "endedAtEpochMs": 1793759075908,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 3,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 16072,
+      "completedMs": 29441,
+      "transferMs": 13160,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 21,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 191,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:27:27.255Z",
+          "joinTimeout": 234993,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 191,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 3938,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 25916,
+          "role": "receive",
+          "peer": "ea958892a4fb"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 26061,
+          "role": "receive",
+          "peer": "ea958892a4fb"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 26260,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 26270,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 39430,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-4vGPIS/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793759247011,
+      "endedAtEpochMs": 1793759287695,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 4,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 14962,
+      "completedMs": 27491,
+      "transferMs": 12304,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 20,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 177,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:31:27.219Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 177,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4203,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 24849,
+          "role": "receive",
+          "peer": "64d035371605"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 24956,
+          "role": "receive",
+          "peer": "64d035371605"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 25174,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 25181,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 37485,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-cFoISK/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793759487006,
+      "endedAtEpochMs": 1793759526704,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 5,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 12746,
+      "completedMs": 25290,
+      "transferMs": 12092,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 26,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 185,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:35:27.241Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 185,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4270,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 22621,
+          "role": "receive",
+          "peer": "2ea581232d4f"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 22738,
+          "role": "receive",
+          "peer": "2ea581232d4f"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 23186,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 23190,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 35282,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-Ar1zId/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793759727008,
+      "endedAtEpochMs": 1793759764405,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 6,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 14080,
+      "completedMs": 25935,
+      "transferMs": 11646,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 20,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 256,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:39:27.301Z",
+          "joinTimeout": 234998,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 256,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 3976,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 23954,
+          "role": "receive",
+          "peer": "636a8405dd56"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 24075,
+          "role": "receive",
+          "peer": "636a8405dd56"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 24278,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 24284,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 35930,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-ut3bOt/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793759967005,
+      "endedAtEpochMs": 1793760004054,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 7,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 16056,
+      "completedMs": 27774,
+      "transferMs": 11500,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 16,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 246,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:43:27.327Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 246,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5103,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 25892,
+          "role": "receive",
+          "peer": "dcbc219b7eac"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 26034,
+          "role": "receive",
+          "peer": "dcbc219b7eac"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 26244,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 26252,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 37752,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-zYCIM0/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793760207022,
+      "endedAtEpochMs": 1793760245799,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 8,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 13010,
+      "completedMs": 24927,
+      "transferMs": 11728,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 19,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 231,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:47:27.298Z",
+          "joinTimeout": 234994,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 231,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4359,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 22851,
+          "role": "receive",
+          "peer": "8c337c5de432"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 22985,
+          "role": "receive",
+          "peer": "8c337c5de432"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 23169,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 23174,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 34902,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-NuJcbF/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793760447025,
+      "endedAtEpochMs": 1793760482968,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 9,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 14640,
+      "completedMs": 26967,
+      "transferMs": 12105,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 39,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 204,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:51:27.276Z",
+          "joinTimeout": 234995,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 204,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4352,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 24518,
+          "role": "receive",
+          "peer": "7181aa88b35d"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 24626,
+          "role": "receive",
+          "peer": "7181aa88b35d"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 24836,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 24848,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 36953,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-fPIkql/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793760687014,
+      "endedAtEpochMs": 1793760725268,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 10,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 35094,
+      "completedMs": 47354,
+      "transferMs": 12043,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 35,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 269,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:55:27.335Z",
+          "joinTimeout": 234992,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 269,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4081,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 44947,
+          "role": "receive",
+          "peer": "11d8ae95ad6c"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 45081,
+          "role": "receive",
+          "peer": "11d8ae95ad6c"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 45291,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 45298,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 57341,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-1hcNsX/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793760927013,
+      "endedAtEpochMs": 1793760985372,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 11,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 13585,
+      "completedMs": 26171,
+      "transferMs": 12356,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 29,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 188,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T02:59:27.258Z",
+          "joinTimeout": 234995,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 188,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4294,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 23443,
+          "role": "receive",
+          "peer": "616792ea1ca2"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 23570,
+          "role": "receive",
+          "peer": "616792ea1ca2"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 23790,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 23800,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 36156,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-7GJh2h/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793761167015,
+      "endedAtEpochMs": 1793761204254,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 12,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 45610,
+      "completedMs": 57932,
+      "transferMs": 12111,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 30,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 187,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T03:03:27.241Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 188,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4011,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 55495,
+          "role": "receive",
+          "peer": "8b32b9275d8e"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 55605,
+          "role": "receive",
+          "peer": "8b32b9275d8e"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 55813,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 55816,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 67927,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-RY6l0Q/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793761407005,
+      "endedAtEpochMs": 1793761475995,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 13,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 11789,
+      "completedMs": 24808,
+      "transferMs": 11656,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 22,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 163,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T03:07:27.217Z",
+          "joinTimeout": 234999,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 164,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4334,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 21681,
+          "role": "receive",
+          "peer": "80d802e1597d"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 21785,
+          "role": "receive",
+          "peer": "80d802e1597d"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 23144,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 23148,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 34804,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-MmAkO0/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793761647004,
+      "endedAtEpochMs": 1793761682674,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 14,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 38941,
+      "completedMs": 50995,
+      "transferMs": 11909,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 35,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 196,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T03:11:27.256Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 196,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4868,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 48798,
+          "role": "receive",
+          "peer": "a11593d76604"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 48934,
+          "role": "receive",
+          "peer": "a11593d76604"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 49074,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 49079,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 60988,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-W3B5Ih/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793761887007,
+      "endedAtEpochMs": 1793761949039,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 15,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 25312,
+      "completedMs": 36845,
+      "transferMs": 11313,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 32,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 173,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T03:15:27.234Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 173,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 3710,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 35180,
+          "role": "receive",
+          "peer": "230491718894"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 35305,
+          "role": "receive",
+          "peer": "230491718894"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 35520,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 35525,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 46838,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-fGMlA1/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793762127007,
+      "endedAtEpochMs": 1793762175544,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 16,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 15283,
+      "completedMs": 26665,
+      "transferMs": 11161,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 21,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 167,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T03:19:27.218Z",
+          "joinTimeout": 235002,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 168,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4084,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 25162,
+          "role": "receive",
+          "peer": "cd0cfb47b8f4"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 25283,
+          "role": "receive",
+          "peer": "cd0cfb47b8f4"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 25496,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 25504,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 36665,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-43Z67Q/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793762367000,
+      "endedAtEpochMs": 1793762404668,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 17,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 20598,
+      "completedMs": 32534,
+      "transferMs": 11719,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 24,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 146,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T03:23:27.192Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 146,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4440,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 30440,
+          "role": "receive",
+          "peer": "dfc9d6b048f7"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 30590,
+          "role": "receive",
+          "peer": "dfc9d6b048f7"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 30803,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 30807,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 42526,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-qqmrqV/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793762607008,
+      "endedAtEpochMs": 1793762650565,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 18,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 7297,
+      "completedMs": 25173,
+      "transferMs": 17659,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 41,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 308,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T03:27:27.330Z",
+          "joinTimeout": 235000,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 308,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4274,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 17197,
+          "role": "receive",
+          "peer": "2cc2e7c097a9"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 17296,
+          "role": "receive",
+          "peer": "2cc2e7c097a9"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 17512,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 17513,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 35172,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-FReYs8/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793762847001,
+      "endedAtEpochMs": 1793762883138,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 19,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 10657,
+      "completedMs": 25400,
+      "transferMs": 14512,
+      "bytes": 10485760,
+      "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "acknowledged": true,
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 40,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 193,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-04T03:31:27.217Z",
+          "joinTimeout": 234999,
+          "refreshInterval": 4000,
+          "stdout": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 194,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 3743,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 20544,
+          "role": "receive",
+          "peer": "d420336c0ba0"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 20653,
+          "role": "receive",
+          "peer": "d420336c0ba0"
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 20879,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 20884,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 35396,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+          "resumedFrom": 0,
+          "path": "/var/folders/q9/_92tzm7113d2x547nd_l7tx00000gn/T/adhal-cli-trial-XG7wLT/test.bin",
+          "published": "link",
+          "acknowledged": true
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793763087004,
+      "endedAtEpochMs": 1793763123456,
+      "independentSha256": "0c78f46d89edd60004f89578959d36143425d7c9ec4a285eb3a254843af53e47",
+      "stdoutBytes": null
+    }
+  ],
+  "summary": {
+    "succeeded": 20,
+    "trials": 20,
+    "skipped": 0,
+    "rate": 1,
+    "wilson95": {
+      "low": 0.8388748419471806,
+      "high": 1
+    },
+    "connectedMs": {
+      "median": 15283,
+      "p90": 45610,
+      "min": 3573,
+      "max": 45706
+    },
+    "completedMs": {
+      "median": 27491,
+      "p90": 57664,
+      "min": 15535,
+      "max": 57932
+    },
+    "transferMs": {
+      "median": 12043,
+      "p90": 14512,
+      "min": 11161,
+      "max": 17659
+    },
+    "failures": {},
+    "contractViolations": [],
+    "crossCheckDisagreed": [],
+    "badConfirmations": 0,
+    "unacknowledged": []
+  }
+}

@@ -20,7 +20,7 @@ const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 
 const { trialCode, wilson, startMsFor, OUTCOME_BY_CODE } = require('../../engine/scratch-trials-shared')
-const { parseArgs, eventReader, readRun, summarise } = require('../../tools/cli-trials')
+const { parseArgs, eventReader, readRun, trialRecord, summarise, pathInfo } = require('../../tools/cli-trials')
 const { resolveCode } = require('@ad-hal/engine')
 const { slow } = require('../test-helpers/tiers')
 
@@ -149,6 +149,27 @@ test('a run that breaks the event contract is flagged, whatever its outcome', ()
   assert.deepEqual(withStatus([ev('failed', { code: 'ERR_USAGE' })], 1), [])
 })
 
+test('a final event\'s connection counters become the trial\'s path, in its log line and its summary', () => {
+  const connection = { remoteKind: 'public', rttMs: 48, mtu: 1200, retransmits: 3, rtoCount: 1, fastRecoveries: 0, inflight: 0, packetsSent: 9, packetsReceived: 8, bytesSent: 10, bytesReceived: 7 }
+  const run = { status: 0, signal: null, killed: false, spawnedAtEpochMs: 1000, endedAtEpochMs: 2000, otherLines: [] }
+  const withPath = trialRecord(0, { ...run, events: goodRun({ connection }) }, readRun({ events: goodRun({ connection }), status: 0, killed: false }), 1000, {})
+  assert.deepEqual(withPath.path, connection)
+  assert.equal(pathInfo(withPath.path), ' path=public rtt=48ms retx=3 rto=1')
+  assert.equal(pathInfo({ ...connection, inflight: 262144 }), ' path=public rtt=48ms retx=3 rto=1 inflight=262144', 'data never acked is called out')
+
+  // A CLI from before the counters, and a failure before pairing: no path.
+  const without = trialRecord(1, { ...run, events: goodRun() }, readRun({ events: goodRun(), status: 0, killed: false }), 1000, {})
+  assert.equal(without.path, null)
+  assert.equal(pathInfo(without.path), '')
+
+  const { lines } = summarise([
+    { trial: 0, outcome: 'ok', contract: [], path: connection },
+    { trial: 1, outcome: 'ok', contract: [], path: { ...connection, remoteKind: 'private' } },
+    { trial: 2, outcome: 'no-peer', contract: [], path: null }
+  ], { role: 'receiver', seed: 's' })
+  assert.ok(lines.some((l) => /^peer address: public 1, private 1 +\(private = same LAN/.test(l)), lines.join('\n'))
+})
+
 test('the summary counts skipped slots apart, and says when a rate cannot be called', () => {
   const results = [
     { trial: 0, outcome: 'ok', connectedMs: 1000, completedMs: 3000, transferMs: 2000, contract: [] },
@@ -211,6 +232,7 @@ test('two drivers against a testnet agree on every trial, in both receive modes'
       assert.equal(r.sha256, sha)
       assert.deepEqual(r.contract, [])
       assert.ok(r.connectedMs >= 0 && r.completedMs >= r.connectedMs)
+      assert.ok(r.path && r.path.packetsReceived > 0, `the transport counters are recorded: ${JSON.stringify(r.path)}`)
     }
     for (const r of rxJson.results) {
       assert.equal(r.independentSha256, sha, 'this harness hashed the bytes itself')
@@ -242,4 +264,5 @@ test('a sender that finds nobody ends in its own ERR_NO_PEER, not stopped by the
   assert.equal(r.outcome, 'no-peer', JSON.stringify(r))
   assert.equal(r.killed, false)
   assert.equal(r.exit, 1)
+  assert.equal(r.path, null, 'nobody paired, so no connection to report')
 })

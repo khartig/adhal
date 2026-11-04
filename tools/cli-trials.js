@@ -322,6 +322,19 @@ function readRun ({ events, status, killed }, { independentSha256 = null } = {})
 }
 
 /**
+ * The short form of a trial's transport counters for its log line, in
+ * scratch-trials.js's words, plus what was still unacknowledged at the
+ * end. Retransmits, RTOs, and inflight are the ones to read beside a slow
+ * or failed trial.
+ * @param {any} p
+ */
+function pathInfo (p) {
+  if (!p) return ''
+  return ` path=${p.remoteKind ?? '?'} rtt=${p.rttMs}ms retx=${p.retransmits} rto=${p.rtoCount}` +
+    (p.inflight ? ` inflight=${p.inflight}` : '')
+}
+
+/**
  * One trial's record. Times are measured from `dialBaselineMs`, the moment
  * the sender is scheduled to start, on both sides, so the two roles report
  * comparable numbers -- the rule scratch-trials.js keeps, and for the same
@@ -352,6 +365,11 @@ function trialRecord (trial, run, read, dialBaselineMs, extra) {
     acknowledged: final && final.event === 'done' && 'acknowledged' in final ? final.acknowledged : undefined,
     peerReason: final && final.peerReason !== undefined ? final.peerReason : undefined,
     phase: final && final.phase !== undefined ? final.phase : undefined,
+    // The paired connection's transport counters, from the final event's
+    // `connection`, under the name scratch-trials.js records them as, so
+    // scratch-trials-environment.js reads both harnesses the same way.
+    // null before a peer paired, and from a CLI too old to report them.
+    path: final && final.connection ? final.connection : null,
     contract: read.contract,
     candidates: read.candidates,
     dropped: read.dropped,
@@ -400,6 +418,9 @@ function summarise (results, { role, seed }) {
     badConfirmations: results.reduce((n, r) => n + (r.badConfirmations || 0), 0),
     unacknowledged: results.filter((r) => r.acknowledged === false).map((r) => r.trial)
   }
+  /** @type {Map<string, number>} */
+  const kinds = new Map()
+  for (const r of counted) if (r.path) kinds.set(r.path.remoteKind ?? '?', (kinds.get(r.path.remoteKind ?? '?') || 0) + 1)
 
   const s = (/** @type {number} */ ms) => `${(ms / 1000).toFixed(1)}s`
   const pct = (/** @type {number} */ f) => `${(f * 100).toFixed(0)}%`
@@ -409,6 +430,10 @@ function summarise (results, { role, seed }) {
   for (const [label, key] of [['connect', 'connectedMs'], ['complete', 'completedMs'], ['transfer', 'transferMs']]) {
     const v = /** @type {any} */ (summary)[key]
     if (v) lines.push(`${label.padEnd(9)} median ${s(v.median)}  p90 ${s(v.p90)}  min ${s(v.min)}  max ${s(v.max)}`)
+  }
+  if (kinds.size) {
+    lines.push(`peer address: ${[...kinds].map(([k, n]) => `${k} ${n}`).join(', ')}` +
+      (kinds.has('private') ? '  (private = same LAN, not a punch across the internet)' : ''))
   }
   if (Object.keys(failures).length) {
     lines.push('failures:')
@@ -587,7 +612,7 @@ async function main (opts) {
       : ` [code=${record.code ?? 'none'} exit=${record.exit ?? record.signal}${record.killed ? ' killed' : ''} bytes=${record.bytes ?? '?'}` +
         `${record.peerReason ? ` peerReason="${record.peerReason}"` : ''}]`
     const flags = (record.contract.length ? ' CONTRACT' : '') + (record.badConfirmations ? ` badConfirmations=${record.badConfirmations}` : '')
-    log(`trial ${i + 1}/${opts.trials}: ${record.outcome}${timing}${detail}${flags}`)
+    log(`trial ${i + 1}/${opts.trials}: ${record.outcome}${timing}${pathInfo(record.path)}${detail}${flags}`)
   }
 
   const { lines } = summarise(results, opts)
@@ -624,4 +649,4 @@ if (require.main === module) {
   })
 }
 
-module.exports = { parseArgs, eventReader, readRun, trialRecord, summarise }
+module.exports = { parseArgs, eventReader, readRun, trialRecord, summarise, pathInfo }

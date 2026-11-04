@@ -437,11 +437,22 @@ process from outside:
   interval beside the rate: 3 of 3 is 44% to 100%, which is why a handful
   of trials settles nothing.
 
-**What it does not record:** the NAT and path per trial. The CLIs do not
-report them. It records each machine's environment once, at the start,
-by running `scratch-trials.js --environment-only`, so
-`scratch-trials-environment.js` writes `ENVIRONMENT.md` from its JSON as
-it does for `scratch-trials.js`.
+**The path, per trial.** Each trial's `path` holds the connection's UDX
+counters, from the `connection` field the CLIs put on `done` and on a
+`failed` after pairing ([`CLI-CONTRACT.md`](CLI-CONTRACT.md) §3.2). It
+records the same fields `scratch-trials.js` does, plus `fastRecoveries`
+and `inflight`, though not `remoteFamily` or `onDhtSocket`. The trial line
+shows the same short form, `path=public rtt=48ms retx=0 rto=0`, and adds
+`inflight=` when data was still unacknowledged at the end. A nonzero
+`inflight` on a failed trial means the peer never acknowledged the last
+data, so the path went silent rather than the peer closing. `path` is
+null before a peer paired. JSON recorded before 2026-11-03 has no `path`,
+and neither does a run against a CLI that does not report `connection`.
+
+**What it does not record:** the NAT per trial. The CLIs do not report
+it. It records each machine's environment once, at the start, by running
+`scratch-trials.js --environment-only`, so `scratch-trials-environment.js`
+writes `ENVIRONMENT.md` from its JSON as it does for `scratch-trials.js`.
 
 **Options** beyond those it shares with `scratch-trials.js` (`--role`,
 `--seed`, `--trials`, `--file`, `--slot`, `--start-epoch`, `--refresh`,

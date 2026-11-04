@@ -15,6 +15,7 @@
 // peer's reason must escape the rest itself (CLI-CONTRACT.md section 3.4).
 
 const { performance } = require('node:perf_hooks')
+const { connectionStats } = require('@ad-hal/engine')
 const { version } = require('../package.json')
 
 // Bumped only by a breaking change: CLI-CONTRACT.md section 5.
@@ -39,6 +40,19 @@ const ERROR_FIELDS = ['phase', 'reportedBy', 'peerReason', 'declineCode', 'detai
  */
 function peerId (peerInfo) {
   return peerInfo && peerInfo.publicKey ? peerInfo.publicKey.toString('hex').slice(0, 12) : null
+}
+
+/**
+ * The `connection` field of a final event: the paired connection's
+ * transport counters (engine/src/swarm.js connectionStats), or nothing at
+ * all before a peer paired, or on a transport with no counters to read.
+ * Spread into the event, so an absent field stays absent.
+ * @param {any} socket
+ * @returns {{ connection?: NonNullable<ReturnType<typeof connectionStats>> }}
+ */
+function connectionField (socket) {
+  const stats = socket ? connectionStats(socket) : null
+  return stats ? { connection: stats } : {}
 }
 
 /**
@@ -128,4 +142,4 @@ function createEventStream ({ role, stream = process.stdout, now = () => perform
   return { emit, onProgress, flushProgress, failed }
 }
 
-module.exports = { createEventStream, peerId, failureCode, SCHEMA_VERSION, PROGRESS_MS, version }
+module.exports = { createEventStream, peerId, connectionField, failureCode, SCHEMA_VERSION, PROGRESS_MS, version }

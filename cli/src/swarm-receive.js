@@ -39,7 +39,7 @@ const { describeError, isCancellation } = require('./report')
 const { parseBootstrap } = require('./env')
 const { createConsent, riskWarning } = require('./consent')
 const { createContentionMonitor } = require('./contention')
-const { createEventStream, peerId, version } = require('./events')
+const { createEventStream, peerId, connectionField, version } = require('./events')
 const { usage, NOT_ANONYMOUS } = require('./usage')
 
 
@@ -246,6 +246,11 @@ async function main () {
     : createProgressReporter({ label: 'swarm-receive', stream: humanOut })
   /** @type {Error | null} */
   let socketError = null
+  // The paired connection, kept outside the try so a failure can report
+  // its transport counters too (CLI-CONTRACT.md section 3.5). Read after
+  // the socket closed, which connectionStats allows.
+  /** @type {any} */
+  let connection = null
   if (events) {
     events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stdout: parsed.toStdout })
     events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
@@ -344,6 +349,7 @@ async function main () {
       }
     })
     paired = true
+    connection = socket
     contention.paired()
     if (events) events.emit('paired', { peer: peerId(peerInfo) })
     say(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
@@ -461,7 +467,8 @@ async function main () {
         resumedFrom: result.resumedFrom,
         path: result.path,
         published: result.published,
-        acknowledged
+        acknowledged,
+        ...connectionField(connection)
       })
     }
   } catch (err) {
@@ -471,7 +478,7 @@ async function main () {
     const message = describeError(err)
     const alsoSocket = socketError && !isCancellation(err) ? socketError.message : null
     if (events) {
-      events.failed(err, message, alsoSocket ? { socketError: alsoSocket } : {})
+      events.failed(err, message, { ...(alsoSocket ? { socketError: alsoSocket } : {}), ...connectionField(connection) })
     } else {
       sayError(`[swarm-receive] ${message}`)
       if (alsoSocket) sayError(`[swarm-receive] the socket also reported: ${alsoSocket}`)

@@ -19,7 +19,7 @@ const crypto = require('node:crypto')
 const { spawn } = require('node:child_process')
 const { Writable } = require('node:stream')
 
-const { createEventStream, failureCode, PROGRESS_MS, SCHEMA_VERSION } = require('../src/events')
+const { createEventStream, connectionField, failureCode, PROGRESS_MS, SCHEMA_VERSION } = require('../src/events')
 const { createConsent } = require('../src/consent')
 const { slow } = require('../test-helpers/tiers')
 
@@ -49,6 +49,23 @@ const REQUIRED = {
   failed: { code: nullable('string'), message: is('string'), bytes: nullable('number') }
 }
 
+// `connection`, on `done` and on a `failed` after pairing: the transport's
+// counters, and the kind of the peer's address but never the address.
+/** @type {Record<string, (v: any) => boolean>} */
+const CONNECTION = {
+  remoteKind: nullable('string'),
+  rttMs: is('number'),
+  mtu: is('number'),
+  retransmits: is('number'),
+  rtoCount: is('number'),
+  fastRecoveries: is('number'),
+  inflight: is('number'),
+  packetsSent: is('number'),
+  packetsReceived: is('number'),
+  bytesSent: is('number'),
+  bytesReceived: is('number')
+}
+
 /**
  * Parses one line and checks it against the table. Returns the event.
  * @param {string} line
@@ -62,6 +79,12 @@ function checkEvent (line) {
   assert.ok(event.role === 'send' || event.role === 'receive', line)
   for (const [field, ok] of Object.entries(REQUIRED[event.event])) {
     assert.ok(ok(event[field]), `${event.event}.${field} is ${JSON.stringify(event[field])}: ${line}`)
+  }
+  if ('connection' in event) {
+    assert.ok(event.event === 'done' || event.event === 'failed', `connection on ${event.event}: ${line}`)
+    for (const [field, ok] of Object.entries(CONNECTION)) {
+      assert.ok(ok(event.connection[field]), `${event.event}.connection.${field} is ${JSON.stringify(event.connection[field])}: ${line}`)
+    }
   }
   return event
 }
@@ -148,6 +171,28 @@ test('failed takes its code from err.code, maps EPIPE, and copies the fields a s
   assert.equal(failed.peerReason, 'no')
   assert.equal(failed.bytes, 0)
   assert.equal(failed.stack, undefined, 'only the listed fields')
+})
+
+test('connection is the transport counters and an address kind, never an address, and absent without a raw stream', () => {
+  assert.deepEqual(connectionField(null), {}, 'before a peer paired')
+  assert.deepEqual(connectionField({}), {}, 'a duplex pair has no counters to read')
+  const rawStream = {
+    remoteHost: '203.0.113.7', remotePort: 49737, rtt: 48, mtu: 1200, retransmits: 3, rtoCount: 1, fastRecoveries: 2,
+    inflight: 4096, packetsTransmitted: 900, packetsReceived: 400, bytesTransmitted: 1048576, bytesReceived: 20000
+  }
+  const { connection } = /** @type {any} */ (connectionField({ rawStream }))
+  assert.deepEqual(connection, {
+    remoteKind: 'public', rttMs: 48, mtu: 1200, retransmits: 3, rtoCount: 1, fastRecoveries: 2,
+    inflight: 4096, packetsSent: 900, packetsReceived: 400, bytesSent: 1048576, bytesReceived: 20000
+  })
+  assert.ok(!JSON.stringify(connection).includes('203.0.113.7'), 'the address itself is not reported')
+  assert.equal(/** @type {any} */ (connectionField({ rawStream: { ...rawStream, remoteHost: '192.168.4.20' } })).connection.remoteKind, 'private')
+
+  const h = harness()
+  h.events.failed({ code: 'ERR_CONNECTION', bytes: 10 }, 'lost', { socketError: 'connection timed out', ...connectionField({ rawStream }) })
+  const [failed] = h.lines()
+  assert.equal(failed.connection.inflight, 4096)
+  assert.equal(failed.socketError, 'connection timed out')
 })
 
 test('consent with ask: false declines without asking, even at a terminal', async () => {
@@ -253,7 +298,12 @@ test('--stdout --json: stdout is exactly the file, stderr is exactly the events,
         assert.ok(firstProgress === -1 || firstProgress > events.findIndex((e) => e.event === 'accepted'), 'no progress before accepted')
         const ms = events.map((e) => e.ms)
         assert.deepEqual(ms, [...ms].sort((a, b) => a - b), 'ms never goes backwards')
+        // The transport's view of the drop: something went each way.
+        const { connection } = events.at(-1)
+        assert.ok(connection, 'done carries the connection counters')
+        assert.ok(connection.packetsSent > 0 && connection.packetsReceived > 0, JSON.stringify(connection))
       }
+      assert.ok(txEvents.at(-1).connection.bytesSent >= whole.length, 'the sender sent at least the file')
       const done = rxEvents.at(-1)
       assert.equal(done.path, null)
       assert.equal(done.acknowledged, true)
@@ -290,6 +340,8 @@ test('--json without --yes declines the offer, and both sides fail with ERR_DECL
       assert.ok(rxEvents.some((e) => e.event === 'offer'), 'what was declined is reported')
       assert.equal(txEvents.at(-1).code, 'ERR_DECLINED')
       assert.equal(txEvents.at(-1).declineCode, 'ERR_DECLINED')
+      // Paired before the decline, so the failure has a connection to report.
+      assert.ok(rxEvents.at(-1).connection && txEvents.at(-1).connection, 'failed after pairing carries the counters')
       assert.equal(fs.existsSync(path.join(dir, 'out', 'a.txt')), false)
     } finally {
       if (rx.child.exitCode === null) rx.child.kill()

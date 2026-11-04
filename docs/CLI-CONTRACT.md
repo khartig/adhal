@@ -169,8 +169,8 @@ within one drop and nothing beyond it.
 | `offer` | receive | `name`, `declaredName`, `size` (number or null), `sha256` (or null), `partial`, `risk` (string or null) | An offer passed the engine's checks and is about to be answered. |
 | `accepted` | both | `resumeFrom` | The offer was accepted, and the file starts moving. |
 | `progress` | both | `bytes`, `total` (number or null) | At most every 250 ms, plus one at the end. The count varies run to run: do not count them. |
-| `done` | both | `name`, `declaredName`, `size`, `sha256`, `resumedFrom`, and on the receiver `path` and `published` (both null with `--stdout`) and `acknowledged` | The drop finished and was verified. Last line. |
-| `failed` | both | `code` (or null), `message`, `bytes` (or null), and the error's own fields where set: `phase`, `reportedBy`, `peerReason`, `declineCode`, `detail`, `field`, `attempts`, `max`, `limit`, `size`, `expected`, `actual`, `partial`, and `socketError`, the transport's own message when it also reported one | The drop ended any other way. Last line. |
+| `done` | both | `name`, `declaredName`, `size`, `sha256`, `resumedFrom`, and on the receiver `path` and `published` (both null with `--stdout`) and `acknowledged`; `connection` (§3.5) | The drop finished and was verified. Last line. |
+| `failed` | both | `code` (or null), `message`, `bytes` (or null), and the error's own fields where set: `phase`, `reportedBy`, `peerReason`, `declineCode`, `detail`, `field`, `attempts`, `max`, `limit`, `size`, `expected`, `actual`, `partial`, and `socketError`, the transport's own message when it also reported one; `connection` (§3.5), once a peer paired | The drop ended any other way. Last line. |
 
 **Exactly one of `done` or `failed`, and it is the last line.** A stream
 that ends without one means the process died, killed or crashed, and
@@ -214,6 +214,31 @@ need the real value. JSON escapes C0 control characters, not bidi
 overrides or C1 controls. **A consumer that displays one of these must
 escape it first**, as the human output does with `displayName`
 (Q-11).
+
+### 3.5 `connection`
+
+What the transport saw on the paired connection, read from UDX's own
+counters when the drop ends. It is on `done`, and on `failed` once a peer
+paired. It is absent before pairing, so a failure that never reached a
+peer has none. It is for measuring a drop, as `tools/cli-trials.js` does
+([`MEASURING-TRANSFER-RELIABILITY.md`](MEASURING-TRANSFER-RELIABILITY.md#through-the-clis-toolscli-trialsjs)),
+and nothing in it changes what the drop's outcome means.
+
+| Field | Type | |
+| --- | --- | --- |
+| `remoteKind` | string or null | The kind of the peer's address: `public`, `private` (the same LAN, so not a punch across the internet), `cgnat`, `link-local`, or `loopback`. Never the address itself. |
+| `rttMs` | number | UDX's smoothed round-trip time. |
+| `mtu` | number | The path MTU UDX settled on, in bytes. |
+| `retransmits` | number | Packets sent again. |
+| `rtoCount` | number | Retransmission timeouts. Once the same data has timed out six times, UDX gives up, and a `failed` then carries `socketError` "connection timed out". |
+| `fastRecoveries` | number | Losses recovered without a timeout. |
+| `inflight` | number | Bytes sent and not yet acknowledged when the drop ended. Nonzero on a `failed` means the peer never acknowledged the last data sent. |
+| `packetsSent`, `packetsReceived` | number | Packets each way, this side's count. |
+| `bytesSent`, `bytesReceived` | number | Bytes each way on the wire, framing and encryption included. |
+
+The values come from the transport and are not part of the protocol, so
+read them as measurements, not as fields with a fixed meaning across
+transport versions.
 
 ---
 

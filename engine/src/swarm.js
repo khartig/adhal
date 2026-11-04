@@ -416,6 +416,62 @@ function watchForAnswer (socket, ms, onDead) {
   return timer
 }
 
+// Classifies an address without recording it. `null` for no address.
+/** @param {string | null | undefined} host */
+function addressKind (host) {
+  if (!host) return null
+  let h = String(host).toLowerCase()
+  if (h.startsWith('::ffff:') && h.includes('.')) h = h.slice(7)
+  const v4 = h.match(/^(\d+)\.(\d+)\.(\d+)\.(\d+)$/)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    if (a === 127) return 'loopback'
+    if (a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168)) return 'private'
+    if (a === 100 && b >= 64 && b <= 127) return 'cgnat'
+    if (a === 169 && b === 254) return 'link-local'
+    return 'public'
+  }
+  if (h === '::1') return 'loopback'
+  if (/^f[cd]/.test(h)) return 'private'
+  if (/^fe[89ab]/.test(h)) return 'link-local'
+  return 'public'
+}
+
+// What the transport saw on one connection, from UDX's own counters, for
+// reporting on a drop once it has ended: the CLIs' --json `done` and
+// `failed` (CLI-CONTRACT.md section 3.5), and the trial harnesses. Counts
+// and the kind of the peer's address, never the address itself.
+//
+// Added on 2026-11-03, after a VPN trial's sender waited out its whole
+// RESULT_TIMEOUT_MS on a path that had gone silent, and nothing recorded
+// could say whether its data was still unacknowledged or what its RTT had
+// grown to. `inflight` above 0 at the end is data the peer never acked.
+//
+// Safe to call after the socket has closed: the counters live in a buffer
+// UDX allocates on the JS side. `rttMs` is UDX's smoothed RTT. null for
+// anything without a raw stream, such as a test's duplex pair.
+/**
+ * @param {any} socket
+ * @returns {{ remoteKind: string | null, rttMs: number, mtu: number, retransmits: number, rtoCount: number, fastRecoveries: number, inflight: number, packetsSent: number, packetsReceived: number, bytesSent: number, bytesReceived: number } | null}
+ */
+function connectionStats (socket) {
+  const raw = socket && socket.rawStream
+  if (!raw || typeof raw.packetsReceived !== 'number') return null
+  return {
+    remoteKind: addressKind(raw.remoteHost),
+    rttMs: raw.rtt,
+    mtu: raw.mtu,
+    retransmits: raw.retransmits,
+    rtoCount: raw.rtoCount,
+    fastRecoveries: raw.fastRecoveries,
+    inflight: raw.inflight,
+    packetsSent: raw.packetsTransmitted,
+    packetsReceived: raw.packetsReceived,
+    bytesSent: raw.bytesTransmitted,
+    bytesReceived: raw.bytesReceived
+  }
+}
+
 // Joins `topic` and resolves with the first peer to complete the readiness
 // handshake *and* prove it knows the code. One drop, one peer -- the Hyperswarm work
 // doesn't need to handle multiple simultaneous peers, but it does need to
@@ -1131,4 +1187,4 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 // timeoutMessage is exported for tests: asserting both of its branches
 // end to end would mean racing a real peer against a real timeout, which
 // is exactly the kind of timing-dependent test that fails only under load.
-module.exports = { createSwarm, acceptOnce, connectOnce, timeoutMessage, timeoutError, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }
+module.exports = { createSwarm, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }

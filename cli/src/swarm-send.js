@@ -28,7 +28,7 @@ const { installCancelHandler } = require('./signals')
 const { describeError, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
 const { parseBootstrap } = require('./env')
-const { createEventStream, peerId, version } = require('./events')
+const { createEventStream, peerId, connectionField, version } = require('./events')
 const { usage, NOT_ANONYMOUS } = require('./usage')
 
 
@@ -181,6 +181,10 @@ async function main () {
     : createProgressReporter({ label: 'swarm-send' })
   /** @type {Error | null} */
   let socketError = null
+  // The paired connection, for its transport counters on the final event;
+  // see swarm-receive.js.
+  /** @type {any} */
+  let connection = null
   if (events) {
     events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stream: streaming })
     events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
@@ -230,6 +234,7 @@ async function main () {
       }
     })
     paired = true
+    connection = socket
     if (events) events.emit('paired', { peer: peerId(peerInfo) })
     say(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
     // Without a listener, a late socket-level error (e.g. after the
@@ -309,7 +314,8 @@ async function main () {
         declaredName: result.name,
         size: result.size,
         sha256: result.sha256,
-        resumedFrom: result.resumedFrom
+        resumedFrom: result.resumedFrom,
+        ...connectionField(connection)
       })
     }
   } catch (err) {
@@ -317,7 +323,7 @@ async function main () {
     const message = describeError(err)
     const alsoSocket = socketError && !isCancellation(err) ? socketError.message : null
     if (events) {
-      events.failed(err, message, alsoSocket ? { socketError: alsoSocket } : {})
+      events.failed(err, message, { ...(alsoSocket ? { socketError: alsoSocket } : {}), ...connectionField(connection) })
     } else {
       sayError(`[swarm-send] ${message}`)
       if (alsoSocket) sayError(`[swarm-send] the socket also reported: ${alsoSocket}`)
