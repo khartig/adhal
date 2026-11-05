@@ -1,0 +1,1214 @@
+{
+  "tool": "cli-trials",
+  "role": "sender",
+  "seed": "20261105T0446Z-starlink-cgnat-vpn-on-ubuntu-to-vpn-comcast-on-macos-a",
+  "trials": 20,
+  "slotSeconds": 240,
+  "refreshMs": 4000,
+  "leadMs": 10000,
+  "startEpoch": 1793853977,
+  "startedAtEpochMs": 1793853690893,
+  "endedAtEpochMs": 1793858773694,
+  "file": {
+    "path": "/tmp/test.bin",
+    "size": 10485760,
+    "sha256": "f2e1b08ffdb04cdb44ea038aa0da0e04966bfa5c071276c2af1295ae52969fd7"
+  },
+  "environment": {
+    "hostname": "DecentralizedDefender.local",
+    "os": {
+      "platform": "darwin",
+      "release": "27.0.0",
+      "arch": "arm64",
+      "name": "macOS",
+      "version": "27.0.1",
+      "build": "26A434",
+      "pretty": "macOS 27.0.1 (26A434)"
+    },
+    "node": "v24.22.1",
+    "build": {
+      "commit": "d9a0598a952b",
+      "dirty": false,
+      "versions": {
+        "hyperswarm": "4.17.1",
+        "hyperdht": "6.34.0",
+        "udx-native": "1.21.1"
+      }
+    },
+    "interfaces": {
+      "ipv4": 3,
+      "cgnatIpv4": 0,
+      "globalIpv6": false
+    },
+    "access": {
+      "interface": "utun4",
+      "type": "vpn",
+      "detail": null,
+      "gatewayKind": null,
+      "hotspot": null
+    },
+    "vpn": {
+      "onRoute": true,
+      "tunnelInterfaces": [],
+      "services": [
+        {
+          "name": "ProtonVPN",
+          "status": "Connected"
+        }
+      ]
+    },
+    "hostFirewall": {
+      "tool": "macOS application firewall; pf not checked, it needs root",
+      "enabled": false,
+      "blockAll": false,
+      "stealth": false
+    },
+    "natAtStart": {
+      "kind": "randomized",
+      "firewalled": true,
+      "portPreserved": null,
+      "samples": 16
+    },
+    "isp": {
+      "asn": 212238,
+      "name": "CDNEXT - Datacamp Limited, GB",
+      "country": "GB",
+      "source": "Team Cymru IP-to-ASN (DNS)"
+    },
+    "notes": [
+      "Proton VPN. Wireguard protocol. Eero router"
+    ],
+    "addressesRecorded": false
+  },
+  "environmentSkipped": false,
+  "environmentError": null,
+  "build": {
+    "commit": "d9a0598a952b",
+    "dirty": false
+  },
+  "notes": [
+    "Proton VPN. Wireguard protocol. Eero router"
+  ],
+  "results": [
+    {
+      "trial": 0,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": null,
+      "signal": "SIGINT",
+      "killed": true,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 285,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T04:46:27.335Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 285,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225286,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224997ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793853987006,
+      "endedAtEpochMs": 1793854213531
+    },
+    {
+      "trial": 1,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": null,
+      "signal": "SIGINT",
+      "killed": true,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 222,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T04:50:27.265Z",
+          "joinTimeout": 224999,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 222,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225236,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224999ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793854227001,
+      "endedAtEpochMs": 1793854453530
+    },
+    {
+      "trial": 2,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 167,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T04:54:27.209Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 168,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225168,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793854467002,
+      "endedAtEpochMs": 1793854693303
+    },
+    {
+      "trial": 3,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 183,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T04:58:27.237Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 184,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225186,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793854707002,
+      "endedAtEpochMs": 1793854933351
+    },
+    {
+      "trial": 4,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 191,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:02:27.226Z",
+          "joinTimeout": 224999,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 192,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225194,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224999ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793854947001,
+      "endedAtEpochMs": 1793855173342
+    },
+    {
+      "trial": 5,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 219,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:06:27.270Z",
+          "joinTimeout": 224999,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 219,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225221,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224999ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793855187002,
+      "endedAtEpochMs": 1793855413357
+    },
+    {
+      "trial": 6,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 196,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:10:27.248Z",
+          "joinTimeout": 224999,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 197,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225201,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224999ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793855427001,
+      "endedAtEpochMs": 1793855653470
+    },
+    {
+      "trial": 7,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 211,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:14:27.248Z",
+          "joinTimeout": 224999,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 212,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225214,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224999ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793855667002,
+      "endedAtEpochMs": 1793855893385
+    },
+    {
+      "trial": 8,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": null,
+      "signal": "SIGINT",
+      "killed": true,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 216,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:18:27.262Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 216,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225216,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793855907003,
+      "endedAtEpochMs": 1793856133514
+    },
+    {
+      "trial": 9,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 174,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:22:27.222Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 175,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225175,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793856147003,
+      "endedAtEpochMs": 1793856373444
+    },
+    {
+      "trial": 10,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": null,
+      "signal": "SIGINT",
+      "killed": true,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 215,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:26:27.249Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 215,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225217,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793856387002,
+      "endedAtEpochMs": 1793856613538
+    },
+    {
+      "trial": 11,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 175,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:30:27.240Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 175,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225175,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793856627003,
+      "endedAtEpochMs": 1793856853279
+    },
+    {
+      "trial": 12,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 210,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:34:27.251Z",
+          "joinTimeout": 224999,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 210,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225219,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224999ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793856867002,
+      "endedAtEpochMs": 1793857093364
+    },
+    {
+      "trial": 13,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 155,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:38:27.205Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 156,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225155,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793857107003,
+      "endedAtEpochMs": 1793857333252
+    },
+    {
+      "trial": 14,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 148,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:42:27.203Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 149,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225150,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793857347003,
+      "endedAtEpochMs": 1793857573407
+    },
+    {
+      "trial": 15,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 162,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:46:27.220Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 162,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225161,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224997ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793857587004,
+      "endedAtEpochMs": 1793857813341
+    },
+    {
+      "trial": 16,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 150,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:50:27.214Z",
+          "joinTimeout": 224991,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 150,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225144,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224991ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793857827010,
+      "endedAtEpochMs": 1793858053324
+    },
+    {
+      "trial": 17,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 164,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:54:27.228Z",
+          "joinTimeout": 224997,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 164,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225177,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224997ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793858067003,
+      "endedAtEpochMs": 1793858293357
+    },
+    {
+      "trial": 18,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": 1,
+      "signal": null,
+      "killed": false,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 171,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T05:58:27.243Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 171,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225173,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793858307003,
+      "endedAtEpochMs": 1793858533372
+    },
+    {
+      "trial": 19,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": null,
+      "signal": "SIGINT",
+      "killed": true,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 146,
+          "role": "send",
+          "version": "0.1.2",
+          "time": "2026-11-05T06:02:27.186Z",
+          "joinTimeout": 224998,
+          "refreshInterval": 4000,
+          "stream": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 147,
+          "role": "send",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 225146,
+          "role": "send",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 224998ms looking for a peer: no peer ever connected (check both sides are using the same code, and that the other side has printed its \"announced\" line)",
+          "bytes": null
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1793858547003,
+      "endedAtEpochMs": 1793858773538
+    }
+  ],
+  "summary": {
+    "succeeded": 0,
+    "trials": 20,
+    "skipped": 0,
+    "rate": 0,
+    "wilson95": {
+      "low": 0,
+      "high": 0.16112515805281938
+    },
+    "connectedMs": null,
+    "completedMs": null,
+    "transferMs": null,
+    "failures": {
+      "no-peer": 20
+    },
+    "contractViolations": [],
+    "crossCheckDisagreed": [],
+    "badConfirmations": 0,
+    "unacknowledged": []
+  }
+}
