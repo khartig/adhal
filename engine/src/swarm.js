@@ -222,7 +222,63 @@ function createSwarm (options = {}) {
   // candidate rather than treating it as fatal.
   swarm.on('connection', (socket) => { socket.on('error', () => {}) })
 
+  watchRefusedPunches(swarm)
   return swarm
+}
+
+// The one hole punch hyperdht refuses outright. When both this side's NAT
+// and the peer's are randomized -- a new external port per destination --
+// hyperdht 6.34.0 aborts the attempt before punching (lib/connect.js,
+// HOLEPUNCH_DOUBLE_RANDOMIZED_NATS), because no punch can work. Without a
+// relay, that pair cannot connect at all.
+//
+// Hyperswarm swallows the error: its own handler on the dialed connection
+// only decides whether to relay, and no 'connection' ever fires. So a drop
+// between two randomized NATs used to sit out its whole join timeout and
+// then blame the code ("check both sides are using the same code"). Found
+// 2026-11-04, with both machines on one ProtonVPN exit: 0 of 80 trials.
+//
+// The error is seen on the dialing side only. The side being dialed is
+// told the attempt was aborted, without the reason.
+const HOLEPUNCH_REFUSED = 'HOLEPUNCH_DOUBLE_RANDOMIZED_NATS'
+
+/** @type {WeakMap<object, { count: number, listeners: Set<() => void> }>} */
+const refusedPunches = new WeakMap()
+
+// Wraps the swarm's dht.connect so each connection Hyperswarm dials also
+// reports that one refusal to us. Another 'error' listener changes nothing
+// for Hyperswarm's own (see the sink above). A swarm this module did not
+// create is not watched, and reports no refusals.
+/** @param {any} swarm */
+function watchRefusedPunches (swarm) {
+  const dht = swarm && swarm.dht
+  if (!dht || typeof dht.connect !== 'function') return
+  const state = { count: 0, listeners: new Set() }
+  refusedPunches.set(swarm, state)
+  const connect = dht.connect.bind(dht)
+  dht.connect = (/** @type {any[]} */ ...args) => {
+    const conn = connect(...args)
+    conn.on('error', (/** @type {any} */ err) => {
+      if (!err || err.code !== HOLEPUNCH_REFUSED) return
+      state.count++
+      for (const fn of state.listeners) fn()
+    })
+    return conn
+  }
+}
+
+/**
+ * Calls `fn` for each hole punch hyperdht refuses on this swarm from now
+ * on, until the returned function is called.
+ * @param {any} swarm
+ * @param {() => void} fn
+ * @returns {() => void}
+ */
+function onRefusedPunch (swarm, fn) {
+  const state = refusedPunches.get(swarm)
+  if (!state) return () => {}
+  state.listeners.add(fn)
+  return () => { state.listeners.delete(fn) }
 }
 
 // How often we re-run our own DHT lookup while waiting for a peer.
@@ -295,7 +351,15 @@ function keepRefreshing (discovery, isSettled, interval = REFRESH_INTERVAL) {
 // candidates means the DHT and the punch both worked and the handshake did
 // not -- a completely different investigation, and the one that actually
 // cost a debugging session.
-function timeoutMessage (phase, timeout, candidates) {
+function timeoutMessage (phase, timeout, candidates, refused = 0) {
+  // Checked before the advice about the code, which would be wrong here:
+  // the peer was found, and hyperdht would not punch to it.
+  if (candidates === 0 && refused > 0) {
+    return `timed out after ${timeout}ms ${phase}: no peer ever connected. ` +
+      `hyperdht refused ${refused} hole punch(es), because this side's NAT and the peer's are both ` +
+      'randomized, which a VPN at both ends usually causes. No direct connection is possible ' +
+      'between two randomized NATs, and Adhal has no relay yet: turn the VPN off at one end'
+  }
   if (candidates === 0) {
     return `timed out after ${timeout}ms ${phase}: no peer ever connected ` +
       '(check both sides are using the same code, and that the other side ' +
@@ -318,12 +382,16 @@ function timeoutMessage (phase, timeout, candidates) {
  * @param {string} phase
  * @param {number} timeout
  * @param {number} candidates
+ * @param {number} [refused] hole punches hyperdht refused (HOLEPUNCH_REFUSED)
+ *
+ * Still ERR_NO_PEER when punches were refused: nothing connected, which
+ * is what that code means. `holepunchRefused` is what says why.
  */
-function timeoutError (phase, timeout, candidates) {
+function timeoutError (phase, timeout, candidates, refused = 0) {
   return new TransferError(
     candidates === 0 ? 'ERR_NO_PEER' : 'ERR_NO_HANDSHAKE',
-    timeoutMessage(phase, timeout, candidates),
-    { candidates, timeout }
+    timeoutMessage(phase, timeout, candidates, refused),
+    { candidates, timeout, ...(refused > 0 ? { holepunchRefused: refused } : {}) }
   )
 }
 
@@ -506,7 +574,8 @@ function connectionStats (socket) {
  *   onCandidate?: (peerInfo: any) => void,
  *   attemptCap?: InstanceType<typeof AttemptCap>,
  *   onCandidateDropped?: (peerInfo: any, reason: string, code: string | undefined, counted: boolean) => void,
- *   onDropTaken?: (peerInfo: any) => void
+ *   onDropTaken?: (peerInfo: any) => void,
+ *   onHolepunchRefused?: (refused: number) => void
  * }} options not optional, because `secret` and `nameplate` are not
  *   `attemptCap` counts failed confirmations for THIS drop (section 6);
  *   one is created per join, so burning it burns only this drop.
@@ -523,6 +592,13 @@ function connectionStats (socket) {
  *   was told the drop is taken (see declineLate); after pairing, a late
  *   candidate that fails is reported through `onCandidateDropped` only if
  *   its failure was counted.
+ *   `onHolepunchRefused` hears each hole punch hyperdht refused because
+ *   both NATs are randomized (see HOLEPUNCH_REFUSED), with the count so
+ *   far. It is not a failure: the drop goes on waiting, because a peer on
+ *   the topic need not be the intended one, and refusing to wait for the
+ *   real peer because of a stranger's NAT would let anyone who finds the
+ *   topic end the drop. The count is on the timeout error as
+ *   `holepunchRefused`.
  * @returns {Promise<{
  *   socket: any, peerInfo: any, pending: Buffer | null,
  *   sendKey: Buffer, receiveKey: Buffer, caps: string[],
@@ -533,7 +609,7 @@ function connectionStats (socket) {
  *   receiveFile, which seals every frame under them. `stopAnswering`
  *   stops telling late candidates the drop is taken.
  */
-function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, unansweredTimeout = UNANSWERED_CONNECTION_MS, attemptCap = new AttemptCap(), caps, signal, onAnnounced, onCandidate, onCandidateDropped, onDropTaken }) {
+function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, unansweredTimeout = UNANSWERED_CONNECTION_MS, attemptCap = new AttemptCap(), caps, signal, onAnnounced, onCandidate, onCandidateDropped, onDropTaken, onHolepunchRefused }) {
   // Validated up front rather than per connection, and required rather
   // than defaulted. A missing secret can only mean a caller that was not
   // updated for v2, and the failure mode of quietly carrying on without
@@ -557,6 +633,13 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
     let candidates = 0
     /** @type {(() => void) | null} */
     let stopRefreshing = null
+    // Hole punches hyperdht refused while this join waited; see onHolepunchRefused.
+    let refused = 0
+    const stopWatching = onRefusedPunch(swarm, () => {
+      if (settled) return
+      refused++
+      if (onHolepunchRefused) onHolepunchRefused(refused)
+    })
 
     const stopListening = () => {
       listening = false
@@ -567,6 +650,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
       settled = true
       if (timer) clearTimeout(timer)
       if (stopRefreshing) stopRefreshing()
+      stopWatching()
       if (signal) signal.removeEventListener('abort', onAbort)
     }
 
@@ -590,7 +674,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
         if (settled) return
         finish()
         stopListening()
-        reject(timeoutError('waiting for a peer', timeout, candidates))
+        reject(timeoutError('waiting for a peer', timeout, candidates, refused))
       }, timeout)
       : null
 
@@ -843,7 +927,8 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   signal?: AbortSignal,
  *   onCandidate?: (peerInfo: any) => void,
  *   onCandidateDropped?: (peerInfo: any, reason: string, code: string | undefined, counted: boolean) => void,
- *   onDropTaken?: (peerInfo: any) => void
+ *   onDropTaken?: (peerInfo: any) => void,
+ *   onHolepunchRefused?: (refused: number) => void
  * }} options not optional, because `secret` and `nameplate` are not
  *   `unansweredTimeout` is as for acceptOnce.
  *   `attemptCap` is where the SENDER's extra duty lives: as well as
@@ -863,7 +948,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
  *   `stopAnswering` are as for acceptOnce: a sender that has paired tells
  *   a second receiver the drop is taken.
  */
-function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, unansweredTimeout = UNANSWERED_CONNECTION_MS, attemptCap = new AttemptCap(), signal, onCandidate, onCandidateDropped, onDropTaken }) {
+function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refreshInterval = REFRESH_INTERVAL, handshakeTimeout = HANDSHAKE_TIMEOUT_MS, unansweredTimeout = UNANSWERED_CONNECTION_MS, attemptCap = new AttemptCap(), signal, onCandidate, onCandidateDropped, onDropTaken, onHolepunchRefused }) {
   // See acceptOnce: required rather than defaulted, and validated up
   // front, because carrying on without a secret would silently hand a file
   // to whoever answered.
@@ -879,6 +964,13 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
     let candidates = 0
     /** @type {(() => void) | null} */
     let stopRefreshing = null
+    // Hole punches hyperdht refused while this join waited; see onHolepunchRefused.
+    let refused = 0
+    const stopWatching = onRefusedPunch(swarm, () => {
+      if (settled) return
+      refused++
+      if (onHolepunchRefused) onHolepunchRefused(refused)
+    })
 
     const stopListening = () => {
       listening = false
@@ -889,6 +981,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
       settled = true
       if (timer) clearTimeout(timer)
       if (stopRefreshing) stopRefreshing()
+      stopWatching()
       if (signal) signal.removeEventListener('abort', onAbort)
     }
 
@@ -906,7 +999,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
         if (settled) return
         finish()
         stopListening()
-        reject(timeoutError('looking for a peer', timeout, candidates))
+        reject(timeoutError('looking for a peer', timeout, candidates, refused))
       }, timeout)
       : null
 
@@ -1187,4 +1280,4 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 // timeoutMessage is exported for tests: asserting both of its branches
 // end to end would mean racing a real peer against a real timeout, which
 // is exactly the kind of timing-dependent test that fails only under load.
-module.exports = { createSwarm, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }
+module.exports = { createSwarm, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HOLEPUNCH_REFUSED, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }

@@ -250,11 +250,40 @@ human is told.
 | Who | What they can do | What bounds it |
 | --- | --- | --- |
 | Anyone with the nameplate | Burn the drop with 100 wrong guesses | Exponential backoff makes it take wall-clock time, and the human is told someone was guessing (§5.3). Accepted. |
+| Anyone with the nameplate | Make hyperdht refuse to hole-punch, by reporting a randomized NAT to a side that has one too | Nothing to bound: a refusal does not end the drop. The CLI warns once (`double-randomized-nat`) and keeps waiting for a peer that can connect, until its join timeout (below). |
 | Anyone with the nameplate | Hold connection slots without handshaking | A 15 s per-candidate deadline, and 5 s for a connection that never receives a packet (W15d), with 16 parallel dials rather than Hyperswarm's 3. Silent candidates are not counted. The receiver warns when they recur (W15c). |
 | A peer with the code | Prove the code, then stall | `ERR_STALLED`: 30 s for the offer, 60 s without progress, and 5 min for a receiver's answer (PROTOCOL §4.4) |
 | A peer with the code | Exhaust memory or disk | Frames capped at 1 MiB before buffering, 8 GiB per file by default, a free-space check before anything is opened, and backpressure in both directions (§6) |
 | A Sybil DHT operator | Rotate identities to dodge per-source limits | Nothing yet: per-source and per-key budgets are deferred until W14's data shows the attack happens (Q-04). The warnings make it visible. |
 | The network | Block the DHT | Nothing (§7) |
+
+**A refused hole punch does not end a drop, by choice.** When both sides'
+NATs are randomized, hyperdht refuses to punch
+(`HOLEPUNCH_DOUBLE_RANDOMIZED_NATS`), and with no relay that pair cannot
+connect. This is what happens with a VPN at both ends (0 of 80 trials,
+2026-11-04). hyperdht already ends the refused attempt itself, so there
+is nothing left to clean up. The question is whether the whole drop
+should stop at the first refusal, and it does not:
+
+- **The refused peer is unknown.** The refusal comes before any
+  handshake, so before the code is proven, and the topic is visible to
+  anyone watching the DHT once the receiver announces.
+- **The NAT type is the peer's own claim.** hyperdht reads it from the
+  peer's hole-punch payload, so a stranger needs no real VPN to cause a
+  refusal, only a claim to have one.
+- **So stopping would make a drop cheap to end.** Against anyone on a
+  randomizing NAT, one dial with a false claim would end a drop that would
+  otherwise connect to the real peer: one randomized NAT, against a
+  consistent one, connected in 40 of 40 (2026-11-03). Today, ending a drop
+  takes 100 failed guesses (§5.3).
+
+The cost is accepted. A drop between two genuinely randomized NATs waits
+out its join timeout, 30 s for the receiver and 120 s for the sender by
+default. The warning appears at the first refusal, so the person can stop
+sooner, and the timeout's `ERR_NO_PEER` says why, with the count as
+`holepunchRefused` (`engine/src/swarm.js`, `onHolepunchRefused`). Ending
+the drop early, or after a short grace period, was considered and
+declined on 2026-11-05.
 
 ---
 

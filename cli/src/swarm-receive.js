@@ -40,7 +40,7 @@ const { parseBootstrap } = require('./env')
 const { createConsent, riskWarning } = require('./consent')
 const { createContentionMonitor } = require('./contention')
 const { createEventStream, peerId, connectionField, version } = require('./events')
-const { usage, NOT_ANONYMOUS } = require('./usage')
+const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT } = require('./usage')
 
 
 // ADHAL_JOIN_TIMEOUT overrides how long we wait for a peer, in ms (0
@@ -319,6 +319,13 @@ async function main () {
       // A second peer proved the code after we paired, and was told the
       // drop is taken. The race is invisible to this human otherwise, and
       // it means someone other than the intended sender holds the code.
+      // Said once: hyperdht refuses every punch between the same two NATs,
+      // so repeating it would only fill the screen.
+      onHolepunchRefused: (refused) => {
+        if (refused !== 1) return
+        if (events) events.emit('warning', { kind: 'double-randomized-nat', message: DOUBLE_RANDOMIZED_NAT })
+        say(`[swarm-receive] note: ${DOUBLE_RANDOMIZED_NAT}`)
+      },
       onDropTaken: (info) => {
         if (events) events.emit('drop-taken', { peer: peerId(info) })
         say(`[swarm-receive] another peer (${info.publicKey.toString('hex').slice(0, 12)}...) also has this code and tried to send; it was told the drop is taken. If you gave the code to only one person, someone else has it.`)

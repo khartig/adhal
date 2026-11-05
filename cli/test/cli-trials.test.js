@@ -170,6 +170,18 @@ test('a final event\'s connection counters become the trial\'s path, in its log 
   assert.ok(lines.some((l) => /^peer address: public 1, private 1 +\(private = same LAN/.test(l)), lines.join('\n'))
 })
 
+test('a no-peer whose hole punches hyperdht refused is said to need a relay', () => {
+  const events = [ev('start'), ev('failed', { code: 'ERR_NO_PEER', message: 'x', bytes: null, holepunchRefused: 4 })]
+  const read = readRun({ events, status: 1, killed: false })
+  assert.equal(read.outcome, 'no-peer', 'still a no-peer: the bucket is the code')
+  const run = { status: 1, signal: null, killed: false, spawnedAtEpochMs: 1000, endedAtEpochMs: 2000, otherLines: [], events }
+  const record = trialRecord(0, run, read, 1000, {})
+  assert.equal(record.holepunchRefused, 4)
+  const { lines, summary } = summarise([{ ...record, contract: [] }], { role: 'sender', seed: 's' })
+  assert.deepEqual(summary.holepunchRefused, [0])
+  assert.ok(lines.some((l) => /both NATs randomized; only a relay connects/.test(l)), lines.join('\n'))
+})
+
 test('the summary counts skipped slots apart, and says when a rate cannot be called', () => {
   const results = [
     { trial: 0, outcome: 'ok', connectedMs: 1000, completedMs: 3000, transferMs: 2000, contract: [] },

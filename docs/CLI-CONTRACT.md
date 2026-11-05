@@ -170,7 +170,7 @@ within one drop and nothing beyond it.
 | `accepted` | both | `resumeFrom` | The offer was accepted, and the file starts moving. |
 | `progress` | both | `bytes`, `total` (number or null) | At most every 250 ms, plus one at the end. The count varies run to run: do not count them. |
 | `done` | both | `name`, `declaredName`, `size`, `sha256`, `resumedFrom`, and on the receiver `path` and `published` (both null with `--stdout`) and `acknowledged`; `connection` (§3.5) | The drop finished and was verified. Last line. |
-| `failed` | both | `code` (or null), `message`, `bytes` (or null), and the error's own fields where set: `phase`, `reportedBy`, `peerReason`, `declineCode`, `detail`, `field`, `attempts`, `max`, `limit`, `size`, `expected`, `actual`, `partial`, and `socketError`, the transport's own message when it also reported one; `connection` (§3.5), once a peer paired | The drop ended any other way. Last line. |
+| `failed` | both | `code` (or null), `message`, `bytes` (or null), and the error's own fields where set: `phase`, `reportedBy`, `peerReason`, `declineCode`, `detail`, `field`, `attempts`, `max`, `limit`, `size`, `expected`, `actual`, `partial`, `holepunchRefused` (on `ERR_NO_PEER`: how many hole punches hyperdht refused because both NATs were randomized, so no direct connection was possible), and `socketError`, the transport's own message when it also reported one; `connection` (§3.5), once a peer paired | The drop ended any other way. Last line. |
 
 **Exactly one of `done` or `failed`, and it is the last line.** A stream
 that ends without one means the process died, killed or crashed, and
@@ -200,6 +200,7 @@ code: a wrapper should show it and not store it.
 | `contention` | The pattern lines in `cli/src/contention.js` (Q-04), with `failed`, `silent`, and `keys` as numbers |
 | `check-then-rename` | The no-hard-links note (Q-19) |
 | `code-on-argv` | The note that a code passed with `--code-on-argv` is in the shell history and visible to `ps` |
+| `double-randomized-nat` | The note that a peer was found but hyperdht will not hole-punch to it, because this side's NAT and the peer's are both randomized. Once per drop. The drop goes on waiting: a peer on the topic need not be the intended one. |
 
 New kinds may be added (§5). A consumer that does not know a kind should
 show its `message`.

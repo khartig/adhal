@@ -340,13 +340,19 @@ them is a transfer between two people who share nothing beforehand.
   largest open gap in this space, so it is worth a spike early, to size the
   prize before reordering the platforms.
 - **Is MeshDrop fragile?** A claim from an earlier plan, never measured.
-- **Does the relay matter?** One pair of networks has been measured
-  (Starlink CGNAT to Comcast): 10 of 10 punched at first, then two runs
-  of 40 trials with no relay configured, and every one of the 80
-  connected directly. The two failures, on 2026-10-13, lost the
-  connection after it was made. Dual hard NAT, the plan's own named risk,
-  has not been measured, so "the relay is not on the critical path" is
-  not yet established.
+- **Does the relay matter?** Yes, for two kinds of pair, and not so far
+  for the rest. With no relay configured, every trial connected directly
+  on Starlink CGNAT to Comcast (10 of 10 at first, then 80 of 80 across
+  two runs, and 40 of 40 through the CLIs), on Starlink to a phone
+  tether on AT&T (40 of 40), and with one randomizing NAT, a VPN at one
+  end (40 of 40). The failures among them lost the connection after it
+  was made. But dual hard NAT, the plan's own named risk, never connects:
+  with a VPN at both ends, 0 of 80 (2026-11-04), because hyperdht does
+  not punch between two randomized NATs. Two devices behind one NAT that
+  cannot reach each other locally never connect either (2026-10-19). So
+  the relay is on the critical path for those pairs, which a VPN user
+  meets as soon as the other end uses a VPN too. Sizes and timings are in
+  [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
 
@@ -367,10 +373,20 @@ much the relay matters.
 
 **The network pairs**, chosen for where hole punching fails:
 
-- home NAT ↔ home NAT, and CGNAT ↔ home NAT (the one path measured so far);
+- home NAT ↔ home NAT, and CGNAT ↔ home NAT. CGNAT ↔ home NAT is
+  measured for Adhal: Starlink ↔ Comcast, directly in every trial, through
+  the engine (2026-10-13, 2026-10-15) and through the CLIs (2026-11-01);
 - **CGNAT ↔ CGNAT**, for example two phones on hotspots from different
-  carriers;
-- a symmetric or port-randomizing NAT;
+  carriers. Likely measured for Adhal: Starlink ↔ a phone tether on AT&T,
+  40 of 40 (2026-11-01). AT&T's carrier NAT is inferred: neither host can
+  see it;
+- a symmetric or port-randomizing NAT. Measured for Adhal, with a VPN
+  exit as the randomizing NAT. Against a consistent NAT it connects: 40
+  of 40 (2026-11-03), at about 15 s to connect against 4 s. Against
+  another randomizing NAT it never does: 0 of 80, both ends on one
+  ProtonVPN exit server (2026-11-04). hyperdht 6.34.0 refuses that punch
+  (`HOLEPUNCH_DOUBLE_RANDOMIZED_NATS`), so this pair needs a relay, and
+  any tool with one should beat Adhal on it;
 - same NAT (hairpinning) and VLAN-isolated networks. Two peers on one
   machine or one LAN connect by hyperdht's LAN shortcut, without
   touching the router, so hairpinning is tested only by two devices
@@ -382,7 +398,8 @@ much the relay matters.
   address is an Xfinity gateway's, in router mode in front of the eero,
   so it was not hairpinned, and only a relay connects that pair. The
   other tools have not been run on it;
-- a mobile hotspot and a corporate network.
+- a mobile hotspot, measured as above, and a corporate network, not
+  measured.
 
 **How it is read.**
 
@@ -401,9 +418,12 @@ much the relay matters.
 and MeshDrop's core and its handshake (MIT, same stack). Treat DashBeam as
 a black box (AGPL).
 
-**Results.** None yet. Adhal's own runs on the CGNAT ↔ home NAT pair
-(§1, #5) are in [`ARCHITECTURE.md`](ARCHITECTURE.md), but they are not a
-comparison until the other tools have been run on the same pair.
+**Results.** None yet. Adhal's own runs on the pairs above are in
+[`ARCHITECTURE.md`](ARCHITECTURE.md), but they are not a comparison until
+the other tools have been run on the same pairs, in the same window.
+Adhal runs direct-only, while magic-wormhole falls back to its transit
+relay and croc may send everything through its relay (§2), so each
+tool's record has to say which path every transfer took. Otherwise a relayed success and a direct one count the same.
 
 | Pair | Adhal | magic-wormhole | MeshDrop | DashBeam | LocalSend |
 |---|---|---|---|---|---|

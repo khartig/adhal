@@ -365,6 +365,9 @@ function trialRecord (trial, run, read, dialBaselineMs, extra) {
     acknowledged: final && final.event === 'done' && 'acknowledged' in final ? final.acknowledged : undefined,
     peerReason: final && final.peerReason !== undefined ? final.peerReason : undefined,
     phase: final && final.phase !== undefined ? final.phase : undefined,
+    // Hole punches hyperdht refused because both NATs were randomized: a
+    // no-peer that no amount of retrying would have fixed.
+    holepunchRefused: final && final.holepunchRefused !== undefined ? final.holepunchRefused : undefined,
     // The paired connection's transport counters, from the final event's
     // `connection`, under the name scratch-trials.js records them as, so
     // scratch-trials-environment.js reads both harnesses the same way.
@@ -416,7 +419,8 @@ function summarise (results, { role, seed }) {
     contractViolations: results.filter((r) => r.contract && r.contract.length).map((r) => ({ trial: r.trial, contract: r.contract })),
     crossCheckDisagreed: results.filter((r) => r.outcome === 'hash-crosscheck-disagreed').map((r) => r.trial),
     badConfirmations: results.reduce((n, r) => n + (r.badConfirmations || 0), 0),
-    unacknowledged: results.filter((r) => r.acknowledged === false).map((r) => r.trial)
+    unacknowledged: results.filter((r) => r.acknowledged === false).map((r) => r.trial),
+    holepunchRefused: results.filter((r) => r.holepunchRefused).map((r) => r.trial)
   }
   /** @type {Map<string, number>} */
   const kinds = new Map()
@@ -438,6 +442,9 @@ function summarise (results, { role, seed }) {
   if (Object.keys(failures).length) {
     lines.push('failures:')
     for (const [reason, n] of Object.entries(failures).sort((a, b) => b[1] - a[1])) lines.push(`  ${reason.padEnd(26)} ${n}`)
+  }
+  if (summary.holepunchRefused.length) {
+    lines.push(`trial(s) ${summary.holepunchRefused.map((t) => t + 1).join(', ')}: hyperdht refused to hole-punch, both NATs randomized; only a relay connects such a pair`)
   }
   if (summary.unacknowledged.length) {
     lines.push(`trial(s) ${summary.unacknowledged.map((t) => t + 1).join(', ')}: saved and verified here, but the sender never acknowledged RESULT`)
@@ -610,7 +617,8 @@ async function main (opts) {
     const detail = record.outcome === 'ok'
       ? ''
       : ` [code=${record.code ?? 'none'} exit=${record.exit ?? record.signal}${record.killed ? ' killed' : ''} bytes=${record.bytes ?? '?'}` +
-        `${record.peerReason ? ` peerReason="${record.peerReason}"` : ''}]`
+        `${record.peerReason ? ` peerReason="${record.peerReason}"` : ''}` +
+        `${record.holepunchRefused ? ` holepunchRefused=${record.holepunchRefused}` : ''}]`
     const flags = (record.contract.length ? ' CONTRACT' : '') + (record.badConfirmations ? ` badConfirmations=${record.badConfirmations}` : '')
     log(`trial ${i + 1}/${opts.trials}: ${record.outcome}${timing}${pathInfo(record.path)}${detail}${flags}`)
   }

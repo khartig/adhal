@@ -171,6 +171,10 @@ test('failed takes its code from err.code, maps EPIPE, and copies the fields a s
   assert.equal(failed.peerReason, 'no')
   assert.equal(failed.bytes, 0)
   assert.equal(failed.stack, undefined, 'only the listed fields')
+
+  const h2 = harness()
+  h2.events.failed({ code: 'ERR_NO_PEER', holepunchRefused: 2 }, 'timed out')
+  assert.equal(h2.lines()[0].holepunchRefused, 2, 'why a no-peer can never connect, for a script')
 })
 
 test('connection is the transport counters and an address kind, never an address, and absent without a raw stream', () => {

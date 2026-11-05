@@ -37,6 +37,8 @@ const {
   acceptOnce,
   connectOnce,
   timeoutMessage,
+  timeoutError,
+  HOLEPUNCH_REFUSED,
   topicFromNameplate,
   splitCode,
   generateCode,
@@ -182,6 +184,62 @@ test('a timeout reports whether it found nobody or found peers that never confir
   assert.match(some, /3 peer\(s\) connected/)
   assert.match(some, /none completed the readiness handshake/)
   assert.match(some, /not a DHT one/, 'must point above the DHT, not at it')
+})
+
+test('a timeout after refused hole punches says why, and is still ERR_NO_PEER', () => {
+  const refused = timeoutMessage('waiting for a peer', 1000, 0, 3)
+  assert.match(refused, /refused 3 hole punch/)
+  assert.match(refused, /both randomized/)
+  assert.match(refused, /no relay yet/)
+  assert.doesNotMatch(refused, /same code/, 'the code was not the problem: the peer was found')
+
+  const err = /** @type {any} */ (timeoutError('waiting for a peer', 1000, 0, 3))
+  assert.equal(err.code, 'ERR_NO_PEER', 'nothing connected, which is what the code means')
+  assert.equal(err.holepunchRefused, 3)
+  assert.equal(/** @type {any} */ (timeoutError('waiting for a peer', 1000, 0)).holepunchRefused, undefined)
+})
+
+test('the refusal watched for is hyperdht\'s own error code', () => {
+  // A rename in hyperdht would otherwise turn the watch off without a sound.
+  const { HOLEPUNCH_DOUBLE_RANDOMIZED_NATS } = require('hyperdht/lib/errors')
+  assert.equal(HOLEPUNCH_DOUBLE_RANDOMIZED_NATS().code, HOLEPUNCH_REFUSED)
+})
+
+test('a hole punch hyperdht refuses is counted by the join that is waiting, and nothing else is', slow, async (t) => {
+  const testnet = await createTestnet(3)
+  t.after(() => testnet.destroy())
+  const swarm = createSwarm({ bootstrap: testnet.bootstrap })
+  t.after(() => swarm.destroy())
+
+  // Hyperswarm dials through swarm.dht.connect, so a connection made there
+  // and destroyed with hyperdht's error is the refusal as Hyperswarm meets it.
+  const { HOLEPUNCH_DOUBLE_RANDOMIZED_NATS } = require('hyperdht/lib/errors')
+  const dial = (/** @type {Error} */ err) => {
+    const conn = swarm.dht.connect(crypto.randomBytes(32))
+    conn.on('error', () => {})
+    conn.destroy(err)
+  }
+
+  /** @type {number[]} */
+  const heard = []
+  const joining = connectOnce(swarm, topicFromNameplate(splitCode(generateCode()).nameplate), {
+    ...splitCode(generateCode()),
+    timeout: 1500,
+    onHolepunchRefused: (n) => { heard.push(n) }
+  })
+  dial(HOLEPUNCH_DOUBLE_RANDOMIZED_NATS())
+  dial(Object.assign(new Error('some other failure'), { code: 'HOLEPUNCH_ABORTED' }))
+  dial(HOLEPUNCH_DOUBLE_RANDOMIZED_NATS())
+
+  const err = /** @type {any} */ (await joining.then(() => assert.fail('nobody was there to pair with'), (e) => e))
+  assert.equal(err.code, 'ERR_NO_PEER')
+  assert.equal(err.holepunchRefused, 2, 'only the double-randomized refusals count')
+  assert.match(err.message, /both randomized/)
+  assert.deepEqual(heard, [1, 2])
+
+  // After the join has ended, a refusal is nobody's.
+  dial(HOLEPUNCH_DOUBLE_RANDOMIZED_NATS())
+  assert.deepEqual(heard, [1, 2])
 })
 
 test('a join that finds nobody says so', slow, async (t) => {

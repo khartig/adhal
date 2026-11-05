@@ -30,7 +30,7 @@ const PROGRESS_MS = 250
 // the error has them. A list, not the whole error: `expected` and
 // `actual` are useful, a stack is not, and an error the engine never
 // built could carry anything.
-const ERROR_FIELDS = ['phase', 'reportedBy', 'peerReason', 'declineCode', 'detail', 'field', 'attempts', 'max', 'limit', 'size', 'expected', 'actual', 'partial']
+const ERROR_FIELDS = ['phase', 'reportedBy', 'peerReason', 'declineCode', 'detail', 'field', 'attempts', 'max', 'limit', 'size', 'expected', 'actual', 'partial', 'holepunchRefused']
 
 /**
  * The 12 hex characters the human lines show, from the candidate's

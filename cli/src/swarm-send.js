@@ -29,7 +29,7 @@ const { describeError, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
 const { parseBootstrap } = require('./env')
 const { createEventStream, peerId, connectionField, version } = require('./events')
-const { usage, NOT_ANONYMOUS } = require('./usage')
+const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT } = require('./usage')
 
 
 // See swarm-receive.js for why the public-DHT default is this generous.
@@ -227,6 +227,13 @@ async function main () {
         say(paired
           ? `[swarm-send] ${who} failed to prove the code during the transfer (${reason}); it counts toward this drop's attempt limit`
           : `[swarm-send] ${who} dropped before proving (${reason}); still looking`)
+      },
+      // Said once: hyperdht refuses every punch between the same two NATs,
+      // so repeating it would only fill the screen.
+      onHolepunchRefused: (refused) => {
+        if (refused !== 1) return
+        if (events) events.emit('warning', { kind: 'double-randomized-nat', message: DOUBLE_RANDOMIZED_NAT })
+        say(`[swarm-send] note: ${DOUBLE_RANDOMIZED_NAT}`)
       },
       onDropTaken: (info) => {
         if (events) events.emit('drop-taken', { peer: peerId(info) })

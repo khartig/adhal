@@ -12,6 +12,15 @@
 // otherwise.
 const NOT_ANONYMOUS = 'not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop\'s topic'
 
+// Printed by both swarm CLIs the first time hyperdht refuses a hole punch
+// because both NATs are randomized (HOLEPUNCH_REFUSED in
+// engine/src/swarm.js). "A peer", not "the peer": anyone who finds the
+// topic can be the one refused, so the drop keeps waiting, and says why
+// it may never connect.
+const DOUBLE_RANDOMIZED_NAT = 'a peer was found, but hyperdht will not hole-punch to it: this side\'s NAT and the peer\'s are both randomized, ' +
+  'which a VPN at both ends usually causes. Two randomized NATs cannot connect directly, and Adhal has no relay yet. ' +
+  'Still waiting, in case another peer can connect; to connect to this one, turn the VPN off at one end'
+
 // Q-13. The loopback pair is a harness for tests and demos, and nothing
 // about it is meant for a real drop: it listens on 127.0.0.1 only.
 const TEST_ONLY = 'TEST-ONLY: the loopback harness, over 127.0.0.1. For a real drop use ad-hal-send / ad-hal-receive.'
@@ -101,4 +110,4 @@ function usage (cli) {
   return USAGE[cli]
 }
 
-module.exports = { usage, NOT_ANONYMOUS, TEST_ONLY }
+module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, TEST_ONLY }
