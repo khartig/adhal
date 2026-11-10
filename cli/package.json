@@ -43,7 +43,7 @@
     "qrcode-generator": "2.0.4"
   },
   "devDependencies": {
-    "hyperdht": "6.34.0",
+    "hyperdht": "6.36.0",
     "jsqr": "1.4.0"
   },
   "publishConfig": {
