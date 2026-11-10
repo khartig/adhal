@@ -73,8 +73,8 @@ gates):
 - **Optional**, and never in the default path when a direct connection
   works.
 - **Self-hostable**, with its protocol documented.
-- Relay tokens derive from the **nameplate only**, never from anything
-  that could be ground back to the secret.
+- Relay tokens carry **nothing from the drop code**: hyperdht makes a
+  fresh random token per connection (THREAT-MODEL §8, gate 3).
 - Investigate Holepunch's own blind-relay first: the best relay to
   operate is none.
 
@@ -153,9 +153,12 @@ has all 21).
 
 ## 8. Stage 3 — reach
 
-macOS + Linux CLI → LAN discovery (mDNS/multicast) → macOS + Linux desktop
-app → optional relay (under §3) → **Windows** → **Android** → **iOS spike,
-then build**.
+From the macOS + Linux CLI: optional relay (under §3) → LAN discovery
+(mDNS/multicast) → macOS + Linux desktop app → **Windows** → **Android** →
+**iOS spike, then build**.
+
+The relay moved to the front on 2026-11-08. Without one, a drop between
+two randomized NATs cannot connect at all (0 of 80, 2026-11-04).
 
 ---
 

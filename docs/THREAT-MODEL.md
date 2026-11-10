@@ -406,9 +406,12 @@ destroy the one structural advantage this design has over its competitors.
   and that cannot be true if security depends on which transport carried
   the bytes.
 - **Cannot join a drop without the code.**
-- Relay tokens derive from the **nameplate only** — never from anything
-  grindable back to the secret. Otherwise the relay operator becomes the
-  best-positioned code guesser in the system.
+- Relay tokens carry **nothing from the drop code**, neither the
+  nameplate nor the secret. Anything grindable back to the secret would
+  make the relay operator the best-positioned code guesser in the system.
+  This was written as "derived from the nameplate only"; hyperdht's relay
+  path does better, with a fresh random 32-byte token per connection
+  (`blind-relay` `token()`), so the constraint now says so.
 - Per-token bandwidth and duration caps.
 
 **Merge gates (Q-10).** The constraints above are only worth something if
@@ -422,13 +425,30 @@ a test shows it:
 2. A relay holding the nameplate and a valid token, but not the secret,
    cannot complete a handshake. Its attempt counts toward the cap like any
    other failed confirmation.
-3. The relay token is derived from the nameplate alone. A test shows the
-   derivation's inputs, so that nothing from the secret can enter them.
+3. The relay token is independent of the drop code. A test shows that it
+   is freshly random per connection, and that two connections for the
+   same code get unrelated tokens, so nothing from the secret or the
+   nameplate can enter it.
 4. The relay persists nothing about a drop beyond its per-token counters.
    Resume through a relay re-pairs and re-hashes, exactly as it does
    directly; that half is already met (§6, PROTOCOL §7).
 5. The per-token bandwidth and duration caps are enforced.
 6. A drop that can connect directly does so, and the relay is not used.
+
+**A peer can choose the relay, and that is accepted (2026-11-08).**
+"Optional" holds for each side's own choice only. hyperdht pairs a
+connection through a relay named in the peer's handshake payload, whether
+or not this side turned relaying on, and it offers no hook to decline. The
+peer is unauthenticated at that point, so anyone who finds the topic can
+make a waiting peer connect to their relay. That relay's operator learns
+the peer's IP address and connection times, which the stranger learns
+anyway by dialing, and sees only end-to-end encrypted traffic. Someone
+who would rather not can pass `--refuse-peer-relay`: the relay the peer
+named is cleared from its handshake before hyperdht reads it, so this side
+never contacts that relay (`refusePeerRelays` in `engine/src/swarm.js`,
+tested in `cli/test/peer-relay.test.js`). It works around hyperdht, through
+two internals that are not public API. The upstream change that would
+replace it is in [`UPSTREAM-HYPERDHT.md`](UPSTREAM-HYPERDHT.md) §1.
 
 Holepunch's own blind-relay is worth investigating first, on the grounds
 that the best relay to operate is none.
