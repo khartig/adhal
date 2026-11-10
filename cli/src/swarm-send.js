@@ -21,7 +21,7 @@
 // --json replaces the human lines with the event stream in ./events.js, on
 // stdout: docs/CLI-CONTRACT.md section 3.
 
-const { createSwarm, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@ad-hal/engine')
+const { createSwarm, onPeerRelayRefused, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@ad-hal/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
@@ -29,7 +29,7 @@ const { describeError, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
 const { parseBootstrap } = require('./env')
 const { createEventStream, peerId, connectionField, version } = require('./events')
-const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT } = require('./usage')
+const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, PEER_RELAY_REFUSED } = require('./usage')
 
 
 // See swarm-receive.js for why the public-DHT default is this generous.
@@ -68,6 +68,7 @@ async function main () {
   const verbose = argv.includes('--verbose')
   // Accepts a code as an argument; see ./read-code.js.
   const allowArgv = argv.includes('--code-on-argv')
+  const refusePeerRelay = argv.includes('--refuse-peer-relay')
   const positional = argv.filter((a) => !a.startsWith('--') || a === '--code-stdin')
   const [codeArg, filePathArg] = positional
   const nameFlag = argv.find((a) => a.startsWith('--name='))
@@ -174,7 +175,15 @@ async function main () {
     return
   }
 
-  const swarm = createSwarm({ bootstrap })
+  const swarm = createSwarm({ bootstrap, refusePeerRelay })
+  // --refuse-peer-relay: never pair through a relay the peer names
+  // (refusePeerRelays in engine/src/swarm.js). Said once, like the
+  // refused punch: if the punch cannot connect either, this drop will not.
+  onPeerRelayRefused(swarm, (refused) => {
+    if (refused !== 1) return
+    if (events) events.emit('warning', { kind: 'peer-relay-refused', message: PEER_RELAY_REFUSED })
+    say(`[swarm-send] note: ${PEER_RELAY_REFUSED}`)
+  })
   const cancel = installCancelHandler({ label: 'swarm-send', log: say })
   const progress = events
     ? { onProgress: events.onProgress, close: events.flushProgress }
@@ -186,7 +195,7 @@ async function main () {
   /** @type {any} */
   let connection = null
   if (events) {
-    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stream: streaming })
+    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stream: streaming, refusePeerRelay })
     events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
     for (const warning of held) events.emit('warning', warning)
   }

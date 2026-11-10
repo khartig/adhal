@@ -21,6 +21,12 @@ const DOUBLE_RANDOMIZED_NAT = 'a peer was found, but hyperdht will not hole-punc
   'which a VPN at both ends usually causes. Two randomized NATs cannot connect directly, and Adhal has no relay yet. ' +
   'Still waiting, in case another peer can connect; to connect to this one, turn the VPN off at one end'
 
+// Printed by both swarm CLIs the first time --refuse-peer-relay refuses
+// a relay a peer named (onPeerRelayRefused in engine/src/swarm.js). "A
+// peer", as above: it was refused before it proved the code.
+const PEER_RELAY_REFUSED = 'a peer asked to connect through a relay it chose, and --refuse-peer-relay refused it. ' +
+  'Still waiting for a direct connection; if one is not possible, this drop will not connect. Run without --refuse-peer-relay to allow it'
+
 // Q-13. The loopback pair is a harness for tests and demos, and nothing
 // about it is meant for a real drop: it listens on 127.0.0.1 only.
 const TEST_ONLY = 'TEST-ONLY: the loopback harness, over 127.0.0.1. For a real drop use ad-hal-send / ad-hal-receive.'
@@ -45,6 +51,9 @@ Options:
                           stderr with --stdout. Never asks: without --yes, the
                           offer is declined. See docs/CLI-CONTRACT.md.
   --replace               overwrite an existing file of the same name
+  --refuse-peer-relay     never connect through a relay the peer names. By
+                          default hyperdht follows one if the peer asks, which
+                          shows your IP address to that relay's operator.
   --code-stdin            the same as passing - as the code
   --code-on-argv          allow a code as an argument. It is then in your shell
                           history and visible to \`ps\` for as long as the drop runs.
@@ -72,6 +81,9 @@ Options:
   --code-on-argv          allow a code as an argument. It is then in your shell
                           history and visible to \`ps\` for as long as the drop runs.
   --name=<name>           what a stream is offered as (default "stdin")
+  --refuse-peer-relay     never connect through a relay the peer names. By
+                          default hyperdht follows one if the peer asks, which
+                          shows your IP address to that relay's operator.
   --json                  report the drop as JSON lines on stdout, in place of
                           these lines. See docs/CLI-CONTRACT.md.
   --insecure-opaque-code  accept a code that is not drop-code words. This
@@ -110,4 +122,4 @@ function usage (cli) {
   return USAGE[cli]
 }
 
-module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, TEST_ONLY }
+module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, PEER_RELAY_REFUSED, TEST_ONLY }

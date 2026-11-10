@@ -158,7 +158,7 @@ within one drop and nothing beyond it.
 
 | Event | Side | Fields | When |
 | --- | --- | --- | --- |
-| `start` | both | `version` (the CLI's), `time` (ISO 8601, UTC), `joinTimeout`, `refreshInterval` (ms), `stdout` (receive), `stream` (send) | First, once the arguments, the environment, and the code are accepted. A `failed` for one of those comes alone. |
+| `start` | both | `version` (the CLI's), `time` (ISO 8601, UTC), `joinTimeout`, `refreshInterval` (ms), `stdout` (receive), `stream` (send), `refusePeerRelay` (whether `--refuse-peer-relay` was given) | First, once the arguments, the environment, and the code are accepted. A `failed` for one of those comes alone. |
 | `code` | receive | `code`, `payload` (the QR payload) | Generated codes only, after `announced`. See the note below. |
 | `announced` | receive | | The topic is announced and the code may be shown. |
 | `candidate` | both | `peer` | A connection began the handshake. |
@@ -201,6 +201,7 @@ code: a wrapper should show it and not store it.
 | `check-then-rename` | The no-hard-links note (Q-19) |
 | `code-on-argv` | The note that a code passed with `--code-on-argv` is in the shell history and visible to `ps` |
 | `double-randomized-nat` | The note that a peer was found but hyperdht will not hole-punch to it, because this side's NAT and the peer's are both randomized. Once per drop. The drop goes on waiting: a peer on the topic need not be the intended one. |
+| `peer-relay-refused` | With `--refuse-peer-relay`: the note that a peer asked to connect through a relay it chose, and was refused. Once per drop. The drop goes on waiting for a direct connection, which may never come. |
 
 New kinds may be added (§5). A consumer that does not know a kind should
 show its `message`.

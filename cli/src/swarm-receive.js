@@ -29,7 +29,7 @@
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, acceptOnce, receiveFile, closeAfterResult, generateCode, encodeQrPayload, resolveCode, displayName, KNOWN_CAPS } = require('@ad-hal/engine')
+const { createSwarm, onPeerRelayRefused, acceptOnce, receiveFile, closeAfterResult, generateCode, encodeQrPayload, resolveCode, displayName, KNOWN_CAPS } = require('@ad-hal/engine')
 
 const { printQr } = require('./qr')
 const { readCode } = require('./read-code')
@@ -40,7 +40,7 @@ const { parseBootstrap } = require('./env')
 const { createConsent, riskWarning } = require('./consent')
 const { createContentionMonitor } = require('./contention')
 const { createEventStream, peerId, connectionField, version } = require('./events')
-const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT } = require('./usage')
+const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, PEER_RELAY_REFUSED } = require('./usage')
 
 
 // ADHAL_JOIN_TIMEOUT overrides how long we wait for a peer, in ms (0
@@ -80,7 +80,7 @@ function maxSize () {
 // stays unambiguously "that's a code", exactly as the Hyperswarm CLI defined it: a bare
 // path and a bare code are not reliably distinguishable, and guessing wrong
 // would silently save into a directory named after a word.
-const KNOWN_FLAGS = new Set(['--new', '--insecure-opaque-code', '--replace', '--code-stdin', '--verbose', '--yes', '--code-on-argv', '--stdout', '--json', '--help'])
+const KNOWN_FLAGS = new Set(['--new', '--insecure-opaque-code', '--replace', '--code-stdin', '--verbose', '--yes', '--code-on-argv', '--stdout', '--json', '--refuse-peer-relay', '--help'])
 
 function parseArgs (argv) {
   const flags = argv.filter((a) => a.startsWith('--'))
@@ -105,6 +105,7 @@ function parseArgs (argv) {
     // The file to stdout, everything else to stderr; see the top.
     toStdout: flags.includes('--stdout'),
     json: flags.includes('--json'),
+    refusePeerRelay: flags.includes('--refuse-peer-relay'),
     help: flags.includes('--help')
   }
 
@@ -239,7 +240,15 @@ async function main () {
   // uncaught exception.
   if (parsed.toStdout) process.stdout.on('error', () => {})
 
-  const swarm = createSwarm({ bootstrap })
+  const swarm = createSwarm({ bootstrap, refusePeerRelay: parsed.refusePeerRelay })
+  // --refuse-peer-relay: never pair through a relay the peer names
+  // (refusePeerRelays in engine/src/swarm.js). Said once, like the
+  // refused punch: if the punch cannot connect either, this drop will not.
+  onPeerRelayRefused(swarm, (refused) => {
+    if (refused !== 1) return
+    if (events) events.emit('warning', { kind: 'peer-relay-refused', message: PEER_RELAY_REFUSED })
+    say(`[swarm-receive] note: ${PEER_RELAY_REFUSED}`)
+  })
   const cancel = installCancelHandler({ label: 'swarm-receive', log: say })
   const progress = events
     ? { onProgress: events.onProgress, close: events.flushProgress, log: () => {} }
@@ -252,7 +261,7 @@ async function main () {
   /** @type {any} */
   let connection = null
   if (events) {
-    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stdout: parsed.toStdout })
+    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stdout: parsed.toStdout, refusePeerRelay: parsed.refusePeerRelay })
     events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
     for (const warning of held) events.emit('warning', warning)
   }

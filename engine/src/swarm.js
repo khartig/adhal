@@ -2,6 +2,9 @@
 
 const Hyperswarm = require('hyperswarm')
 const HyperDHT = require('hyperdht')
+// hyperdht's own handshake wrapper, for refusePeerRelays below. An internal
+// module, not public API: see there for why, and what catches a change.
+const NoiseWrap = require('hyperdht/lib/noise-wrap.js')
 const { TransferError, abortError } = require('./errors')
 const { MessageReader } = require('./reader')
 const { Initiator, Responder, assertHandshakeInputs, ERR_CONFIRMATION } = require('./handshake')
@@ -157,6 +160,18 @@ const HANDSHAKE_TIMEOUT_MS = 15000
 // UDX's own 13 s. It has not been measured cross-ISP, because the event
 // has not been seen there -- it needs a shared address -- and a false
 // positive costs a redial, not the drop.
+//
+// MAYBE FIXED UPSTREAM, NOT YET SHOWN. hyperdht 6.36.0 no longer aborts
+// on an unstable NAT analysis while the LAN path is still pending
+// (lib/server.js, `lanPending`), which is the cause above. On a testnet,
+// with this check off (scratch-pairing-race.js 16 --unanswered=0), 6.34.0
+// paired slowly 8 times in 16 (median 18.6 s) and 6.36.0 never did, every
+// pairing in under 0.1 s (2026-11-08). But the same release also returns
+// peers in the announce reply, so discovery stopped waiting for the first
+// 4 s re-lookup, and that moves the timing the race depended on. Which of
+// the two removed it is not separated, and a testnet in one process is
+// not two processes on one LAN. So the check stays until those are
+// measured.
 const UNANSWERED_CONNECTION_MS = 5000
 
 // engine owns all Holepunch join logic (see engine/package.json); cli/
@@ -179,7 +194,8 @@ const UNANSWERED_CONNECTION_MS = 5000
 // identity (a future "keep this device") belongs inside the authenticated
 // channel and never in front of the DHT.
 /**
- * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number }} [options]
+ * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number, refusePeerRelay?: boolean }} [options]
+ *   `refusePeerRelay` refuses a relay the peer names (see refusePeerRelays).
  */
 function createSwarm (options = {}) {
   if (options && 'keyPair' in options) {
@@ -188,7 +204,7 @@ function createSwarm (options = {}) {
       'so that DHT nodes cannot link two drops (THREAT-MODEL.md section 4)'
     )
   }
-  const { bootstrap, maxParallel = MAX_PARALLEL } = options
+  const { bootstrap, maxParallel = MAX_PARALLEL, refusePeerRelay = false } = options
   const swarm = new Hyperswarm({
     keyPair: HyperDHT.keyPair(),
     maxParallel,
@@ -223,12 +239,13 @@ function createSwarm (options = {}) {
   swarm.on('connection', (socket) => { socket.on('error', () => {}) })
 
   watchRefusedPunches(swarm)
+  if (refusePeerRelay) refusePeerRelays(swarm)
   return swarm
 }
 
 // The one hole punch hyperdht refuses outright. When both this side's NAT
 // and the peer's are randomized -- a new external port per destination --
-// hyperdht 6.34.0 aborts the attempt before punching (lib/connect.js,
+// hyperdht aborts the attempt before punching (6.34.0 and 6.36.0, lib/connect.js,
 // HOLEPUNCH_DOUBLE_RANDOMIZED_NATS), because no punch can work. Without a
 // relay, that pair cannot connect at all.
 //
@@ -276,6 +293,90 @@ function watchRefusedPunches (swarm) {
  */
 function onRefusedPunch (swarm, fn) {
   const state = refusedPunches.get(swarm)
+  if (!state) return () => {}
+  state.listeners.add(fn)
+  return () => { state.listeners.delete(fn) }
+}
+
+// REFUSING A RELAY THE PEER NAMES (--refuse-peer-relay).
+//
+// hyperdht pairs a connection through a relay named in the peer's
+// handshake payload, whatever this side's own relay setting: the side
+// being dialed follows the dialer's choice (hyperdht 6.36.0,
+// lib/server.js, `if (relayThrough || remotePayload.relayThrough)`), and
+// the dialer follows the dialed side's (lib/connect.js, relayConnection).
+// It has no option to decline. The peer is unauthenticated at that point,
+// before the PAKE, so anyone who finds the topic can make this side
+// connect to a relay of their choosing (THREAT-MODEL.md section 8, which
+// accepts that by default; docs/UPSTREAM-HYPERDHT.md section 1, which
+// proposes the upstream option that would replace this).
+//
+// Both sides build their handshake through a `createHandshake` factory,
+// so a wrapper around hyperdht's own NoiseWrap can clear `relayThrough`
+// from the peer's decoded payload before hyperdht acts on it. Refused, the
+// relay is never contacted from this side: no pairing, no bytes, and this
+// side's address never reaches the relay. The peer learns nothing; it
+// waits out its own 15 s relay timeout. This side's own relay setting is
+// untouched, since only the PEER's payload is filtered.
+//
+// Two internals carry it, and neither is public API: lib/noise-wrap.js,
+// and `server.createHandshake` being a property read on each handshake
+// (lib/server.js, `this.createHandshake(this._keyPair, null)`). Checked
+// unchanged from 6.34.0 to 6.36.0. If an upgrade changes either, the hook
+// is refused here when it is missing, and cli/test/peer-relay.test.js
+// fails when it is present but no longer refuses.
+//
+// The dialing half (a dialed side naming a relay) is installed but never
+// arises between two Adhal peers: a dialed Adhal side names none.
+
+/** @type {WeakMap<object, { count: number, listeners: Set<(refused: number) => void> }>} */
+const peerRelayRefusals = new WeakMap()
+
+/** @param {any} swarm */
+function refusePeerRelays (swarm) {
+  const dht = swarm && swarm.dht
+  const server = swarm && swarm.server
+  if (!dht || typeof dht.connect !== 'function' || !server ||
+      typeof server.createHandshake !== 'function' ||
+      typeof NoiseWrap !== 'function' || typeof NoiseWrap.prototype.recv !== 'function') {
+    // Fail closed: a refusal that silently does nothing is worse than none.
+    throw new Error('refusePeerRelay: this hyperdht has no handshake hook to refuse a peer\'s relay with')
+  }
+  const state = { count: 0, listeners: new Set() }
+  peerRelayRefusals.set(swarm, state)
+
+  /** @param {any} keyPair @param {any} remotePublicKey */
+  const createHandshake = (keyPair, remotePublicKey) => {
+    const handshake = new NoiseWrap(keyPair, remotePublicKey)
+    const recv = handshake.recv.bind(handshake)
+    handshake.recv = (/** @type {any} */ buf) => {
+      const payload = recv(buf)
+      if (payload && payload.relayThrough) {
+        payload.relayThrough = null
+        state.count++
+        for (const fn of state.listeners) fn(state.count)
+      }
+      return payload
+    }
+    return handshake
+  }
+
+  server.createHandshake = createHandshake
+  const connect = dht.connect.bind(dht)
+  dht.connect = (/** @type {any} */ publicKey, /** @type {any} */ opts = {}) =>
+    connect(publicKey, { ...opts, createHandshake })
+}
+
+/**
+ * Calls `fn` for each relay a peer named that this swarm refused, with
+ * the count so far, until the returned function is called. A swarm made
+ * without `refusePeerRelay` refuses none.
+ * @param {any} swarm
+ * @param {(refused: number) => void} fn
+ * @returns {() => void}
+ */
+function onPeerRelayRefused (swarm, fn) {
+  const state = peerRelayRefusals.get(swarm)
   if (!state) return () => {}
   state.listeners.add(fn)
   return () => { state.listeners.delete(fn) }
@@ -1280,4 +1381,4 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 // timeoutMessage is exported for tests: asserting both of its branches
 // end to end would mean racing a real peer against a real timeout, which
 // is exactly the kind of timing-dependent test that fails only under load.
-module.exports = { createSwarm, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HOLEPUNCH_REFUSED, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }
+module.exports = { createSwarm, refusePeerRelays, onPeerRelayRefused, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HOLEPUNCH_REFUSED, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }
