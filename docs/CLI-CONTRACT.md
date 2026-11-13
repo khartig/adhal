@@ -158,14 +158,14 @@ within one drop and nothing beyond it.
 
 | Event | Side | Fields | When |
 | --- | --- | --- | --- |
-| `start` | both | `version` (the CLI's), `time` (ISO 8601, UTC), `joinTimeout`, `refreshInterval` (ms), `stdout` (receive), `stream` (send), `refusePeerRelay` (whether `--refuse-peer-relay` was given) | First, once the arguments, the environment, and the code are accepted. A `failed` for one of those comes alone. |
+| `start` | both | `version` (the CLI's), `time` (ISO 8601, UTC), `joinTimeout`, `refreshInterval` (ms), `stdout` (receive), `stream` (send), `relay` (whether `--relay=` was given; never the key), `refusePeerRelay` (whether `--refuse-peer-relay` was given) | First, once the arguments, the environment, and the code are accepted. A `failed` for one of those comes alone. |
 | `code` | receive | `code`, `payload` (the QR payload) | Generated codes only, after `announced`. See the note below. |
 | `announced` | receive | | The topic is announced and the code may be shown. |
 | `candidate` | both | `peer` | A connection began the handshake. |
 | `candidate-dropped` | both | `peer`, `code` (or null), `counted` (boolean), `paired` (boolean) | A candidate failed. `code` is a per-candidate code (`ERR_PAKE_CONFIRMATION`, `ERR_SID_REUSED`, `ERR_REPLY_UNANSWERED`, or a handshake failure), or null for a connection that closed with no error; `counted` is whether it counts toward the attempt cap, as the engine decided it. After `paired`, only counted failures are reported. |
 | `drop-taken` | both | `peer` | A second peer proved the code after this side paired, and was told the drop is taken. |
 | `warning` | both | `kind`, `message` | See §3.3. |
-| `paired` | both | `peer` | The handshake completed with this peer. |
+| `paired` | both | `peer`, `relayed` (boolean) | The handshake completed with this peer. `relayed` is whether the connection goes through a relay as it pairs, whichever side chose the relay. hyperdht can move it onto a direct path later; `connection.relayed` on the final event says where it ended. |
 | `offer` | receive | `name`, `declaredName`, `size` (number or null), `sha256` (or null), `partial`, `risk` (string or null) | An offer passed the engine's checks and is about to be answered. |
 | `accepted` | both | `resumeFrom` | The offer was accepted, and the file starts moving. |
 | `progress` | both | `bytes`, `total` (number or null) | At most every 250 ms, plus one at the end. The count varies run to run: do not count them. |
@@ -200,7 +200,7 @@ code: a wrapper should show it and not store it.
 | `contention` | The pattern lines in `cli/src/contention.js` (Q-04), with `failed`, `silent`, and `keys` as numbers |
 | `check-then-rename` | The no-hard-links note (Q-19) |
 | `code-on-argv` | The note that a code passed with `--code-on-argv` is in the shell history and visible to `ps` |
-| `double-randomized-nat` | The note that a peer was found but hyperdht will not hole-punch to it, because this side's NAT and the peer's are both randomized. Once per drop. The drop goes on waiting: a peer on the topic need not be the intended one. |
+| `double-randomized-nat` | The note that a peer was found but hyperdht will not hole-punch to it, because this side's NAT and the peer's are both randomized. Once per drop. The drop goes on waiting: a peer on the topic need not be the intended one. With `--relay=`, Hyperswarm retries that peer through the relay, and the message says so. |
 | `peer-relay-refused` | With `--refuse-peer-relay`: the note that a peer asked to connect through a relay it chose, and was refused. Once per drop. The drop goes on waiting for a direct connection, which may never come. |
 
 New kinds may be added (§5). A consumer that does not know a kind should
@@ -228,6 +228,7 @@ and nothing in it changes what the drop's outcome means.
 
 | Field | Type | |
 | --- | --- | --- |
+| `relayed` | boolean or null | Whether the connection ended going through a relay. When it did, `remoteKind` is the relay's address kind, not the peer's. null if the engine could not tell. |
 | `remoteKind` | string or null | The kind of the peer's address: `public`, `private` (the same LAN, so not a punch across the internet), `cgnat`, `link-local`, or `loopback`. Never the address itself. |
 | `rttMs` | number | UDX's smoothed round-trip time. |
 | `mtu` | number | The path MTU UDX settled on, in bytes. |

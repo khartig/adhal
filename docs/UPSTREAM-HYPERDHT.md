@@ -29,7 +29,7 @@ the server and each `dht.connect()` itself, and passes only `relayThrough`
 
 ### Why it matters to an application like Adhal
 
-Adhal treats a relay as something the user turns on (`--relay <key>`), and
+Adhal treats a relay as something the user turns on (`--relay=<key>`), and
 the peer is unauthenticated when the relay decision is made: the handshake
 that names the relay comes before Adhal's PAKE proves the drop code. So
 anyone who finds the drop's topic on the DHT can make a waiting peer connect

@@ -302,6 +302,44 @@ Then swap the roles and run it again. A path can work in one direction
 and not the other. Add `--verbose` on both sides to print the DHT topic
 when debugging discovery.
 
+### Trying a relay
+
+`--relay=<key>` names a relay by its public key: 64 hex characters, or 52
+of z-base-32. It is used only after a hole punch to the peer fails, so
+on a path that punches it changes nothing. Either side can pass it. The
+side that does not still connects through it, because hyperdht follows a
+relay the peer names, unless that side passed `--refuse-peer-relay`.
+
+First check that this machine can reach the relay at all:
+
+```bash
+node engine/scratch-relay-probe.js <relay-key> --expect=<relay's IP address>
+```
+
+It prints one JSON line. `ok: true` with the relay's address means the
+key is announced on the DHT and UDP to it gets through. `PEER_NOT_FOUND`
+means the key is wrong or the relay is not announced.
+
+**A relayed drop on one machine.** Both peers on one machine connect
+directly, so to see the relay carry a drop, load the test preload that
+makes every hole punch fail, as `cli/test/relay.test.js` does. Run each
+command in its own terminal:
+
+```bash
+node --require ./cli/test-helpers/fail-punch-preload.js cli/src/swarm-receive.js --new /tmp/adhal-relayed
+node --require ./cli/test-helpers/fail-punch-preload.js cli/src/swarm-send.js - /tmp/test.bin --relay=<relay-key>
+```
+
+Both sides print `through a relay` on the line that reports the
+connection. Without `--relay=`, the same two commands never connect. That
+is the control: it shows the punch really failed.
+
+**Across two machines,** the case the relay is for: run the drop between
+two machines whose punch fails, with `--relay=<key>` on one side. A
+randomized NAT at both ends, such as one VPN at both ends, always fails
+the punch. Then run it with `--relay=` on both sides and a path that
+punches, and check that neither side says `through a relay`.
+
 ### A measured rate
 
 One drop says that a path can work, not how often it does. For a success
