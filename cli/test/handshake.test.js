@@ -190,13 +190,38 @@ test('a timeout after refused hole punches says why, and is still ERR_NO_PEER', 
   const refused = timeoutMessage('waiting for a peer', 1000, 0, 3)
   assert.match(refused, /refused 3 hole punch/)
   assert.match(refused, /both randomized/)
-  assert.match(refused, /no relay yet/)
+  assert.match(refused, /--relay=<key> at either end/, 'without a relay, it says how to give one')
   assert.doesNotMatch(refused, /same code/, 'the code was not the problem: the peer was found')
+  assert.doesNotMatch(timeoutMessage('waiting for a peer', 1000, 0, 3, { relay: true }), /--relay=<key>/, 'not to a side that already has one')
 
   const err = /** @type {any} */ (timeoutError('waiting for a peer', 1000, 0, 3))
   assert.equal(err.code, 'ERR_NO_PEER', 'nothing connected, which is what the code means')
   assert.equal(err.holepunchRefused, 3)
   assert.equal(/** @type {any} */ (timeoutError('waiting for a peer', 1000, 0)).holepunchRefused, undefined)
+})
+
+test('a timeout after failed hole punches says a relay can connect the pair, unless one was given and tried', () => {
+  const failed = timeoutMessage('looking for a peer', 1000, 0, 0, { failed: 4 })
+  assert.match(failed, /4 hole punch\(es\) to it failed/)
+  assert.match(failed, /--relay=<key> at either end/)
+  assert.doesNotMatch(failed, /same code/, 'a peer was found')
+
+  const tried = timeoutMessage('looking for a peer', 1000, 0, 0, { failed: 4, relay: true, relayAttempts: 2 })
+  assert.match(tried, /relay given with --relay was tried 2 time\(s\) without connecting/)
+  assert.match(tried, /--refuse-peer-relay/)
+  assert.doesNotMatch(tried, /--relay=<key>/, 'it has one')
+  assert.match(timeoutMessage('waiting for a peer', 1000, 0, 3, { relay: true, relayAttempts: 1 }), /both randomized, and the relay given with --relay was tried 1 time/)
+
+  // Something connected: the punch is not the story, whatever failed on the way.
+  assert.match(timeoutMessage('looking for a peer', 1000, 2, 0, { failed: 4 }), /none completed the readiness handshake/)
+
+  const err = /** @type {any} */ (timeoutError('looking for a peer', 1000, 0, 0, { failed: 4, relay: true, relayAttempts: 2 }))
+  assert.equal(err.code, 'ERR_NO_PEER')
+  assert.equal(err.holepunchFailed, 4)
+  assert.equal(err.relayAttempts, 2)
+  const bare = /** @type {any} */ (timeoutError('looking for a peer', 1000, 0))
+  assert.equal(bare.holepunchFailed, undefined)
+  assert.equal(bare.relayAttempts, undefined)
 })
 
 test('the refusal watched for is hyperdht\'s own error code', () => {
@@ -234,6 +259,7 @@ test('a hole punch hyperdht refuses is counted by the join that is waiting, and 
   const err = /** @type {any} */ (await joining.then(() => assert.fail('nobody was there to pair with'), (e) => e))
   assert.equal(err.code, 'ERR_NO_PEER')
   assert.equal(err.holepunchRefused, 2, 'only the double-randomized refusals count')
+  assert.equal(err.holepunchFailed, 1, 'and the other punch failure is counted on its own')
   assert.match(err.message, /both randomized/)
   assert.deepEqual(heard, [1, 2])
 

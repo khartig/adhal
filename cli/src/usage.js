@@ -26,6 +26,16 @@ const DOUBLE_RANDOMIZED_NAT = 'a peer was found, but hyperdht will not hole-punc
 const DOUBLE_RANDOMIZED_NAT_RELAYING = 'a peer was found, but hyperdht will not hole-punch to it: this side\'s NAT and the peer\'s are both randomized, ' +
   'which a VPN at both ends usually causes. Trying the relay given with --relay instead'
 
+// Printed by both swarm CLIs the first time a hole punch to a peer fails
+// for any other reason (onHolepunchFailed in engine/src/swarm.js). Not the
+// end of the drop: a later punch can work, and the peer that failed need
+// not be the intended one.
+const HOLEPUNCH_FAILED = 'a peer was found, but the hole punch to it failed. Still trying; ' +
+  'if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end'
+
+// The same, when this side has a relay to fall back on.
+const HOLEPUNCH_FAILED_RELAYING = 'a peer was found, but the hole punch to it failed. Trying the relay given with --relay instead'
+
 // Printed by both swarm CLIs when the paired connection goes through a
 // relay, whichever side chose it (isRelayed in engine/src/swarm.js). Q-09's
 // notice, for the relay: what its operator learns, and what it does not.
@@ -141,4 +151,4 @@ function usage (cli) {
   return USAGE[cli]
 }
 
-module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, RELAYED, PEER_RELAY_REFUSED, TEST_ONLY }
+module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, HOLEPUNCH_FAILED, HOLEPUNCH_FAILED_RELAYING, RELAYED, PEER_RELAY_REFUSED, TEST_ONLY }

@@ -131,13 +131,15 @@ function run (script, args, env, stdin, { failPunch }) {
 /**
  * One drop between the two CLIs on a fresh testnet, with a relay running.
  * @param {any} t
- * @param {{ failPunch: boolean, senderRelay: boolean, receiverRelay: boolean, joinTimeout?: number }} options
+ * @param {{ failPunch: boolean, senderRelay: boolean, receiverRelay: boolean, joinTimeout?: number, relayDown?: boolean }} options
  */
-async function drop (t, { failPunch, senderRelay, receiverRelay, joinTimeout = 30000 }) {
+async function drop (t, { failPunch, senderRelay, receiverRelay, joinTimeout = 30000, relayDown = false }) {
   const net = await createTestnet(5)
   t.after(() => net.destroy())
   const relay = await startRelay(net.bootstrap)
-  t.after(() => relay.destroy())
+  // Down: its key is still the one passed, and nothing answers to it.
+  if (relayDown) await relay.destroy()
+  else t.after(() => relay.destroy())
   const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-relay-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
   const bytes = crypto.randomBytes(1024 * 1024)
@@ -172,11 +174,41 @@ async function drop (t, { failPunch, senderRelay, receiverRelay, joinTimeout = 3
 /** @param {any[]} events @param {string} name */
 const one = (events, name) => events.find((e) => e.event === name)
 
-test('control: with the punch made to fail and no relay, the drop does not connect', slow, async (t) => {
+test('the punch failures watched for are hyperdht\'s own error codes', () => {
+  // A rename in hyperdht would otherwise turn the hint off without a sound.
+  const errors = require('hyperdht/lib/errors')
+  for (const code of ['HOLEPUNCH_ABORTED', 'CANNOT_HOLEPUNCH', 'REMOTE_NOT_HOLEPUNCHABLE']) {
+    assert.equal(typeof errors[code], 'function', code)
+    assert.equal(errors[code]().code, code)
+  }
+})
+
+test('control: with the punch made to fail and no relay, the drop does not connect, and both sides say a relay would', slow, async (t) => {
   const r = await drop(t, { failPunch: true, senderRelay: false, receiverRelay: false, joinTimeout: 15000 })
   assert.notEqual(r.txCode, 0, r.output())
   assert.equal(one(r.tx, 'paired'), undefined, 'never paired')
-  assert.equal(one(r.tx, 'failed').code, 'ERR_NO_PEER', r.output())
+  for (const [events, side] of /** @type {Array<[any[], string]>} */ ([[r.tx, 'sender'], [r.rx, 'receiver']])) {
+    const failed = one(events, 'failed')
+    assert.equal(failed.code, 'ERR_NO_PEER', r.output())
+    assert.ok(failed.holepunchFailed > 0, `${side} counted the failed punches\n${r.output()}`)
+    assert.equal(failed.relayAttempts, undefined)
+    assert.match(failed.message, /--relay=<key> at either end/)
+    const hints = events.filter((e) => e.event === 'warning' && e.kind === 'holepunch-failed')
+    assert.equal(hints.length, 1, `${side} gave the hint once`)
+    assert.match(hints[0].message, /--relay=<key>/)
+  }
+})
+
+test('with the punch made to fail and a relay that is down, the drop says the relay was tried', slow, async (t) => {
+  const r = await drop(t, { failPunch: true, senderRelay: true, receiverRelay: false, joinTimeout: 15000, relayDown: true })
+  assert.notEqual(r.txCode, 0, r.output())
+  const failed = one(r.tx, 'failed')
+  assert.equal(failed.code, 'ERR_NO_PEER', r.output())
+  assert.ok(failed.relayAttempts > 0, r.output())
+  assert.match(failed.message, /relay given with --relay was tried/)
+  assert.doesNotMatch(failed.message, /--relay=<key>/, 'not told to pass what it passed')
+  const hint = r.tx.find((e) => e.event === 'warning' && e.kind === 'holepunch-failed')
+  assert.match(hint.message, /Trying the relay/)
 })
 
 for (const [who, senderRelay, receiverRelay] of /** @type {Array<[string, boolean, boolean]>} */ ([['the sender', true, false], ['the receiver', false, true]])) {
@@ -193,6 +225,11 @@ for (const [who, senderRelay, receiverRelay] of /** @type {Array<[string, boolea
       assert.equal(one(events, 'done').connection.relayed, true, `${side} ended through the relay`)
     }
     assert.ok(r.relay.stats.pairings.matched >= 1, 'the relay matched a pair')
+    // The side with the relay is told it is being tried, not told to give one.
+    const withRelay = senderRelay ? r.tx : r.rx
+    for (const hint of withRelay.filter((e) => e.event === 'warning' && e.kind === 'holepunch-failed')) {
+      assert.match(hint.message, /Trying the relay/)
+    }
   })
 }
 

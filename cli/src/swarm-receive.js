@@ -40,7 +40,7 @@ const { parseBootstrap } = require('./env')
 const { createConsent, riskWarning } = require('./consent')
 const { createContentionMonitor } = require('./contention')
 const { createEventStream, peerId, connectionField, version } = require('./events')
-const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, RELAYED, PEER_RELAY_REFUSED } = require('./usage')
+const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, HOLEPUNCH_FAILED, HOLEPUNCH_FAILED_RELAYING, RELAYED, PEER_RELAY_REFUSED } = require('./usage')
 const { relayFlag } = require('./relay-flag')
 
 
@@ -338,6 +338,14 @@ async function main () {
         if (refused !== 1) return
         const message = parsed.relayThrough ? DOUBLE_RANDOMIZED_NAT_RELAYING : DOUBLE_RANDOMIZED_NAT
         if (events) events.emit('warning', { kind: 'double-randomized-nat', message })
+        say(`[swarm-receive] note: ${message}`)
+      },
+      // Said once, as above. The hint that a relay would connect this pair,
+      // or that the relay is being tried.
+      onHolepunchFailed: (failed) => {
+        if (failed !== 1) return
+        const message = parsed.relayThrough ? HOLEPUNCH_FAILED_RELAYING : HOLEPUNCH_FAILED
+        if (events) events.emit('warning', { kind: 'holepunch-failed', message })
         say(`[swarm-receive] note: ${message}`)
       },
       onDropTaken: (info) => {

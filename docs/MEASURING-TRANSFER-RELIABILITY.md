@@ -285,7 +285,7 @@ flags a NAT that changed during the run.
 | Outcome | Meaning | Where to look |
 | --- | --- | --- |
 | `ok` | Transferred, verified by the engine, and cross-checked here | — |
-| `no-peer` | Timed out having seen **no** connection | Discovery or hole punching. Intermittent = flaky path; every trial = check both sides are really on the same topic. Through the CLIs, `holepunchRefused` on the record means hyperdht refused to punch because both NATs are randomized: only a relay connects that pair. |
+| `no-peer` | Timed out having seen **no** connection | Discovery or hole punching. Intermittent = flaky path; every trial = check both sides are really on the same topic. Through the CLIs, `holepunchRefused` on the record means hyperdht refused to punch because both NATs are randomized: only a relay connects that pair. `holepunchFailed` means punches were tried and failed: a relay would connect that pair too. |
 | `no-handshake` | Peers connected but none completed the readiness handshake | **Our code**, not the network. Start at `acceptOnce`/`connectOnce` in `engine/src/swarm.js`. |
 | `attempt-cap` | The drop was burned after 100 failed PAKE confirmations | Should never appear in an unattended run on a private topic. If it does, the run is not measuring the network at all — somebody reached the nameplate and spent the drop's hundred guesses. |
 | `transfer-error` | Connected and handshake fine; the transfer threw something with no code | `engine/src/transfer.js`. An uncoded error reaching this bucket is itself a small bug — see below. |
@@ -492,8 +492,9 @@ harness now stops a CLI 1.5 s after its budget, inside the 5 s teardown.
 - **Both sides should report the same successes.** If the sender says `ok`
   and the receiver says `hash-mismatch`, believe the receiver — it is the
   side that verified.
-- The harness measures the **direct** path only. There is no relay yet, so
-  a low rate here is exactly the evidence that would justify building one.
+- The harness measures the **direct** path only. The CLIs have
+  `--relay=<key>` now, but `tools/cli-trials.js` does not pass it, so a
+  low rate here is the rate without a relay.
 
 ## Recording results
 

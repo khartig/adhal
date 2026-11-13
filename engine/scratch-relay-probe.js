@@ -45,13 +45,14 @@ async function main () {
       socket.once('close', () => { clearTimeout(timer); reject(new Error('the connection closed before it opened')) })
     })
     const raw = socket.rawStream
+    // No RTT: UDX has not sampled one yet when the socket opens, so it
+    // would read 0. connectMs is the measured round trips, Noise included.
     const result = {
       ok: true,
       bootstrappedMs,
       connectMs: Date.now() - started - bootstrappedMs,
       relayHost: raw && raw.remoteHost,
       relayPort: raw && raw.remotePort,
-      rttMs: raw && raw.rtt,
       thisSideNat: { randomized: dht.randomized, firewalled: dht.firewalled }
     }
     socket.destroy()
