@@ -33,9 +33,11 @@ by design (n0's by default), so matching this would mean unbuilding that.
 It is the one structural difference, and the easiest to lose: a relay that
 is hosted and on by default would make Adhal an Iroh-shaped product with a
 smaller relay fleet. That is why the relay's constraints and merge gates
-are fixed before any relay code exists
-([`THREAT-MODEL.md`](THREAT-MODEL.md) §8). Holepunch's own blind-relay is
-worth investigating first, so that the project runs nothing.
+were fixed before any relay code existed
+([`THREAT-MODEL.md`](THREAT-MODEL.md) §8). The relay that now exists,
+experimentally, is Holepunch's own blind-relay: the user names one with
+`--relay=<key>`, it is used only after a hole punch fails, and the project
+runs nothing.
 
 **2. Protocol-first.** A published, versioned specification with test
 vectors and a conformance suite ([`PROTOCOL.md`](PROTOCOL.md),
@@ -105,7 +107,7 @@ case for using it.
 |---|---|---|---|---|
 | Stack | Python (Twisted); SPAKE2 PAKE, NaCl SecretBox | Hyperswarm + Hyperbee, Noise | Iroh (QUIC/TLS 1.3, BLAKE3 blobs) | Hyperswarm, Noise underneath; its own sealed channel keyed by a PAKE (v2) |
 | Codes | A number nameplate + two words (`7-guitarist-revenge`); SPAKE2; a wrong guess ends the exchange | `MD-` pair codes, single-use `DROP-` codes, HMAC challenge-response | Tickets, links, QR, pairing and verification codes | Five words (public nameplate + secret) and QR; CPace PAKE; an attempt cap; a late peer is told the drop is taken |
-| Discovery | A mailbox (rendezvous) server, the project's by default; a direct path is tried, with a transit relay as the fallback | mDNS + DHT + TCP relay | mDNS, relays (self-hostable) | DHT only. LAN discovery and an optional relay are planned (Stage 3) |
+| Discovery | A mailbox (rendezvous) server, the project's by default; a direct path is tried, with a transit relay as the fallback | mDNS + DHT + TCP relay | mDNS, relays (self-hostable) | DHT only. An optional relay, named by the user and used only after a failed punch, is experimental; LAN discovery is planned (Stage 3) |
 | Resume | Not known to | Yes | Yes (BLAKE3) | Yes: the prefix is proven by the sender before it is resumed (W11) |
 | Approval gate | Yes: the receiver confirms before a file is written | Yes | Yes, plus trusted auto-accept | Yes: in the engine (W11), and a prompt in the CLI (W15c) |
 | Platforms | CLI wherever Python runs; Go and Rust implementations, and apps built on them | Windows / macOS / Linux / Android | Windows / macOS / Linux / Android / CLI / web | CLI on macOS and Linux; Windows not supported for security purposes yet |
@@ -421,7 +423,8 @@ a black box (AGPL).
 **Results.** None yet. Adhal's own runs on the pairs above are in
 [`ARCHITECTURE.md`](ARCHITECTURE.md), but they are not a comparison until
 the other tools have been run on the same pairs, in the same window.
-Adhal runs direct-only, while magic-wormhole falls back to its transit
+Adhal's runs so far are direct-only (its CLIs now report `relayed` on
+each drop, [`CLI-CONTRACT.md`](CLI-CONTRACT.md) §3.5), while magic-wormhole falls back to its transit
 relay and croc may send everything through its relay (§2), so each
 tool's record has to say which path every transfer took. Otherwise a relayed success and a direct one count the same.
 

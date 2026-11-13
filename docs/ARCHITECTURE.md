@@ -29,7 +29,8 @@ the protocol lives in one place.
 | `handshake.js` | The parameter mapping (PROTOCOL §3.2): `Initiator` (the receiver) and `Responder` (the sender), the capability encoding, the confirmations, and the channel keys |
 | `reader.js` | `MessageReader`: reassembles handshake messages by byte count |
 | `attempts.js` | `AttemptCap`: counted failures, the backoff, and the sender's memory of `sid` values (PROTOCOL §6) |
-| `swarm.js` | Hyperswarm: `createSwarm`, and `acceptOnce` / `connectOnce`, which find a peer and run the handshake with each candidate |
+| `swarm.js` | Hyperswarm: `createSwarm`, and `acceptOnce` / `connectOnce`, which find a peer and run the handshake with each candidate. Also the relay: offered only after a failed punch, a relay the peer names refused on request, and which connections went through one |
+| `relay-key.js` | `parseRelayKey`: a relay's public key, from hex or z-base-32 |
 | `stream-handshake.js` | The same handshake over one already-connected stream, with no swarm |
 | `frame.js` | Length-prefixed framing with a size cap, and nothing else |
 | `message.js` | The type tags, and the encoding and decoding of every message body |
@@ -51,6 +52,7 @@ the protocol lives in one place.
 | `progress.js`, `qr.js` | Presentation of the engine's progress events and of the QR payload |
 | `signals.js` | Ctrl-C (and SIGTERM, SIGBREAK) turned into an abort the peer hears as CANCEL |
 | `env.js`, `usage.js` | Parsing `ADHAL_BOOTSTRAP`; every `--help` text and shared notice |
+| `relay-flag.js` | Parsing `--relay=<key>`, and refusing a bare `--relay` |
 | `send.js`, `receive.js` | The loopback CLIs, **test-only**: the same handshake and channel over TCP on `127.0.0.1` |
 | `demo-loopback.js`, `demo-swarm.js` | The `demo:*` scripts |
 
@@ -306,6 +308,8 @@ does not count them as tests:
 | `test-peer.js` | A hand-played peer on a testnet that does not fall into hyperdht's pairing race |
 | `interrupt.js` | A real Ctrl-C to a child process, Windows included |
 | `tiers.js` | The `slow` marker |
+| `relay.js` | A blind-relay server on a testnet, and a peer whose hole punch always fails |
+| `fail-punch-preload.js` | The same punch failure in a spawned CLI, loaded with `node --require` |
 
 Beside the behavior tests, three files pin the protocol as a whole:
 `state-machine.test.js` (every message in every state, PROTOCOL §4.4),
@@ -367,3 +371,5 @@ networks. They are not shipped (`files` in `engine/package.json` is
 | `scratch-serve.js` | A receiver that keeps accepting, for probing from the far side |
 | `scratch-listen.js` | Whether becoming a DHT *server* (listen and announce) works on this network, since a stalled one never even looks up |
 | `scratch-cancel-latency.js`, `scratch-fsync.js` | The measurements behind PROTOCOL §8.2 and §8.3 |
+| `scratch-relay-spike.js` | The relay experiment: whether blind-relay carries a drop when the punch fails, against §8's gates, on a testnet |
+| `scratch-relay-probe.js` | Whether this machine reaches a relay by its key, and from which address it answers |

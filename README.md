@@ -75,8 +75,11 @@ What to know before using it:
   required CI leg. Some of the filesystem defenses fall back to weaker,
   racy checks there (Q-07).
 
-Not built yet: LAN discovery and the optional relay. See the
-[roadmap](docs/IMPLEMENTATION-PLAN.md). For scripts, `ad-hal-receive
+Not built yet: LAN discovery. The optional relay is **experimental**:
+`--relay=<key>` connects through a relay you name when a direct
+connection fails, but only one of its six merge gates is fully met
+([`THREAT-MODEL.md`](docs/THREAT-MODEL.md) §8), so do not rely on it yet.
+See the [roadmap](docs/IMPLEMENTATION-PLAN.md). For scripts, `ad-hal-receive
 --stdout` writes the file to stdout, and `--json` reports a drop as one
 JSON event per line: [`docs/CLI-CONTRACT.md`](docs/CLI-CONTRACT.md).
 

@@ -21,7 +21,8 @@ uses are:
 
 - `generateCode`, `resolveCode`, and `encodeQrPayload`, for the drop code;
 - `createSwarm`, then `acceptOnce` on the receiving side and `connectOnce`
-  on the sending side, for pairing and the handshake;
+  on the sending side, for pairing and the handshake. `createSwarm`'s
+  `relayThrough`, a relay's key from `parseRelayKey`, is experimental;
 - `sendFile` or `sendStream`, and `receiveFile` followed by
   `closeAfterResult`, for the transfer;
 - `displayName`, for showing a peer's file name safely.

@@ -57,6 +57,12 @@ so check it. What each exit status and event means is in
 - **Adhal is not anonymous.** Each side's IP address is visible to the
   other, and to the DHT nodes near the drop's topic.
 - **Windows is not supported for security purposes** yet.
+- **`--relay=<key>` is experimental.** It connects through a relay you
+  name, only when a direct connection fails. The relay's operator sees
+  both IP addresses, not the file. Its safeguards are not all tested yet
+  ([`THREAT-MODEL.md`](https://github.com/khartig/adhal/blob/main/docs/THREAT-MODEL.md)
+  §8). Without it, a drop follows a relay the peer names, unless you pass
+  `--refuse-peer-relay`.
 - **This is 0.x.** The wire protocol is frozen at v2, but the commands and
   their flags may still change.
 

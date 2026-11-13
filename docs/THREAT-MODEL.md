@@ -83,7 +83,9 @@ directly to each other.
 
 There is no version of direct peer-to-peer transfer where this is not
 true. A user who must not reveal their IP to the person they are sending
-to needs a relay (§8) or a different tool.
+to needs a different tool. Adhal's relay (§8) is not built to hide it:
+it is used only after a punch fails, and hyperdht's handshake, which
+carries address fields to the peer, comes before any relay.
 
 ### 3.3 To a passive observer on the path
 
@@ -388,9 +390,12 @@ something a reasonable person might assume.
 
 ## 8. The relay boundary
 
-There is no relay today. These are the constraints any relay must satisfy,
-recorded before one is written, because a relay is the easiest way to
-destroy the one structural advantage this design has over its competitors.
+The relay is **experimental** (2026-11-12). `--relay=<key>` pairs through
+a blind-relay the user names, only after a hole punch to the peer fails
+(`relayOnlyAfterFailedPunch` in `engine/src/swarm.js`). These are the
+constraints any relay must satisfy. They were recorded before one was
+written, because a relay is the easiest way to destroy the one structural
+advantage this design has over its competitors.
 
 **Frozen constraints:**
 
@@ -415,25 +420,39 @@ destroy the one structural advantage this design has over its competitors.
 - Per-token bandwidth and duration caps.
 
 **Merge gates (Q-10).** The constraints above are only worth something if
-they are enforced, so relay code merges only when each of these holds and
-a test shows it:
+they are enforced. The relay stays experimental, and outside what a
+release claims, until each of these holds and a test shows it. Each
+gate's status is as of 2026-11-12:
 
 1. A drop carried through the relay, with no Noise session underneath,
    completes, and a byte the relay alters fails authentication at that
    frame. That is `sealed-transfer.test.js`'s plain-TCP case, with the relay
-   in the middle.
+   in the middle. **Partly met.** A drop through a blind-relay completes
+   (`cli/test/relay.test.js`), and the plain-TCP case shows the protocol
+   needs no Noise underneath. No test has the relay alter a byte yet.
 2. A relay holding the nameplate and a valid token, but not the secret,
    cannot complete a handshake. Its attempt counts toward the cap like any
-   other failed confirmation.
+   other failed confirmation. **Open:** no test.
 3. The relay token is independent of the drop code. A test shows that it
    is freshly random per connection, and that two connections for the
    same code get unrelated tokens, so nothing from the secret or the
-   nameplate can enter it.
+   nameplate can enter it. **Open:** hyperdht makes the token with
+   `blind-relay`'s `token()`, but no test shows it.
 4. The relay persists nothing about a drop beyond its per-token counters.
    Resume through a relay re-pairs and re-hashes, exactly as it does
-   directly; that half is already met (§6, PROTOCOL §7).
-5. The per-token bandwidth and duration caps are enforced.
+   directly; that half is already met (§6, PROTOCOL §7). **Open for the
+   relay's half:** what the relay keeps depends on the server that runs
+   it, and nothing tests it.
+5. The per-token bandwidth and duration caps are enforced. **Open:**
+   blind-relay 1.6.1 has no caps of its own (checked in its source,
+   2026-11-12), so they would have to come from the server that runs it,
+   or from the network in front of it.
 6. A drop that can connect directly does so, and the relay is not used.
+   **Met:** with a relay at both ends and a punch that works, no session
+   is opened with the relay (`cli/test/relay.test.js`). Hyperswarm's
+   default would relay whenever this side's NAT is randomized, before any
+   punch, so the engine passes it a function that offers the relay only
+   on a retry after a punch-class failure.
 
 **A peer can choose the relay, and that is accepted (2026-11-08).**
 "Optional" holds for each side's own choice only. hyperdht pairs a
@@ -450,8 +469,10 @@ tested in `cli/test/peer-relay.test.js`). It works around hyperdht, through
 two internals that are not public API. The upstream change that would
 replace it is in [`UPSTREAM-HYPERDHT.md`](UPSTREAM-HYPERDHT.md) §1.
 
-Holepunch's own blind-relay is worth investigating first, on the grounds
-that the best relay to operate is none.
+The relay is Holepunch's own blind-relay, which hyperdht already speaks,
+so the project writes and runs no relay server, on the grounds that the
+best relay to operate is none. Anyone can run one, which is what keeps
+it self-hostable.
 
 This is also the basis for the "we are not a host of user content"
 argument: a relay is a pipe, not storage.

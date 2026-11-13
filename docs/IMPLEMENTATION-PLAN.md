@@ -31,8 +31,8 @@ will be tested, is in [`POSITIONING.md`](POSITIONING.md).
 **1. Serverless-by-default rendezvous.** Discovery is the DHT. A relay is
 an opt-in plug-in, never the default path when a direct connection works.
 A design that routes discovery and its first hop through relay servers
-cannot offer this without being rebuilt, which is why §3 fixes the
-relay's constraints before any relay code exists.
+cannot offer this without being rebuilt, which is why §3 fixed the
+relay's constraints before any relay code existed.
 
 **2. Protocol-first.** A published, versioned specification with test
 vectors and a conformance suite ([`PROTOCOL.md`](PROTOCOL.md),
@@ -76,7 +76,8 @@ gates):
 - Relay tokens carry **nothing from the drop code**: hyperdht makes a
   fresh random token per connection (THREAT-MODEL §8, gate 3).
 - Investigate Holepunch's own blind-relay first: the best relay to
-  operate is none.
+  operate is none. Done: `--relay=<key>` uses it, experimentally
+  (2026-11-12).
 
 **Platform order: macOS + Linux → Windows → Android → iOS.** macOS and
 Linux are where development, testing, and every measurement so far have
@@ -134,7 +135,7 @@ has all 21).
 | Q-05 independent cryptographic review | After W17 | Reviewing a moving spec wastes the review. |
 | Q-07 Windows as a required CI leg | Stage 3 | Documented as unsupported for security purposes until then (W16). |
 | Q-09 length padding, re-announce back-off | Padding: only if file-size confidentiality becomes a stated goal. Back-off: after W14 | Padding is a protocol change, a negotiated capability and a new message type, since v2 has nowhere to carry it. Back-off changes nothing on the wire, but it matters only for a join timeout the user lengthens, and the 4 s refresh was set by measurement. |
-| Q-10 relay invariants | Before any relay code | Written into THREAT-MODEL §8 as merge gates (W16); enforced when a relay exists. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
+| Q-10 relay invariants | Before the relay leaves experimental | Written into THREAT-MODEL §8 as merge gates (W16). The relay exists, experimentally, since 2026-11-12: gate 6 is met, gate 1 partly, and gates 2 to 5 are open. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
 
 ---
 
@@ -158,7 +159,9 @@ From the macOS + Linux CLI: optional relay (under §3) → LAN discovery
 **iOS spike, then build**.
 
 The relay moved to the front on 2026-11-08. Without one, a drop between
-two randomized NATs cannot connect at all (0 of 80, 2026-11-04).
+two randomized NATs cannot connect at all (0 of 80, 2026-11-04). It is
+in progress: `--relay=<key>` is experimental from 2026-11-12, until
+THREAT-MODEL §8's merge gates hold.
 
 ---
 

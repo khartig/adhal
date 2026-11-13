@@ -337,6 +337,13 @@ closed"` rather than a dropped connection.
   sender as CANCEL; `onAccepted`, once and before any byte; and a
   receiver that leaves `resume` out of its caps, paired without it.
   Three of those were checked by planting the bug each one is for.
+- **`cli/test/relay.test.js`** runs both CLIs on a testnet with a
+  blind-relay. With the punch made to fail and `--relay=` at either end,
+  the drop completes and both sides report `relayed`. With a working
+  punch, the relay is never contacted. With no relay, both sides end in
+  `ERR_NO_PEER` with `holepunchFailed` and the `holepunch-failed`
+  warning, and with a relay that is down, the failure says the relay was
+  tried. Four of those were checked by planting the bug each one is for.
 - `engine/scratch-trials.js` is unaffected: it drives the engine
   directly, not the CLIs. W14's harness for the other tools is what
   consumes `--json`.
