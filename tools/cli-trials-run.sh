@@ -93,7 +93,9 @@ while [ $# -gt 0 ]; do
     --plan) PLAN_ONLY=1; shift ;;
     -h|--help) usage; exit 0 ;;
     --) shift; EXTRA=("$@"); break ;;
-    *) usage >&2; die "unknown argument: $1" ;;
+    # Quoted, so that a stray space shows: a backslash followed by a space
+    # at the end of a pasted line passes " " as an argument.
+    *) usage >&2; die "unknown argument: '$1'" ;;
   esac
 done
 
