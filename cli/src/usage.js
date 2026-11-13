@@ -18,8 +18,19 @@ const NOT_ANONYMOUS = 'not anonymous: your IP address is visible to the peer, an
 // topic can be the one refused, so the drop keeps waiting, and says why
 // it may never connect.
 const DOUBLE_RANDOMIZED_NAT = 'a peer was found, but hyperdht will not hole-punch to it: this side\'s NAT and the peer\'s are both randomized, ' +
-  'which a VPN at both ends usually causes. Two randomized NATs cannot connect directly, and Adhal has no relay yet. ' +
-  'Still waiting, in case another peer can connect; to connect to this one, turn the VPN off at one end'
+  'which a VPN at both ends usually causes. Two randomized NATs cannot connect directly. ' +
+  'Still waiting, in case another peer can connect; to connect to this one, pass --relay=<key> at either end, or turn the VPN off at one end'
+
+// The same, when this side has a relay to fall back on: Hyperswarm retries
+// that peer through it (relayOnlyAfterFailedPunch in engine/src/swarm.js).
+const DOUBLE_RANDOMIZED_NAT_RELAYING = 'a peer was found, but hyperdht will not hole-punch to it: this side\'s NAT and the peer\'s are both randomized, ' +
+  'which a VPN at both ends usually causes. Trying the relay given with --relay instead'
+
+// Printed by both swarm CLIs when the paired connection goes through a
+// relay, whichever side chose it (isRelayed in engine/src/swarm.js). Q-09's
+// notice, for the relay: what its operator learns, and what it does not.
+const RELAYED = 'this connection goes through a relay. Its operator sees both sides\' IP addresses and when and how much was sent, ' +
+  'not the file: the drop stays end-to-end encrypted. hyperdht moves to a direct path if a hole punch succeeds later'
 
 // Printed by both swarm CLIs the first time --refuse-peer-relay refuses
 // a relay a peer named (onPeerRelayRefused in engine/src/swarm.js). "A
@@ -51,6 +62,10 @@ Options:
                           stderr with --stdout. Never asks: without --yes, the
                           offer is declined. See docs/CLI-CONTRACT.md.
   --replace               overwrite an existing file of the same name
+  --relay=<key>           if a hole punch to the peer fails, connect through
+                          this relay, named by its public key (64 hex or 52
+                          z-base-32 characters). Never used when a direct
+                          connection works. Its operator sees both IP addresses.
   --refuse-peer-relay     never connect through a relay the peer names. By
                           default hyperdht follows one if the peer asks, which
                           shows your IP address to that relay's operator.
@@ -81,6 +96,10 @@ Options:
   --code-on-argv          allow a code as an argument. It is then in your shell
                           history and visible to \`ps\` for as long as the drop runs.
   --name=<name>           what a stream is offered as (default "stdin")
+  --relay=<key>           if a hole punch to the peer fails, connect through
+                          this relay, named by its public key (64 hex or 52
+                          z-base-32 characters). Never used when a direct
+                          connection works. Its operator sees both IP addresses.
   --refuse-peer-relay     never connect through a relay the peer names. By
                           default hyperdht follows one if the peer asks, which
                           shows your IP address to that relay's operator.
@@ -122,4 +141,4 @@ function usage (cli) {
   return USAGE[cli]
 }
 
-module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, PEER_RELAY_REFUSED, TEST_ONLY }
+module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, RELAYED, PEER_RELAY_REFUSED, TEST_ONLY }

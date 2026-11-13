@@ -15,5 +15,6 @@ module.exports = {
   ...require('./cpace'),
   ...require('./handshake'),
   ...require('./swarm'),
+  ...require('./relay-key'),
   ...require('./stream-handshake')
 }

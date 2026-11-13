@@ -194,8 +194,10 @@ const UNANSWERED_CONNECTION_MS = 5000
 // identity (a future "keep this device") belongs inside the authenticated
 // channel and never in front of the DHT.
 /**
- * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number, refusePeerRelay?: boolean }} [options]
+ * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number, refusePeerRelay?: boolean, relayThrough?: Uint8Array | null }} [options]
  *   `refusePeerRelay` refuses a relay the peer names (see refusePeerRelays).
+ *   `relayThrough` is a relay's 32-byte public key, used only once a hole
+ *   punch to the peer has failed (see relayOnlyAfterFailedPunch).
  */
 function createSwarm (options = {}) {
   if (options && 'keyPair' in options) {
@@ -204,11 +206,15 @@ function createSwarm (options = {}) {
       'so that DHT nodes cannot link two drops (THREAT-MODEL.md section 4)'
     )
   }
-  const { bootstrap, maxParallel = MAX_PARALLEL, refusePeerRelay = false } = options
+  const { bootstrap, maxParallel = MAX_PARALLEL, refusePeerRelay = false, relayThrough = null } = options
+  if (relayThrough !== null && !(relayThrough instanceof Uint8Array && relayThrough.byteLength === 32)) {
+    throw new TypeError('relayThrough must be a relay\'s 32-byte public key (see parseRelayKey)')
+  }
   const swarm = new Hyperswarm({
     keyPair: HyperDHT.keyPair(),
     maxParallel,
-    ...(bootstrap ? { bootstrap } : {})
+    ...(bootstrap ? { bootstrap } : {}),
+    ...(relayThrough ? { relayThrough: relayOnlyAfterFailedPunch(Buffer.from(relayThrough)) } : {})
   })
 
   // A no-op 'error' sink on every connection, and it is load-bearing
@@ -240,7 +246,112 @@ function createSwarm (options = {}) {
 
   watchRefusedPunches(swarm)
   if (refusePeerRelay) refusePeerRelays(swarm)
+  // Last, so that it wraps the other two: it tells a relay dial by the
+  // options it was called with, and refusePeerRelays adds some.
+  watchRelayDials(swarm)
   return swarm
+}
+
+// USING A RELAY (--relay=<key>), AND ONLY WHEN THE PUNCH HAS FAILED.
+//
+// THREAT-MODEL.md section 8, gate 6: a drop that can connect directly does
+// so, and the relay is not used. Hyperswarm calls `relayThrough(force)`
+// before each dial, and hyperdht relays any dial that names a relay. Each
+// dial starts with `force` false. After a dial fails with a punch-class
+// error (HOLEPUNCH_ABORTED, HOLEPUNCH_DOUBLE_RANDOMIZED_NATS,
+// CANNOT_HOLEPUNCH, or REMOTE_NOT_HOLEPUNCHABLE: shouldForceRelaying in
+// hyperswarm 4.17.1 index.js), Hyperswarm retries that peer with `force`
+// true.
+//
+// Hyperswarm's default for a bare key (toRelayFunction) also relays when
+// `swarm.dht.randomized` holds, that is, whenever THIS side's NAT is
+// randomized, before any punch is tried. That is a different rule. hyperdht
+// punches from one randomized NAT to a consistent one, so it would send
+// pairs through the relay that could have connected directly. Hence a
+// function, which Hyperswarm uses as given.
+//
+// The relayed connection is not final. hyperdht goes on punching while it
+// relays, and moves the stream onto a direct path if the punch gets through
+// (lib/connect.js, `isDone` and `firewall`). So "relayed" is read when it
+// is reported (connectionStats), not when the peer pairs.
+/**
+ * @param {Buffer} key
+ * @returns {(force: boolean) => Buffer | null}
+ */
+function relayOnlyAfterFailedPunch (key) {
+  return (force) => (force ? key : null)
+}
+
+// WHICH CONNECTIONS WENT THROUGH A RELAY, whoever chose it: this side's
+// --relay, or a relay the peer named (refusePeerRelays has why that can
+// happen). hyperdht has no flag for it. What it does have: it reaches a
+// relay with a bare `dht.connect(relayPublicKey)`, with no options, on the
+// dialing side (lib/connect.js, relayConnection) and on the dialed side
+// (lib/server.js, _relayConnection), and those are its only calls to
+// dht.connect. A relayed peer stream is then connected to that relay
+// socket's remote address and port (`c.rawStream.connect(socket, remoteId,
+// remotePort, remoteHost)`). So a dial with no `keyPair` is a relay dial,
+// since every Hyperswarm dial passes one (hyperswarm 4.17.1 index.js,
+// _connect), and a peer connection whose remote is a relay's address is
+// relayed. cli/test/relay.test.js fails if an upgrade changes either.
+
+/** @type {WeakMap<object, { addresses: Set<string>, keys: Map<string, Buffer> }>} */
+const relayDials = new WeakMap()
+
+/** @param {any} swarm */
+function watchRelayDials (swarm) {
+  const dht = swarm && swarm.dht
+  if (!dht || typeof dht.connect !== 'function') return
+  /** @type {{ addresses: Set<string>, keys: Map<string, Buffer> }} */
+  const state = { addresses: new Set(), keys: new Map() }
+  relayDials.set(swarm, state)
+  const connect = dht.connect.bind(dht)
+  dht.connect = (/** @type {any} */ publicKey, /** @type {any} */ opts) => {
+    const conn = connect(publicKey, opts)
+    if (!opts || opts.keyPair === undefined) {
+      conn.once('open', () => {
+        const raw = conn.rawStream
+        if (!raw || !raw.remoteHost) return
+        const address = `${raw.remoteHost}:${raw.remotePort}`
+        state.addresses.add(address)
+        state.keys.set(address, Buffer.from(publicKey))
+      })
+    }
+    return conn
+  }
+  swarm.on('connection', (/** @type {any} */ socket) => { connectionSwarms.set(socket, swarm) })
+}
+
+// The swarm each connection came from, so that connectionStats can say
+// whether it is relayed without its callers passing the swarm along.
+/** @type {WeakMap<object, object>} */
+const connectionSwarms = new WeakMap()
+
+/**
+ * The relay `socket` is going through now, or null if it is direct. Also
+ * null for a connection from a swarm createSwarm did not make, which is
+ * not watched. Read it late: hyperdht can move a relayed connection onto a
+ * direct path, never the reverse.
+ * @param {any} socket
+ * @returns {Buffer | null} the relay's public key
+ */
+function relayOf (socket) {
+  const swarm = socket && connectionSwarms.get(socket)
+  const state = swarm && relayDials.get(swarm)
+  const raw = socket && socket.rawStream
+  if (!state || !raw || !raw.remoteHost) return null
+  return state.keys.get(`${raw.remoteHost}:${raw.remotePort}`) || null
+}
+
+/**
+ * Whether `socket` is going through a relay now: true or false for a
+ * connection from a swarm createSwarm made, null for any other.
+ * @param {any} socket
+ * @returns {boolean | null}
+ */
+function isRelayed (socket) {
+  if (!socket || !connectionSwarms.has(socket)) return null
+  return relayOf(socket) !== null
 }
 
 // The one hole punch hyperdht refuses outright. When both this side's NAT
@@ -621,12 +732,15 @@ function addressKind (host) {
 // anything without a raw stream, such as a test's duplex pair.
 /**
  * @param {any} socket
- * @returns {{ remoteKind: string | null, rttMs: number, mtu: number, retransmits: number, rtoCount: number, fastRecoveries: number, inflight: number, packetsSent: number, packetsReceived: number, bytesSent: number, bytesReceived: number } | null}
+ * @returns {{ relayed: boolean | null, remoteKind: string | null, rttMs: number, mtu: number, retransmits: number, rtoCount: number, fastRecoveries: number, inflight: number, packetsSent: number, packetsReceived: number, bytesSent: number, bytesReceived: number } | null}
  */
 function connectionStats (socket) {
   const raw = socket && socket.rawStream
   if (!raw || typeof raw.packetsReceived !== 'number') return null
   return {
+    // Whether it ended going through a relay (isRelayed). When it did,
+    // remoteKind is the relay's address kind, not the peer's.
+    relayed: isRelayed(socket),
     remoteKind: addressKind(raw.remoteHost),
     rttMs: raw.rtt,
     mtu: raw.mtu,
@@ -1381,4 +1495,4 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 // timeoutMessage is exported for tests: asserting both of its branches
 // end to end would mean racing a real peer against a real timeout, which
 // is exactly the kind of timing-dependent test that fails only under load.
-module.exports = { createSwarm, refusePeerRelays, onPeerRelayRefused, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HOLEPUNCH_REFUSED, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }
+module.exports = { createSwarm, refusePeerRelays, onPeerRelayRefused, isRelayed, relayOf, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HOLEPUNCH_REFUSED, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }

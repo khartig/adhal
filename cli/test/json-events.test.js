@@ -41,7 +41,7 @@ const REQUIRED = {
   'candidate-dropped': { peer: is('string'), code: nullable('string'), counted: is('boolean'), paired: is('boolean') },
   'drop-taken': { peer: is('string') },
   warning: { kind: is('string'), message: is('string') },
-  paired: { peer: is('string') },
+  paired: { peer: is('string'), relayed: nullable('boolean') },
   offer: { name: is('string'), declaredName: is('string'), size: nullable('number'), sha256: nullable('string'), partial: is('number'), risk: nullable('string') },
   accepted: { resumeFrom: is('number') },
   progress: { bytes: is('number'), total: nullable('number') },
@@ -53,6 +53,7 @@ const REQUIRED = {
 // counters, and the kind of the peer's address but never the address.
 /** @type {Record<string, (v: any) => boolean>} */
 const CONNECTION = {
+  relayed: nullable('boolean'),
   remoteKind: nullable('string'),
   rttMs: is('number'),
   mtu: is('number'),
@@ -106,7 +107,7 @@ test('every event is one line of JSON carrying v, event, ms, and role', () => {
   const h = harness()
   h.events.emit('start', { version: '0.0.0', time: new Date(0).toISOString(), joinTimeout: 30000, refreshInterval: 4000 })
   h.advance(12.6)
-  h.events.emit('paired', { peer: 'abcdef012345' })
+  h.events.emit('paired', { peer: 'abcdef012345', relayed: false })
   const [start, paired] = h.lines()
   assert.equal(start.event, 'start')
   assert.equal(paired.ms, 13, 'ms is rounded')
@@ -186,6 +187,8 @@ test('connection is the transport counters and an address kind, never an address
   }
   const { connection } = /** @type {any} */ (connectionField({ rawStream }))
   assert.deepEqual(connection, {
+    // null: not a connection from createSwarm, so nothing watched its relay dials.
+    relayed: null,
     remoteKind: 'public', rttMs: 48, mtu: 1200, retransmits: 3, rtoCount: 1, fastRecoveries: 2,
     inflight: 4096, packetsSent: 900, packetsReceived: 400, bytesSent: 1048576, bytesReceived: 20000
   })

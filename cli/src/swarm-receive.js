@@ -29,7 +29,7 @@
 
 const path = require('path')
 const fs = require('fs')
-const { createSwarm, onPeerRelayRefused, acceptOnce, receiveFile, closeAfterResult, generateCode, encodeQrPayload, resolveCode, displayName, KNOWN_CAPS } = require('@ad-hal/engine')
+const { createSwarm, onPeerRelayRefused, isRelayed, acceptOnce, receiveFile, closeAfterResult, generateCode, encodeQrPayload, resolveCode, displayName, KNOWN_CAPS } = require('@ad-hal/engine')
 
 const { printQr } = require('./qr')
 const { readCode } = require('./read-code')
@@ -40,7 +40,8 @@ const { parseBootstrap } = require('./env')
 const { createConsent, riskWarning } = require('./consent')
 const { createContentionMonitor } = require('./contention')
 const { createEventStream, peerId, connectionField, version } = require('./events')
-const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, PEER_RELAY_REFUSED } = require('./usage')
+const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, RELAYED, PEER_RELAY_REFUSED } = require('./usage')
+const { relayFlag } = require('./relay-flag')
 
 
 // ADHAL_JOIN_TIMEOUT overrides how long we wait for a peer, in ms (0
@@ -86,9 +87,11 @@ function parseArgs (argv) {
   const flags = argv.filter((a) => a.startsWith('--'))
   const positional = argv.filter((a) => !a.startsWith('--'))
   const wantsNew = flags.includes('--new')
+  // The one flag with a value, so it is not in KNOWN_FLAGS; see ./relay-flag.js.
+  const relayThrough = relayFlag(flags)
 
   for (const flag of flags) {
-    if (!KNOWN_FLAGS.has(flag)) throw new Error(`unknown flag ${flag}`)
+    if (!KNOWN_FLAGS.has(flag) && !flag.startsWith('--relay=')) throw new Error(`unknown flag ${flag}`)
   }
 
   const common = {
@@ -106,6 +109,7 @@ function parseArgs (argv) {
     toStdout: flags.includes('--stdout'),
     json: flags.includes('--json'),
     refusePeerRelay: flags.includes('--refuse-peer-relay'),
+    relayThrough,
     help: flags.includes('--help')
   }
 
@@ -240,7 +244,7 @@ async function main () {
   // uncaught exception.
   if (parsed.toStdout) process.stdout.on('error', () => {})
 
-  const swarm = createSwarm({ bootstrap, refusePeerRelay: parsed.refusePeerRelay })
+  const swarm = createSwarm({ bootstrap, refusePeerRelay: parsed.refusePeerRelay, relayThrough: parsed.relayThrough })
   // --refuse-peer-relay: never pair through a relay the peer names
   // (refusePeerRelays in engine/src/swarm.js). Said once, like the
   // refused punch: if the punch cannot connect either, this drop will not.
@@ -261,7 +265,7 @@ async function main () {
   /** @type {any} */
   let connection = null
   if (events) {
-    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stdout: parsed.toStdout, refusePeerRelay: parsed.refusePeerRelay })
+    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stdout: parsed.toStdout, relay: parsed.relayThrough !== null, refusePeerRelay: parsed.refusePeerRelay })
     events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
     for (const warning of held) events.emit('warning', warning)
   }
@@ -332,8 +336,9 @@ async function main () {
       // so repeating it would only fill the screen.
       onHolepunchRefused: (refused) => {
         if (refused !== 1) return
-        if (events) events.emit('warning', { kind: 'double-randomized-nat', message: DOUBLE_RANDOMIZED_NAT })
-        say(`[swarm-receive] note: ${DOUBLE_RANDOMIZED_NAT}`)
+        const message = parsed.relayThrough ? DOUBLE_RANDOMIZED_NAT_RELAYING : DOUBLE_RANDOMIZED_NAT
+        if (events) events.emit('warning', { kind: 'double-randomized-nat', message })
+        say(`[swarm-receive] note: ${message}`)
       },
       onDropTaken: (info) => {
         if (events) events.emit('drop-taken', { peer: peerId(info) })
@@ -367,8 +372,11 @@ async function main () {
     paired = true
     connection = socket
     contention.paired()
-    if (events) events.emit('paired', { peer: peerId(peerInfo) })
-    say(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
+    // See swarm-send.js: relayed as it pairs, and `done` says where it ended.
+    const relayed = isRelayed(socket)
+    if (events) events.emit('paired', { peer: peerId(peerInfo), relayed })
+    say(`[swarm-receive] connection from ${peerInfo.publicKey.toString('hex').slice(0, 12)}...${relayed ? ' through a relay' : ''}`)
+    if (relayed) say(`[swarm-receive] note: ${RELAYED}`)
     // Without a listener, a late socket-level error (e.g. after the
     // transfer completes, while tearing down) throws as an uncaught
     // exception instead of something we can handle gracefully.

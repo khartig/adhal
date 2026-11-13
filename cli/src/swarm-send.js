@@ -21,7 +21,7 @@
 // --json replaces the human lines with the event stream in ./events.js, on
 // stdout: docs/CLI-CONTRACT.md section 3.
 
-const { createSwarm, onPeerRelayRefused, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@ad-hal/engine')
+const { createSwarm, onPeerRelayRefused, isRelayed, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@ad-hal/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
@@ -29,7 +29,8 @@ const { describeError, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
 const { parseBootstrap } = require('./env')
 const { createEventStream, peerId, connectionField, version } = require('./events')
-const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, PEER_RELAY_REFUSED } = require('./usage')
+const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, RELAYED, PEER_RELAY_REFUSED } = require('./usage')
+const { relayFlag } = require('./relay-flag')
 
 
 // See swarm-receive.js for why the public-DHT default is this generous.
@@ -167,15 +168,16 @@ async function main () {
   // display the code at all: it is not showing it to anybody.
   if (code !== codeInput) say(`[swarm-send] code resolved to nameplate ${nameplate} (secret not shown)`)
 
-  let bootstrap
+  let bootstrap, relayThrough
   try {
     bootstrap = parseBootstrap()
+    relayThrough = relayFlag(argv)
   } catch (err) {
     refuse('ERR_USAGE', err.message)
     return
   }
 
-  const swarm = createSwarm({ bootstrap, refusePeerRelay })
+  const swarm = createSwarm({ bootstrap, refusePeerRelay, relayThrough })
   // --refuse-peer-relay: never pair through a relay the peer names
   // (refusePeerRelays in engine/src/swarm.js). Said once, like the
   // refused punch: if the punch cannot connect either, this drop will not.
@@ -195,7 +197,7 @@ async function main () {
   /** @type {any} */
   let connection = null
   if (events) {
-    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stream: streaming, refusePeerRelay })
+    events.emit('start', { version, time: new Date().toISOString(), joinTimeout: timeout, refreshInterval: refresh ?? 4000, stream: streaming, relay: relayThrough !== null, refusePeerRelay })
     events.emit('warning', { kind: 'not-anonymous', message: NOT_ANONYMOUS })
     for (const warning of held) events.emit('warning', warning)
   }
@@ -241,8 +243,9 @@ async function main () {
       // so repeating it would only fill the screen.
       onHolepunchRefused: (refused) => {
         if (refused !== 1) return
-        if (events) events.emit('warning', { kind: 'double-randomized-nat', message: DOUBLE_RANDOMIZED_NAT })
-        say(`[swarm-send] note: ${DOUBLE_RANDOMIZED_NAT}`)
+        const message = relayThrough ? DOUBLE_RANDOMIZED_NAT_RELAYING : DOUBLE_RANDOMIZED_NAT
+        if (events) events.emit('warning', { kind: 'double-randomized-nat', message })
+        say(`[swarm-send] note: ${message}`)
       },
       onDropTaken: (info) => {
         if (events) events.emit('drop-taken', { peer: peerId(info) })
@@ -251,8 +254,12 @@ async function main () {
     })
     paired = true
     connection = socket
-    if (events) events.emit('paired', { peer: peerId(peerInfo) })
-    say(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...`)
+    // Whether it is relayed as it pairs; `done` says where it ended, since
+    // hyperdht can move it onto a direct path (isRelayed).
+    const relayed = isRelayed(socket)
+    if (events) events.emit('paired', { peer: peerId(peerInfo), relayed })
+    say(`[swarm-send] connected to ${peerInfo.publicKey.toString('hex').slice(0, 12)}...${relayed ? ' through a relay' : ''}`)
+    if (relayed) say(`[swarm-send] note: ${RELAYED}`)
     // Without a listener, a late socket-level error (e.g. after the
     // transfer completes, while tearing down) throws as an uncaught
     // exception instead of something we can handle gracefully.
