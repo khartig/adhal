@@ -464,6 +464,7 @@ writes `ENVIRONMENT.md` from its JSON as it does for `scratch-trials.js`.
 | `--receiver-timeout` | the rest of the slot | The receiver's `ADHAL_JOIN_TIMEOUT`. The default matches what `scratch-trials.js` gives its receiver; `30000` measures the CLI's own default instead. |
 | `--no-environment` | probe on | Skip the environment probe. For tests: the probe uses the public DHT. |
 | `--lead` | `10` | The sender's start within its slot, in seconds. For tests: a different lead measures something else. |
+| `--relay <key>` | off | Pass `--relay=<key>` to the CLI in every trial, so a failed punch is retried through that relay. The JSON records `relay: true`, never the key: trial records get committed, and a published key lets anyone use the relay. A relayed trial's path shows as `path=relayed`, and the summary counts relayed trials, since a relayed success and a direct one are both `ok`. |
 
 **Outcomes** are the buckets in [Failure classes](#failure-classes), keyed
 on the final event's `code`, plus four of its own:
@@ -492,9 +493,9 @@ harness now stops a CLI 1.5 s after its budget, inside the 5 s teardown.
 - **Both sides should report the same successes.** If the sender says `ok`
   and the receiver says `hash-mismatch`, believe the receiver — it is the
   side that verified.
-- The harness measures the **direct** path only. The CLIs have
-  `--relay=<key>` now, but `tools/cli-trials.js` does not pass it, so a
-  low rate here is the rate without a relay.
+- Without `--relay`, the harness measures the **direct** path only, so
+  a low rate is the rate without a relay. With it, read the `relayed`
+  count beside the rate: it says how many successes needed the relay.
 
 ## Recording results
 

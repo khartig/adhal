@@ -88,6 +88,9 @@ function readSide (jsonPath) {
     trials: data.trials,
     slotSeconds: data.slotSeconds,
     refreshMs: data.refreshMs,
+    // tools/cli-trials.js's --relay, as a boolean (never the key).
+    // undefined in records from before it, which then get no Relay line.
+    relay: data.relay,
     startEpoch: data.startEpoch ?? log?.startEpoch ?? null,
     startedAtMs: data.startedAtEpochMs ?? log?.startedAtMs ?? null,
     endedAtMs: data.endedAtEpochMs ?? log?.endedAtMs ?? null,
@@ -319,6 +322,15 @@ line()
   line(`File: ${files.size === 1 && !files.has(null) ? [...files][0] : runs.map((r) => `run ${r.letter} ${r.sender?.file ? `${size(r.sender.file.size)} ${r.sender.file.path}` : NOT_RECORDED}`).join('; ')}`)
   const slots = new Set(sides.map((s) => `${s.slotSeconds} seconds, refresh ${s.refreshMs} ms`))
   line(`Slot: ${[...slots].join(' / ')}`)
+  // Which side offered a relay, and how many successes ended relayed: a
+  // relayed success and a direct one are both `ok` in the results.
+  if (sides.some((s) => s.relay !== undefined)) {
+    line(`Relay: ${runs.map((r) => `run ${r.letter} ${[r.receiver, r.sender].filter(Boolean).map((side) => {
+      const ok = side.results.filter((/** @type {any} */ t) => t.outcome === 'ok')
+      const relayed = ok.filter((/** @type {any} */ t) => t.path?.relayed === true).length
+      return `${side.role} ${side.relay ? 'on' : 'off'} (${relayed} of ${ok.length} successes relayed)`
+    }).join(', ')}`).join('; ')}`)
+  }
 }
 
 for (const run of runs) {

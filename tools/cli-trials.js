@@ -43,6 +43,11 @@
 //   --note <text>          repeatable; what the machine cannot detect
 //   --lookup-isp, --record-addresses   passed to the environment probe
 //   --no-environment       skip the probe (tests; it uses the public DHT)
+//   --relay <key>          pass --relay=<key> to the CLI in every trial, so a
+//                          failed punch is retried through that relay. The key
+//                          is never written to the log or the JSON, only that
+//                          a relay was on: trial records get committed, and a
+//                          published key lets anyone use the relay.
 //   --lead <s>             the sender's start within its slot (default 10).
 //                          For tests only: changing it changes what is measured.
 //
@@ -66,6 +71,7 @@ const {
   percentile,
   wilson
 } = require('../engine/scratch-trials-shared')
+const { parseRelayKey } = require('../engine/src/relay-key')
 
 const REPO_ROOT = path.resolve(__dirname, '..')
 const RECEIVE = path.join(REPO_ROOT, 'cli', 'src', 'swarm-receive.js')
@@ -130,7 +136,18 @@ function parseArgs (argv) {
     lookupIsp: argv.includes('--lookup-isp'),
     recordAddresses: argv.includes('--record-addresses'),
     environment: !argv.includes('--no-environment'),
-    leadMs: num('lead', SENDER_LEAD_MS / 1000) * 1000
+    leadMs: num('lead', SENDER_LEAD_MS / 1000) * 1000,
+    /** @type {string | null} the relay's key as hex, checked here rather than in every trial */
+    relayKey: null
+  }
+  const relay = value('relay')
+  if (argv.includes('--relay')) {
+    if (relay === undefined || relay.startsWith('--')) throw new Error('--relay needs a relay key')
+    try {
+      opts.relayKey = parseRelayKey(relay).toString('hex')
+    } catch (err) {
+      throw new Error(`--relay: ${/** @type {Error} */ (err).message}`)
+    }
   }
   if (opts.role !== 'receiver' && opts.role !== 'sender') throw new Error('--role must be receiver or sender')
   if (!opts.seed) throw new Error('--seed is required, and must match on both machines')
@@ -330,7 +347,7 @@ function readRun ({ events, status, killed }, { independentSha256 = null } = {})
  */
 function pathInfo (p) {
   if (!p) return ''
-  return ` path=${p.remoteKind ?? '?'} rtt=${p.rttMs}ms retx=${p.retransmits} rto=${p.rtoCount}` +
+  return ` path=${p.relayed ? 'relayed' : p.remoteKind ?? '?'} rtt=${p.rttMs}ms retx=${p.retransmits} rto=${p.rtoCount}` +
     (p.inflight ? ` inflight=${p.inflight}` : '')
 }
 
@@ -368,6 +385,10 @@ function trialRecord (trial, run, read, dialBaselineMs, extra) {
     // Hole punches hyperdht refused because both NATs were randomized: a
     // no-peer that no amount of retrying would have fixed.
     holepunchRefused: final && final.holepunchRefused !== undefined ? final.holepunchRefused : undefined,
+    // Hole punches that failed otherwise, and dials through this side's
+    // relay, on a no-peer (CLI-CONTRACT.md section 3.2, `failed`).
+    holepunchFailed: final && final.holepunchFailed !== undefined ? final.holepunchFailed : undefined,
+    relayAttempts: final && final.relayAttempts !== undefined ? final.relayAttempts : undefined,
     // The paired connection's transport counters, from the final event's
     // `connection`, under the name scratch-trials.js records them as, so
     // scratch-trials-environment.js reads both harnesses the same way.
@@ -420,11 +441,21 @@ function summarise (results, { role, seed }) {
     crossCheckDisagreed: results.filter((r) => r.outcome === 'hash-crosscheck-disagreed').map((r) => r.trial),
     badConfirmations: results.reduce((n, r) => n + (r.badConfirmations || 0), 0),
     unacknowledged: results.filter((r) => r.acknowledged === false).map((r) => r.trial),
-    holepunchRefused: results.filter((r) => r.holepunchRefused).map((r) => r.trial)
+    holepunchRefused: results.filter((r) => r.holepunchRefused).map((r) => r.trial),
+    holepunchFailed: results.filter((r) => r.holepunchFailed).map((r) => r.trial),
+    // Trials whose connection ended going through a relay. A relayed
+    // success and a direct one are both `ok`; this is what tells them apart.
+    relayed: results.filter((r) => r.path && r.path.relayed === true).map((r) => r.trial)
   }
   /** @type {Map<string, number>} */
   const kinds = new Map()
-  for (const r of counted) if (r.path) kinds.set(r.path.remoteKind ?? '?', (kinds.get(r.path.remoteKind ?? '?') || 0) + 1)
+  // A relayed connection's remoteKind is the relay's, not the peer's, so
+  // those are counted apart rather than as the peer's address kind.
+  for (const r of counted) {
+    if (!r.path) continue
+    const kind = r.path.relayed ? 'relayed' : r.path.remoteKind ?? '?'
+    kinds.set(kind, (kinds.get(kind) || 0) + 1)
+  }
 
   const s = (/** @type {number} */ ms) => `${(ms / 1000).toFixed(1)}s`
   const pct = (/** @type {number} */ f) => `${(f * 100).toFixed(0)}%`
@@ -445,6 +476,12 @@ function summarise (results, { role, seed }) {
   }
   if (summary.holepunchRefused.length) {
     lines.push(`trial(s) ${summary.holepunchRefused.map((t) => t + 1).join(', ')}: hyperdht refused to hole-punch, both NATs randomized; only a relay connects such a pair`)
+  }
+  if (summary.holepunchFailed.length) {
+    lines.push(`trial(s) ${summary.holepunchFailed.map((t) => t + 1).join(', ')}: hole punches were tried and failed, and nothing connected`)
+  }
+  if (summary.relayed.length) {
+    lines.push(`relayed: ${summary.relayed.length} of the trials that paired ended going through a relay (trial(s) ${summary.relayed.map((t) => t + 1).join(', ')})`)
   }
   if (summary.unacknowledged.length) {
     lines.push(`trial(s) ${summary.unacknowledged.map((t) => t + 1).join(', ')}: saved and verified here, but the sender never acknowledged RESULT`)
@@ -483,7 +520,8 @@ async function main (opts) {
 
   log(`host: ${os.hostname()} (${os.platform()}/${os.arch()}) node ${process.version}`)
   log(`role=${opts.role} seed=${opts.seed} trials=${opts.trials} slot=${opts.slotSeconds}s` +
-    `${opts.role === 'receiver' ? ` mode=${opts.mode}` : ''} refresh=${opts.refreshMs ?? 'default(4000)'}`)
+    `${opts.role === 'receiver' ? ` mode=${opts.mode}` : ''} refresh=${opts.refreshMs ?? 'default(4000)'}` +
+    ` relay=${opts.relayKey ? 'on' : 'off'}`)
   if (process.env.ADHAL_BOOTSTRAP) log('ADHAL_BOOTSTRAP is set: the CLIs will use it, not the public DHT')
 
   // Null when skipped or when the probe failed, never a partial block:
@@ -535,6 +573,8 @@ async function main (opts) {
       trials: opts.trials,
       slotSeconds: opts.slotSeconds,
       refreshMs: opts.refreshMs ?? 4000,
+      // Whether this side passed --relay; never the key (see --relay above).
+      relay: opts.relayKey !== null,
       mode: opts.role === 'receiver' ? opts.mode : undefined,
       receiverTimeoutMs: opts.role === 'receiver' ? opts.receiverTimeoutMs ?? null : undefined,
       leadMs: opts.leadMs,
@@ -569,6 +609,7 @@ async function main (opts) {
     }
 
     const code = trialCode(opts.seed, i)
+    const relayArgs = opts.relayKey ? [`--relay=${opts.relayKey}`] : []
     let record
     if (opts.role === 'receiver') {
       const outDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-cli-trial-'))
@@ -576,7 +617,7 @@ async function main (opts) {
         const toStdout = opts.mode === 'stdout'
         const run = await runCli({
           script: RECEIVE,
-          args: toStdout ? ['-', '--stdout', '--json', '--yes'] : ['-', outDir, '--json', '--yes'],
+          args: [...(toStdout ? ['-', '--stdout', '--json', '--yes'] : ['-', outDir, '--json', '--yes']), ...relayArgs],
           code,
           env: { ...baseEnv, ADHAL_JOIN_TIMEOUT: String(Math.round(opts.receiverTimeoutMs ?? budget)) },
           deadlineMs: deadline + STOP_AFTER_BUDGET_MS,
@@ -598,7 +639,7 @@ async function main (opts) {
     } else {
       const run = await runCli({
         script: SEND,
-        args: ['-', /** @type {string} */ (opts.file), '--json'],
+        args: ['-', /** @type {string} */ (opts.file), '--json', ...relayArgs],
         code,
         env: { ...baseEnv, ADHAL_JOIN_TIMEOUT: String(Math.round(budget)) },
         deadlineMs: deadline + STOP_AFTER_BUDGET_MS,
@@ -618,7 +659,9 @@ async function main (opts) {
       ? ''
       : ` [code=${record.code ?? 'none'} exit=${record.exit ?? record.signal}${record.killed ? ' killed' : ''} bytes=${record.bytes ?? '?'}` +
         `${record.peerReason ? ` peerReason="${record.peerReason}"` : ''}` +
-        `${record.holepunchRefused ? ` holepunchRefused=${record.holepunchRefused}` : ''}]`
+        `${record.holepunchRefused ? ` holepunchRefused=${record.holepunchRefused}` : ''}` +
+        `${record.holepunchFailed ? ` holepunchFailed=${record.holepunchFailed}` : ''}` +
+        `${record.relayAttempts ? ` relayAttempts=${record.relayAttempts}` : ''}]`
     const flags = (record.contract.length ? ' CONTRACT' : '') + (record.badConfirmations ? ` badConfirmations=${record.badConfirmations}` : '')
     log(`trial ${i + 1}/${opts.trials}: ${record.outcome}${timing}${pathInfo(record.path)}${detail}${flags}`)
   }
@@ -648,7 +691,7 @@ if (require.main === module) {
     console.error(`cli-trials: ${err.message}`)
     console.error('Usage: cli-trials.js --role <receiver|sender> --seed <s> --trials <n> [--file <path>] [--mode dir|stdout]')
     console.error('                     [--slot 135] [--start-epoch <s>] [--receiver-timeout <ms>] [--refresh <ms>] [--out <path>]')
-    console.error('                     [--note <text>]... [--lookup-isp] [--record-addresses] [--no-environment]')
+    console.error('                     [--note <text>]... [--lookup-isp] [--record-addresses] [--no-environment] [--relay <key>]')
     process.exit(1)
   }
   main(opts).catch((err) => {

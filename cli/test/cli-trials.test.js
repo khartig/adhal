@@ -182,6 +182,40 @@ test('a no-peer whose hole punches hyperdht refused is said to need a relay', ()
   assert.ok(lines.some((l) => /both NATs randomized; only a relay connects/.test(l)), lines.join('\n'))
 })
 
+test('--relay is checked up front, kept as hex, and never needs repeating per trial', () => {
+  const key = require('node:crypto').randomBytes(32)
+  const base = ['--role', 'receiver', '--seed', 's']
+  assert.equal(parseArgs(base).relayKey, null)
+  assert.equal(parseArgs([...base, '--relay', key.toString('hex').toUpperCase()]).relayKey, key.toString('hex'))
+  assert.throws(() => parseArgs([...base, '--relay']), /--relay needs a relay key/)
+  assert.throws(() => parseArgs([...base, '--relay', '--note', 'x']), /--relay needs a relay key/)
+  assert.throws(() => parseArgs([...base, '--relay', 'abc']), /--relay: /)
+})
+
+test('a relayed trial says so in its log line and its summary, and is not counted as the peer\'s address kind', () => {
+  const connection = { relayed: true, remoteKind: 'public', rttMs: 60, mtu: 1200, retransmits: 0, rtoCount: 0, fastRecoveries: 0, inflight: 0, packetsSent: 9, packetsReceived: 8, bytesSent: 10, bytesReceived: 7 }
+  assert.equal(pathInfo(connection), ' path=relayed rtt=60ms retx=0 rto=0')
+  assert.equal(pathInfo({ ...connection, relayed: false }), ' path=public rtt=60ms retx=0 rto=0')
+  const { lines, summary } = summarise([
+    { trial: 0, outcome: 'ok', contract: [], path: connection },
+    { trial: 1, outcome: 'ok', contract: [], path: { ...connection, relayed: false } },
+    { trial: 2, outcome: 'no-peer', contract: [], path: null, holepunchFailed: 3, relayAttempts: 2 }
+  ], { role: 'sender', seed: 's' })
+  assert.deepEqual(summary.relayed, [0])
+  assert.deepEqual(summary.holepunchFailed, [2])
+  assert.ok(lines.some((l) => /^peer address: relayed 1, public 1$/.test(l)), lines.join('\n'))
+  assert.ok(lines.some((l) => /^relayed: 1 of the trials that paired .*trial\(s\) 1\)$/.test(l)), lines.join('\n'))
+  assert.ok(lines.some((l) => /trial\(s\) 3: hole punches were tried and failed/.test(l)), lines.join('\n'))
+})
+
+test('a no-peer carries the failed punches and the relay attempts from its final event', () => {
+  const events = [ev('start'), ev('failed', { code: 'ERR_NO_PEER', message: 'x', bytes: null, holepunchFailed: 5, relayAttempts: 2 })]
+  const read = readRun({ events, status: 1, killed: false })
+  const record = trialRecord(0, { status: 1, signal: null, killed: false, spawnedAtEpochMs: 1000, endedAtEpochMs: 2000, otherLines: [], events }, read, 1000, {})
+  assert.equal(record.holepunchFailed, 5)
+  assert.equal(record.relayAttempts, 2)
+})
+
 test('the summary counts skipped slots apart, and says when a rate cannot be called', () => {
   const results = [
     { trial: 0, outcome: 'ok', connectedMs: 1000, completedMs: 3000, transferMs: 2000, contract: [] },
