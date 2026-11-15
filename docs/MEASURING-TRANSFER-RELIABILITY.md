@@ -267,7 +267,9 @@ into runs by seed and calls the receiver of the first run Machine 1,
 which is [`TESTING.md`](TESTING.md)'s convention. A **Checks** section
 lists what would make the run hard to read: the two sides' seeds, trial
 counts, slots, or start times disagreeing, different commits, uncommitted
-changes, a NAT that changed, a same-LAN connection, two randomized NATs.
+changes, different hyperswarm, hyperdht, or udx-native versions (one
+commit can run stale `node_modules`), a NAT that changed, a same-LAN
+connection, two randomized NATs.
 `--write` does not replace an existing `ENVIRONMENT.md` without `--force`.
 For JSON from before 2026-10-14 it reads what it can from the logs.
 

@@ -203,6 +203,14 @@ for (const m of machines.values()) {
   }
   const commits = new Set(ms.map((m) => m.sides.find((s) => s.build)?.build.commit).filter(Boolean))
   if (commits.size > 1) checks.push(`The machines ran different commits: ${[...commits].join(', ')}.`)
+  // The same commit does not mean the same dependencies: a tree whose
+  // node_modules was not reinstalled after a lockfile change runs the old ones.
+  for (const dep of ['hyperswarm', 'hyperdht', 'udx-native']) {
+    const v = ms.map((m) => m.sides.find((s) => s.env?.build?.versions)?.env.build.versions[dep])
+    if (v.filter(Boolean).length > 1 && new Set(v.filter(Boolean)).size > 1) {
+      checks.push(`The machines ran different ${dep} versions: ${ms.map((m, i) => `${m.label} ${v[i] ?? 'not recorded'}`).join(', ')}.`)
+    }
+  }
 }
 
 // --- Formatting ------------------------------------------------------------
@@ -257,16 +265,27 @@ function describeAccess (access) {
     `${FILL} what is beyond it (e.g. the router's uplink)`
 }
 
-/** @param {any} vpn @param {any} access */
-function describeVpnLine (vpn, access) {
+/** @param {any} vpn @param {any} access @param {any[]} sides */
+function describeVpnLine (vpn, access, sides) {
   if (!vpn) return NOT_RECORDED
   const parts = []
   parts.push(vpn.onRoute === null ? 'VPN: unknown' : vpn.onRoute ? 'VPN: the route to the internet went through a tunnel' : 'VPN: not on the route')
   if (vpn.tunnelInterfaces?.length) parts.push(`tunnel interfaces up: ${vpn.tunnelInterfaces.join(', ')}`)
   if (vpn.services?.length) parts.push(`configured services: ${vpn.services.map((s) => `${s.name} (${s.status.toLowerCase()})`).join(', ')}`)
   parts.push(access?.hotspot ? `hotspot: likely -- ${access.hotspot}` : 'hotspot: none detected')
-  parts.push('relay: none (the harness configures no relay)')
+  parts.push(describeRelay(sides))
   return parts.join('; ')
+}
+
+// tools/cli-trials.js records --relay per side, as a boolean; older JSON,
+// and scratch-trials.js, configure no relay at all.
+/** @param {any[]} sides */
+function describeRelay (sides) {
+  if (!sides.some((s) => s.relay !== undefined)) return 'relay: none (the harness configures no relay)'
+  const on = sides.filter((s) => s.relay).map((s) => s.role)
+  const off = sides.filter((s) => !s.relay).map((s) => s.role)
+  if (!on.length) return 'relay: none (--relay not given)'
+  return `relay: --relay given as ${on.join(' and ')}${off.length ? `, not as ${off.join(' or ')}` : ''}`
 }
 
 /** @param {any} fw */
@@ -368,7 +387,7 @@ for (const m of machines.values()) {
     line(`NAT: ${nat}`)
   }
   line(`Firewall/router: ${env ? `${describeFirewall(env.hostFirewall)}; DHT ${env.natAtStart?.firewalled ? 'finds it firewalled' : env.natAtStart?.firewalled === false ? 'finds it not firewalled' : 'firewalled unknown'}; router: ${FILL}` : `${FILL} (${NOT_RECORDED})`}`)
-  line(`VPN/relay/hotspot: ${env ? describeVpnLine(env.vpn, env.access) : `${FILL} (${NOT_RECORDED})`}`)
+  line(`VPN/relay/hotspot: ${env ? describeVpnLine(env.vpn, env.access, m.sides) : `${FILL} (${NOT_RECORDED})`}`)
   const notes = [...new Set(m.sides.flatMap((s) => s.env?.notes || []))]
   if (notes.length) line(`Notes: ${notes.join('; ')}`)
 }
