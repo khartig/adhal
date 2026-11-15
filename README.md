@@ -163,10 +163,23 @@ environment.
 ## Project layout
 
 ```
-engine/   @ad-hal/engine -- the protocol, the transport and the transfer
-cli/      @ad-hal/cli    -- the command-line tools, their tests and test helpers
-docs/     the roadmap, architecture, protocol, threat model and history
+engine/        @ad-hal/engine      -- the protocol, the transport and the transfer
+cli/           @ad-hal/cli         -- the command-line tools, their tests and test helpers
+conformance/   @ad-hal/conformance -- protocol test vectors and a harness for any implementation
+tools/         developer scripts: CLI trial runs, mutation testing, and its sandbox
+docs/          the roadmap, architecture, protocol, threat model and history
 ```
+
+`conformance/` is a private workspace package, not published to npm. Its
+`vectors/` are language-neutral JSON, and its harness drives any
+implementation, through an adapter, in real drops over loopback TCP;
+`pnpm conformance` runs it against the engine. See
+[`docs/CONFORMANCE.md`](docs/CONFORMANCE.md). `tools/` is not a package:
+`cli-trials.js` and `cli-trials-run.sh` measure repeated real drops
+through the CLIs between two machines (see
+[`docs/TESTING.md`](docs/TESTING.md)), and `mutate.js` runs mutation
+testing against the engine in a copy of the workspace made by
+`sandbox.js`, never in the working tree.
 
 `engine/` is plain JavaScript with no UI framework, so any front end can
 sit on it, and `cli/` imports only from it. Every dependency is pinned to
