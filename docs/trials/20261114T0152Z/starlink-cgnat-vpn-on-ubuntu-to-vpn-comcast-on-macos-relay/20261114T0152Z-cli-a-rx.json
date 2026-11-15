@@ -1,0 +1,2820 @@
+{
+  "tool": "cli-trials",
+  "role": "receiver",
+  "seed": "20261114T0152Z-starlink-cgnat-vpn-on-ubuntu-to-vpn-comcast-on-macos-relay-a",
+  "trials": 20,
+  "slotSeconds": 240,
+  "refreshMs": 4000,
+  "relay": false,
+  "mode": "dir",
+  "receiverTimeoutMs": null,
+  "leadMs": 10000,
+  "startEpoch": 1794621163,
+  "startedAtEpochMs": 1794620864023,
+  "endedAtEpochMs": 1794625758084,
+  "file": null,
+  "environment": {
+    "hostname": "agenticMaster",
+    "os": {
+      "platform": "linux",
+      "release": "7.0.0-38-generic",
+      "arch": "x64",
+      "name": "Ubuntu",
+      "version": "24.04",
+      "build": null,
+      "pretty": "Ubuntu 24.04.4 LTS"
+    },
+    "node": "v24.21.0",
+    "build": {
+      "commit": "baeea60070aa",
+      "dirty": false,
+      "versions": {
+        "hyperswarm": "4.17.1",
+        "hyperdht": "6.34.0",
+        "udx-native": "1.21.1"
+      }
+    },
+    "interfaces": {
+      "ipv4": 2,
+      "cgnatIpv4": 0,
+      "globalIpv6": true
+    },
+    "access": {
+      "interface": "proton0",
+      "type": "vpn",
+      "detail": null,
+      "gatewayKind": null,
+      "hotspot": null
+    },
+    "vpn": {
+      "onRoute": true,
+      "tunnelInterfaces": [
+        "proton0"
+      ],
+      "services": null
+    },
+    "hostFirewall": {
+      "tool": "ufw (/etc/ufw/ufw.conf), firewalld, nftables.service; iptables not checked, it needs root",
+      "enabled": true,
+      "ufw": true,
+      "firewalld": false,
+      "nftables": false
+    },
+    "natAtStart": {
+      "kind": "randomized",
+      "firewalled": true,
+      "portPreserved": null,
+      "samples": 16
+    },
+    "isp": {
+      "asn": 212238,
+      "name": "CDNEXT - Datacamp Limited, GB",
+      "country": "GB",
+      "source": "Team Cymru IP-to-ASN (DNS)"
+    },
+    "notes": [
+      "starlnk wifi. protonVPN US-CA#815 randomized on Ubuntu server"
+    ],
+    "addressesRecorded": false
+  },
+  "environmentSkipped": false,
+  "environmentError": null,
+  "build": {
+    "commit": "baeea60070aa",
+    "dirty": false
+  },
+  "notes": [
+    "starlnk wifi. protonVPN US-CA#815 randomized on Ubuntu server"
+  ],
+  "results": [
+    {
+      "trial": 0,
+      "outcome": "no-peer",
+      "code": "ERR_NO_PEER",
+      "exit": null,
+      "signal": "SIGINT",
+      "killed": true,
+      "connectedMs": null,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": null,
+      "sha256": null,
+      "holepunchFailed": 45,
+      "path": null,
+      "contract": [],
+      "candidates": 0,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 0,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 166,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T01:52:43.180Z",
+          "joinTimeout": 234999,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 166,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5469,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 17582,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 235172,
+          "role": "receive",
+          "code": "ERR_NO_PEER",
+          "message": "timed out after 234999ms waiting for a peer: no peer ever connected. A peer was found, but 45 hole punch(es) to it failed, so this path did not connect directly. A relay can connect this pair: run the drop again with --relay=<key> at either end",
+          "bytes": null,
+          "holepunchFailed": 45
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794621163009,
+      "endedAtEpochMs": 1794621399509,
+      "independentSha256": null,
+      "stdoutBytes": null
+    },
+    {
+      "trial": 1,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 11865,
+      "completedMs": 23174,
+      "transferMs": 11211,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 69,
+        "mtu": 1200,
+        "retransmits": 0,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 20,
+        "packetsSent": 9575,
+        "packetsReceived": 9575,
+        "bytesSent": 1063210,
+        "bytesReceived": 11208314
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 32,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 175,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T01:56:43.182Z",
+          "joinTimeout": 234999,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 176,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 10334,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 20001,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 21722,
+          "role": "receive",
+          "peer": "a05b53f2afa5"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 21863,
+          "role": "receive",
+          "peer": "a05b53f2afa5",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 21953,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 21961,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 33172,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-Yr8vun/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 69,
+            "mtu": 1200,
+            "retransmits": 0,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 20,
+            "packetsSent": 9575,
+            "packetsReceived": 9575,
+            "bytesSent": 1063210,
+            "bytesReceived": 11208314
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794621403002,
+      "endedAtEpochMs": 1794621437194,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 2,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 10508,
+      "completedMs": 24471,
+      "transferMs": 13844,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 97,
+        "mtu": 1200,
+        "retransmits": 1,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 99,
+        "packetsSent": 9492,
+        "packetsReceived": 9492,
+        "bytesSent": 913801,
+        "bytesReceived": 11109886
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 37,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 171,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:00:43.180Z",
+          "joinTimeout": 234998,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 172,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 6826,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 17258,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 20346,
+          "role": "receive",
+          "peer": "f2ecc6334b62"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 20505,
+          "role": "receive",
+          "peer": "f2ecc6334b62",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 20621,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 20624,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 34468,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-ZTxJUN/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 97,
+            "mtu": 1200,
+            "retransmits": 1,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 99,
+            "packetsSent": 9492,
+            "packetsReceived": 9492,
+            "bytesSent": 913801,
+            "bytesReceived": 11109886
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794621643003,
+      "endedAtEpochMs": 1794621679479,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 3,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 9905,
+      "completedMs": 29238,
+      "transferMs": 19246,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 111,
+        "mtu": 1200,
+        "retransmits": 5,
+        "rtoCount": 2,
+        "fastRecoveries": 1,
+        "inflight": 178,
+        "packetsSent": 10982,
+        "packetsReceived": 10975,
+        "bytesSent": 1240639,
+        "bytesReceived": 12849142
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 39,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 173,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:04:43.184Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 173,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 6689,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 19628,
+          "role": "receive",
+          "peer": "1ae657744ada"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 19900,
+          "role": "receive",
+          "peer": "1ae657744ada",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 19979,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 19987,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 39233,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-guOHP8/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 111,
+            "mtu": 1200,
+            "retransmits": 5,
+            "rtoCount": 2,
+            "fastRecoveries": 1,
+            "inflight": 178,
+            "packetsSent": 10982,
+            "packetsReceived": 10975,
+            "bytesSent": 1240639,
+            "bytesReceived": 12849142
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794621883005,
+      "endedAtEpochMs": 1794621927168,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 4,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 11538,
+      "completedMs": 22948,
+      "transferMs": 11325,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 88,
+        "mtu": 1200,
+        "retransmits": 2,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 247,
+        "packetsSent": 9554,
+        "packetsReceived": 9552,
+        "bytesSent": 1003565,
+        "bytesReceived": 11180206
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 30,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 165,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:08:43.175Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 165,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 7382,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 21343,
+          "role": "receive",
+          "peer": "f7e5ff3d9221"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 21533,
+          "role": "receive",
+          "peer": "f7e5ff3d9221",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 21610,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 21618,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 32943,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-RZQg3t/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 88,
+            "mtu": 1200,
+            "retransmits": 2,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 247,
+            "packetsSent": 9554,
+            "packetsReceived": 9552,
+            "bytesSent": 1003565,
+            "bytesReceived": 11180206
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794622123005,
+      "endedAtEpochMs": 1794622157881,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 5,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 6305,
+      "completedMs": 19451,
+      "transferMs": 11977,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 99,
+        "mtu": 1200,
+        "retransmits": 1,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 99,
+        "packetsSent": 9332,
+        "packetsReceived": 9331,
+        "bytesSent": 982097,
+        "bytesReceived": 10922250
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 34,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 165,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:12:43.172Z",
+          "joinTimeout": 234998,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 166,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 8891,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 16143,
+          "role": "receive",
+          "peer": "1cf70ad77502"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 16302,
+          "role": "receive",
+          "peer": "1cf70ad77502",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 17463,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 17471,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 29448,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-S7Bylw/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 99,
+            "mtu": 1200,
+            "retransmits": 1,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 99,
+            "packetsSent": 9332,
+            "packetsReceived": 9331,
+            "bytesSent": 982097,
+            "bytesReceived": 10922250
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794622363003,
+      "endedAtEpochMs": 1794622396236,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 6,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 6593,
+      "completedMs": 21746,
+      "transferMs": 15004,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 133,
+        "mtu": 1200,
+        "retransmits": 2,
+        "rtoCount": 0,
+        "fastRecoveries": 1,
+        "inflight": 99,
+        "packetsSent": 10860,
+        "packetsReceived": 10858,
+        "bytesSent": 1091133,
+        "bytesReceived": 12712026
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 34,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 184,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:16:43.195Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 185,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 6419,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 16351,
+          "role": "receive",
+          "peer": "ba9c4eca39ca"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 16589,
+          "role": "receive",
+          "peer": "ba9c4eca39ca",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 16730,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 16738,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 31742,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-iEFD0M/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 133,
+            "mtu": 1200,
+            "retransmits": 2,
+            "rtoCount": 0,
+            "fastRecoveries": 1,
+            "inflight": 99,
+            "packetsSent": 10860,
+            "packetsReceived": 10858,
+            "bytesSent": 1091133,
+            "bytesReceived": 12712026
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794622603004,
+      "endedAtEpochMs": 1794622648044,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 7,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 9847,
+      "completedMs": 22043,
+      "transferMs": 12072,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 100,
+        "mtu": 1200,
+        "retransmits": 2,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 158,
+        "packetsSent": 9483,
+        "packetsReceived": 9482,
+        "bytesSent": 1299044,
+        "bytesReceived": 11095862
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 30,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 167,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:20:43.177Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 168,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 10916,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 18501,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 19580,
+          "role": "receive",
+          "peer": "f054dd41fe65"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 19843,
+          "role": "receive",
+          "peer": "f054dd41fe65",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 19959,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 19967,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 32039,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-igUDPT/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 100,
+            "mtu": 1200,
+            "retransmits": 2,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 158,
+            "packetsSent": 9483,
+            "packetsReceived": 9482,
+            "bytesSent": 1299044,
+            "bytesReceived": 11095862
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794622843004,
+      "endedAtEpochMs": 1794622876448,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 8,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 25930,
+      "completedMs": 39896,
+      "transferMs": 13726,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 136,
+        "mtu": 1200,
+        "retransmits": 1,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 99,
+        "packetsSent": 9857,
+        "packetsReceived": 9855,
+        "bytesSent": 1592933,
+        "bytesReceived": 11537626
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 25,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 170,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:24:43.181Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 170,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5816,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 19314,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 35664,
+          "role": "receive",
+          "peer": "1ef2698c641e"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 35925,
+          "role": "receive",
+          "peer": "1ef2698c641e",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 36160,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 36165,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 49891,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-fkHjB7/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 136,
+            "mtu": 1200,
+            "retransmits": 1,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 99,
+            "packetsSent": 9857,
+            "packetsReceived": 9855,
+            "bytesSent": 1592933,
+            "bytesReceived": 11537626
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794623083005,
+      "endedAtEpochMs": 1794623146198,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 9,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 11125,
+      "completedMs": 22593,
+      "transferMs": 11370,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 79,
+        "mtu": 1200,
+        "retransmits": 3,
+        "rtoCount": 1,
+        "fastRecoveries": 0,
+        "inflight": 178,
+        "packetsSent": 9451,
+        "packetsReceived": 9450,
+        "bytesSent": 1228535,
+        "bytesReceived": 11059510
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 31,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 169,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:28:43.180Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 170,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5645,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 19389,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 20022,
+          "role": "receive",
+          "peer": "f2870fe0eaad"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 21120,
+          "role": "receive",
+          "peer": "f2870fe0eaad",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 21214,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 21218,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 32588,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-RvqJMY/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 79,
+            "mtu": 1200,
+            "retransmits": 3,
+            "rtoCount": 1,
+            "fastRecoveries": 0,
+            "inflight": 178,
+            "packetsSent": 9451,
+            "packetsReceived": 9450,
+            "bytesSent": 1228535,
+            "bytesReceived": 11059510
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794623323005,
+      "endedAtEpochMs": 1794623359140,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 10,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 11345,
+      "completedMs": 26970,
+      "transferMs": 14513,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 95,
+        "mtu": 1200,
+        "retransmits": 2,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 178,
+        "packetsSent": 10405,
+        "packetsReceived": 10403,
+        "bytesSent": 963216,
+        "bytesReceived": 12178634
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 37,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 169,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:32:43.180Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 170,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 7278,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 18165,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 21177,
+          "role": "receive",
+          "peer": "db2b4cfd727d"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 21341,
+          "role": "receive",
+          "peer": "db2b4cfd727d",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 22445,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 22453,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 36966,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-dFeOXI/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 95,
+            "mtu": 1200,
+            "retransmits": 2,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 178,
+            "packetsSent": 10405,
+            "packetsReceived": 10403,
+            "bytesSent": 963216,
+            "bytesReceived": 12178634
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794623563004,
+      "endedAtEpochMs": 1794623602966,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 11,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 10255,
+      "completedMs": 27877,
+      "transferMs": 17385,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 430,
+        "mtu": 1200,
+        "retransmits": 4,
+        "rtoCount": 2,
+        "fastRecoveries": 0,
+        "inflight": 171,
+        "packetsSent": 12987,
+        "packetsReceived": 12985,
+        "bytesSent": 3258551,
+        "bytesReceived": 15200266
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 23,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 170,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:36:43.175Z",
+          "joinTimeout": 235000,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 170,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5449,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 20053,
+          "role": "receive",
+          "peer": "c6bc13d57cc9"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 20254,
+          "role": "receive",
+          "peer": "c6bc13d57cc9",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 20483,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 20491,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 37876,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-q3WYSt/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 430,
+            "mtu": 1200,
+            "retransmits": 4,
+            "rtoCount": 2,
+            "fastRecoveries": 0,
+            "inflight": 171,
+            "packetsSent": 12987,
+            "packetsReceived": 12985,
+            "bytesSent": 3258551,
+            "bytesReceived": 15200266
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794623803001,
+      "endedAtEpochMs": 1794623842755,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 12,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 10943,
+      "completedMs": 24355,
+      "transferMs": 13299,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 98,
+        "mtu": 1200,
+        "retransmits": 1,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 99,
+        "packetsSent": 9608,
+        "packetsReceived": 9607,
+        "bytesSent": 720105,
+        "bytesReceived": 11245818
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 36,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 180,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:40:43.192Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 181,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5334,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 17556,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 20740,
+          "role": "receive",
+          "peer": "5ad921a46cd5"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 20939,
+          "role": "receive",
+          "peer": "5ad921a46cd5",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 21044,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 21052,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 34351,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-ZHU2nO/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 98,
+            "mtu": 1200,
+            "retransmits": 1,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 99,
+            "packetsSent": 9608,
+            "packetsReceived": 9607,
+            "bytesSent": 720105,
+            "bytesReceived": 11245818
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794624043004,
+      "endedAtEpochMs": 1794624079913,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 13,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 6873,
+      "completedMs": 19118,
+      "transferMs": 12117,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 72,
+        "mtu": 1200,
+        "retransmits": 2,
+        "rtoCount": 1,
+        "fastRecoveries": 0,
+        "inflight": 99,
+        "packetsSent": 10037,
+        "packetsReceived": 10036,
+        "bytesSent": 1030380,
+        "bytesReceived": 11747474
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 34,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 174,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:44:43.185Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 175,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5444,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 15612,
+          "role": "receive",
+          "peer": "e49a6ad4f4cb"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 16868,
+          "role": "receive",
+          "peer": "e49a6ad4f4cb",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 16988,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 16996,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 29113,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-QWuFoD/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 72,
+            "mtu": 1200,
+            "retransmits": 2,
+            "rtoCount": 1,
+            "fastRecoveries": 0,
+            "inflight": 99,
+            "packetsSent": 10037,
+            "packetsReceived": 10036,
+            "bytesSent": 1030380,
+            "bytesReceived": 11747474
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794624283005,
+      "endedAtEpochMs": 1794624314234,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 14,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 11324,
+      "completedMs": 22906,
+      "transferMs": 11490,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 83,
+        "mtu": 1200,
+        "retransmits": 2,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 178,
+        "packetsSent": 10179,
+        "packetsReceived": 10178,
+        "bytesSent": 966568,
+        "bytesReceived": 11912825
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 33,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 169,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:48:43.176Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 169,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 6475,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 20292,
+          "role": "receive",
+          "peer": "5808ef7c8233"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 21321,
+          "role": "receive",
+          "peer": "5808ef7c8233",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 21409,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 21413,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 32903,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-lpZx0l/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 83,
+            "mtu": 1200,
+            "retransmits": 2,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 178,
+            "packetsSent": 10179,
+            "packetsReceived": 10178,
+            "bytesSent": 966568,
+            "bytesReceived": 11912825
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794624523003,
+      "endedAtEpochMs": 1794624559620,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 15,
+      "outcome": "killed-at-slot-end",
+      "code": "ABORT_ERR",
+      "exit": 130,
+      "signal": null,
+      "killed": true,
+      "connectedMs": 219933,
+      "completedMs": null,
+      "transferMs": null,
+      "bytes": 6160384,
+      "sha256": null,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 132,
+        "mtu": 1200,
+        "retransmits": 0,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 0,
+        "packetsSent": 5974,
+        "packetsReceived": 5973,
+        "bytesSent": 725746,
+        "bytesReceived": 6991474
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 18,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 170,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:52:43.180Z",
+          "joinTimeout": 234996,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 170,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5839,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 17664,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 229744,
+          "role": "receive",
+          "peer": "a7c457f3d08a"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 229929,
+          "role": "receive",
+          "peer": "a7c457f3d08a",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 230081,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 230090,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "failed",
+          "ms": 236760,
+          "role": "receive",
+          "code": "ABORT_ERR",
+          "message": "cancelled after 6160384 bytes. The peer was told, so it will report a deliberate cancel rather than a dropped connection.",
+          "bytes": 6160384,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 132,
+            "mtu": 1200,
+            "retransmits": 0,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 0,
+            "packetsSent": 5974,
+            "packetsReceived": 5973,
+            "bytesSent": 725746,
+            "bytesReceived": 6991474
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794624763004,
+      "endedAtEpochMs": 1794625001624,
+      "independentSha256": null,
+      "stdoutBytes": null
+    },
+    {
+      "trial": 16,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 6426,
+      "completedMs": 18040,
+      "transferMs": 11423,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 110,
+        "mtu": 1200,
+        "retransmits": 0,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 20,
+        "packetsSent": 9394,
+        "packetsReceived": 9394,
+        "bytesSent": 1089326,
+        "bytesReceived": 10996182
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 29,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 175,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T02:56:43.182Z",
+          "joinTimeout": 235000,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 176,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 4394,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 16264,
+          "role": "receive",
+          "peer": "740c68688940"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 16425,
+          "role": "receive",
+          "peer": "740c68688940",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 16608,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 16616,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 28039,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-Clbrmy/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 110,
+            "mtu": 1200,
+            "retransmits": 0,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 20,
+            "packetsSent": 9394,
+            "packetsReceived": 9394,
+            "bytesSent": 1089326,
+            "bytesReceived": 10996182
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794625003001,
+      "endedAtEpochMs": 1794625034798,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 17,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 10468,
+      "completedMs": 21807,
+      "transferMs": 11230,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 123,
+        "mtu": 1200,
+        "retransmits": 0,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 20,
+        "packetsSent": 9239,
+        "packetsReceived": 9239,
+        "bytesSent": 1194690,
+        "bytesReceived": 10814522
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous"
+      ],
+      "progressEvents": 27,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 168,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T03:00:43.178Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 169,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5744,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 20220,
+          "role": "receive",
+          "peer": "06f6317070a7"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 20464,
+          "role": "receive",
+          "peer": "06f6317070a7",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 20565,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 20573,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 31803,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-ZAMB3w/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 123,
+            "mtu": 1200,
+            "retransmits": 0,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 20,
+            "packetsSent": 9239,
+            "packetsReceived": 9239,
+            "bytesSent": 1194690,
+            "bytesReceived": 10814522
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794625243004,
+      "endedAtEpochMs": 1794625278880,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 18,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 10264,
+      "completedMs": 21662,
+      "transferMs": 11141,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 130,
+        "mtu": 1200,
+        "retransmits": 1,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 97,
+        "packetsSent": 9268,
+        "packetsReceived": 9267,
+        "bytesSent": 1195991,
+        "bytesReceived": 10847338
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 28,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 170,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T03:04:43.180Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 170,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 5799,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 18519,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 20092,
+          "role": "receive",
+          "peer": "8a03164ab8cc"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 20260,
+          "role": "receive",
+          "peer": "8a03164ab8cc",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 20509,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 20517,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 31658,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-qu6IQd/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 130,
+            "mtu": 1200,
+            "retransmits": 1,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 97,
+            "packetsSent": 9268,
+            "packetsReceived": 9267,
+            "bytesSent": 1195991,
+            "bytesReceived": 10847338
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794625483004,
+      "endedAtEpochMs": 1794625516247,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    },
+    {
+      "trial": 19,
+      "outcome": "ok",
+      "code": null,
+      "exit": 0,
+      "signal": null,
+      "killed": false,
+      "connectedMs": 9997,
+      "completedMs": 23076,
+      "transferMs": 12916,
+      "bytes": 10485760,
+      "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "acknowledged": true,
+      "path": {
+        "relayed": true,
+        "remoteKind": "public",
+        "rttMs": 102,
+        "mtu": 1200,
+        "retransmits": 1,
+        "rtoCount": 0,
+        "fastRecoveries": 0,
+        "inflight": 99,
+        "packetsSent": 10243,
+        "packetsReceived": 10243,
+        "bytesSent": 940953,
+        "bytesReceived": 11988810
+      },
+      "contract": [],
+      "candidates": 1,
+      "dropped": [],
+      "badConfirmations": 0,
+      "warnings": [
+        "not-anonymous",
+        "holepunch-failed"
+      ],
+      "progressEvents": 37,
+      "events": [
+        {
+          "v": 1,
+          "event": "start",
+          "ms": 168,
+          "role": "receive",
+          "version": "0.1.2",
+          "time": "2026-11-14T03:08:43.179Z",
+          "joinTimeout": 234997,
+          "refreshInterval": 4000,
+          "stdout": false,
+          "relay": false,
+          "refusePeerRelay": false
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 169,
+          "role": "receive",
+          "kind": "not-anonymous",
+          "message": "not anonymous: your IP address is visible to the peer, and to the DHT nodes near this drop's topic"
+        },
+        {
+          "v": 1,
+          "event": "announced",
+          "ms": 8923,
+          "role": "receive"
+        },
+        {
+          "v": 1,
+          "event": "warning",
+          "ms": 18300,
+          "role": "receive",
+          "kind": "holepunch-failed",
+          "message": "a peer was found, but the hole punch to it failed. Still trying; if it keeps failing, this path cannot connect directly, and a relay can connect it: run the drop again with --relay=<key> at either end"
+        },
+        {
+          "v": 1,
+          "event": "candidate",
+          "ms": 19830,
+          "role": "receive",
+          "peer": "10684d018f16"
+        },
+        {
+          "v": 1,
+          "event": "paired",
+          "ms": 19993,
+          "role": "receive",
+          "peer": "10684d018f16",
+          "relayed": true
+        },
+        {
+          "v": 1,
+          "event": "offer",
+          "ms": 20148,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "partial": 0,
+          "risk": null
+        },
+        {
+          "v": 1,
+          "event": "accepted",
+          "ms": 20156,
+          "role": "receive",
+          "resumeFrom": 0
+        },
+        {
+          "v": 1,
+          "event": "done",
+          "ms": 33072,
+          "role": "receive",
+          "name": "test.bin",
+          "declaredName": "test.bin",
+          "size": 10485760,
+          "sha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+          "resumedFrom": 0,
+          "path": "/tmp/adhal-cli-trial-ZKlm4T/test.bin",
+          "published": "link",
+          "acknowledged": true,
+          "connection": {
+            "relayed": true,
+            "remoteKind": "public",
+            "rttMs": 102,
+            "mtu": 1200,
+            "retransmits": 1,
+            "rtoCount": 0,
+            "fastRecoveries": 0,
+            "inflight": 99,
+            "packetsSent": 10243,
+            "packetsReceived": 10243,
+            "bytesSent": 940953,
+            "bytesReceived": 11988810
+          }
+        }
+      ],
+      "otherLines": [],
+      "startedAtEpochMs": 1794625723004,
+      "endedAtEpochMs": 1794625757961,
+      "independentSha256": "aa4d191bd0d17ad61bddc3b28e836559b3ee84a1b81ce9743d0027138bdc7a66",
+      "stdoutBytes": null
+    }
+  ],
+  "summary": {
+    "succeeded": 18,
+    "trials": 20,
+    "skipped": 0,
+    "rate": 0.9,
+    "wilson95": {
+      "low": 0.6989663547715128,
+      "high": 0.9721335187862318
+    },
+    "connectedMs": {
+      "median": 10468,
+      "p90": 11865,
+      "min": 6305,
+      "max": 25930
+    },
+    "completedMs": {
+      "median": 22948,
+      "p90": 29238,
+      "min": 18040,
+      "max": 39896
+    },
+    "transferMs": {
+      "median": 12117,
+      "p90": 17385,
+      "min": 11141,
+      "max": 19246
+    },
+    "failures": {
+      "no-peer": 1,
+      "killed-at-slot-end": 1
+    },
+    "contractViolations": [],
+    "crossCheckDisagreed": [],
+    "badConfirmations": 0,
+    "unacknowledged": [],
+    "holepunchRefused": [],
+    "holepunchFailed": [
+      0
+    ],
+    "relayed": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18,
+      19
+    ]
+  }
+}

@@ -173,7 +173,8 @@ ADHAL_JOIN_TIMEOUT=0 ad-hal-receive ~/Downloads
 **It says the hole punch failed, or that both NATs are randomized.** The
 two machines found each other but cannot connect directly, often because
 of a VPN at both ends. Turn the VPN off at one end. If you run a relay,
-`--relay=<key>` on either side connects such a pair. It is experimental:
+`--relay=<key>` on either side connects such a pair (38 of 40 in one
+measured run), though connecting can take a minute or two. It is experimental:
 see "Trying a relay" in
 [`TESTING.md`](TESTING.md#trying-a-relay).
 

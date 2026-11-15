@@ -353,7 +353,10 @@ them is a transfer between two people who share nothing beforehand.
   not punch between two randomized NATs. Two devices behind one NAT that
   cannot reach each other locally never connect either (2026-10-19). So
   the relay is on the critical path for those pairs, which a VPN user
-  meets as soon as the other end uses a VPN too. Sizes and timings are in
+  meets as soon as the other end uses a VPN too. Through a relay, the
+  VPN-at-both-ends pair completed 38 of 40 (2026-11-13), with transfers a
+  little slower than direct ones and connects sometimes much slower.
+  Sizes and timings are in
   [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ---
@@ -387,8 +390,11 @@ much the relay matters.
   of 40 (2026-11-03), at about 15 s to connect against 4 s. Against
   another randomizing NAT it never does: 0 of 80, both ends on one
   ProtonVPN exit server (2026-11-04). hyperdht 6.34.0 refuses that punch
-  (`HOLEPUNCH_DOUBLE_RANDOMIZED_NATS`), so this pair needs a relay, and
-  any tool with one should beat Adhal on it;
+  (`HOLEPUNCH_DOUBLE_RANDOMIZED_NATS`), so this pair needs a relay. With
+  Adhal's experimental `--relay=<key>` at one end, it connected through
+  the relay in 39 of 40 trials and completed 38, but took up to 127 s to
+  connect (2026-11-13). Until the relay leaves experimental, any tool
+  with a relay of its own should beat Adhal on this pair;
 - same NAT (hairpinning) and VLAN-isolated networks. Two peers on one
   machine or one LAN connect by hyperdht's LAN shortcut, without
   touching the router, so hairpinning is tested only by two devices
@@ -423,8 +429,9 @@ a black box (AGPL).
 **Results.** None yet. Adhal's own runs on the pairs above are in
 [`ARCHITECTURE.md`](ARCHITECTURE.md), but they are not a comparison until
 the other tools have been run on the same pairs, in the same window.
-Adhal's runs so far are direct-only (its CLIs now report `relayed` on
-each drop, [`CLI-CONTRACT.md`](CLI-CONTRACT.md) §3.5), while magic-wormhole falls back to its transit
+Adhal's runs so far are direct-only, but for one through an
+experimental relay (2026-11-13). Its CLIs report `relayed` on each
+drop ([`CLI-CONTRACT.md`](CLI-CONTRACT.md) §3.5), while magic-wormhole falls back to its transit
 relay and croc may send everything through its relay (§2), so each
 tool's record has to say which path every transfer took. Otherwise a relayed success and a direct one count the same.
 

@@ -161,7 +161,12 @@ From the macOS + Linux CLI: optional relay (under §3) → LAN discovery
 The relay moved to the front on 2026-11-08. Without one, a drop between
 two randomized NATs cannot connect at all (0 of 80, 2026-11-04). It is
 in progress: `--relay=<key>` is experimental from 2026-11-12, until
-THREAT-MODEL §8's merge gates hold.
+THREAT-MODEL §8's merge gates hold. Measured on 2026-11-13: with it at one
+end, the VPN-at-both-ends pair completed 38 of 40, all through the relay.
+Open from that run: relayed attempts that close before the handshake,
+seen only by the side that named the relay, which made some connects
+take up to 127 s and caused both failures
+([`ARCHITECTURE.md`](ARCHITECTURE.md), Measured on real networks).
 
 ---
 
