@@ -6,7 +6,7 @@ Trials: 20 per direction
 File: 10 MiB (10485760 bytes) /tmp/test.bin
 Slot: 240 seconds, refresh 4000 ms
 Relay: run A receiver off (18 of 18 successes relayed), sender on (18 of 18 successes relayed); run B receiver on (20 of 20 successes relayed), sender off (20 of 20 successes relayed)
-Relay server: a Pear blind-relay, which works directly with hyperdht, on a DigitalOcean server running Ubuntu, as reported after the run. Named with `--relay=<key>` on Machine 2 only. The JSON records `relay: true`, never the key, by design. The server's region and the blind-relay version were not recorded
+Relay server: a blind-relay running under Pear 3.6.0 (bare 1.35.0, uv 1.53.0, v8 14.8.178.31), the latest Pear when it was installed. It works directly with hyperdht. Hosted on a DigitalOcean server running Ubuntu 26.04.1 LTS (GNU/Linux 7.0.0-43-generic x86_64), as reported after the run. Named with `--relay=<key>` on Machine 2 only. The JSON records `relay: true`, never the key, by design. blind-relay: the copy bundled with Pear 3.6.0, which `pear versions --modules` lists as `^1.6.1`. That is a range, 1.6.1 or any later 1.x, so the exact bundled version is not shown. The tests here run 1.6.1. Not recorded: the server's region
 Run A: Machine 1 receiver, Machine 2 sender (seed `20261114T0152Z-starlink-cgnat-vpn-on-ubuntu-to-vpn-comcast-on-macos-relay-a`, slot start 1794621163, 17:52:43 PST)
 Run B: Machine 1 sender, Machine 2 receiver (seed `20261114T0152Z-starlink-cgnat-vpn-on-ubuntu-to-vpn-comcast-on-macos-relay-b`, slot start 1794626263, 19:17:43 PST)
 
