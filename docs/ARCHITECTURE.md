@@ -308,7 +308,7 @@ does not count them as tests:
 | `test-peer.js` | A hand-played peer on a testnet that does not fall into hyperdht's pairing race |
 | `interrupt.js` | A real Ctrl-C to a child process, Windows included |
 | `tiers.js` | The `slow` marker |
-| `relay.js` | A blind-relay server on a testnet, optionally one that alters what it relays; a peer whose hole punch always fails; and a raw stream through the relay with no Noise on it (THREAT-MODEL §8, gate 1) |
+| `relay.js` | A blind-relay server on a testnet, optionally one that alters what it relays or speaks on both legs itself; a peer whose hole punch always fails; and a raw stream through the relay with no Noise on it (THREAT-MODEL §8, gate 1) |
 | `fail-punch-preload.js` | The same punch failure in a spawned CLI, loaded with `node --require` |
 
 Beside the behavior tests, three files pin the protocol as a whole:

@@ -27,20 +27,31 @@ const BlindRelay = require(require.resolve('blind-relay', { paths: [path.dirname
  * this replaces `relayTo` on each stream it opens with a forwarder in
  * JavaScript. `fromInitiator` says which end of the pair wrote the chunk.
  *
+ * With `takeOver`, it forwards nothing: once both ends of a pair are
+ * connected, `takeOver` is handed the two relay-side streams, and the
+ * token that paired them, to speak on as a party itself.
+ *
  * @param {Array<{ host: string, port: number }>} bootstrap
- * @param {{ tamper?: (chunk: Buffer, from: { fromInitiator: boolean }) => Buffer }} [options]
+ * @param {{
+ *   tamper?: (chunk: Buffer, from: { fromInitiator: boolean }) => Buffer,
+ *   takeOver?: (legs: { initiator: any, responder: any, token: Buffer }) => void
+ * }} [options]
  */
-async function startRelay (bootstrap, { tamper } = {}) {
+async function startRelay (bootstrap, { tamper, takeOver } = {}) {
   const dht = new HyperDHT({ bootstrap })
   /** @type {WeakMap<object, boolean>} each relay-side stream's end of the pair */
   const initiatorOf = new WeakMap()
+  /** @type {Map<string, any[]>} takeOver's half-arrived pairs, by token */
+  const pairing = new Map()
   const relay = new BlindRelay.Server({
     createStream: (/** @type {any} */ opts) => {
       // framed: hyperdht's secret stream frames its messages, and a
       // pass-through relay keeps the packet boundaries it was given. The
       // tampering relay terminates each leg, and its peers are raw streams.
-      const stream = dht.createRawStream(tamper ? opts : { ...opts, framed: true })
-      if (tamper) {
+      const stream = dht.createRawStream(tamper || takeOver ? opts : { ...opts, framed: true })
+      if (takeOver) {
+        stream.relayTo = () => {}
+      } else if (tamper) {
         stream.relayTo = (/** @type {any} */ remote) => {
           // A relay-side stream is connected to its client only when the
           // first packet from that client arrives (blind-relay's firewall
@@ -82,8 +93,19 @@ async function startRelay (bootstrap, { tamper } = {}) {
     session.on('error', () => {})
     // Emitted once both streams are linked and before either can carry a
     // byte: the pair is confirmed to the clients in the same tick.
-    session.on('pair', (/** @type {boolean} */ isInitiator, /** @type {any} */ _token, /** @type {any} */ stream) => {
+    session.on('pair', (/** @type {boolean} */ isInitiator, /** @type {Buffer} */ token, /** @type {any} */ stream) => {
       initiatorOf.set(stream, isInitiator)
+      if (!takeOver) return
+      const key = token.toString('hex')
+      const legs = pairing.get(key) || []
+      legs[+isInitiator] = stream
+      pairing.set(key, legs)
+      if (!legs[0] || !legs[1]) return
+      pairing.delete(key)
+      // A relay-side stream cannot be written until its client's first
+      // packet has connected it (see the forwarder above).
+      const connected = (/** @type {any} */ leg) => leg.connected ? Promise.resolve() : new Promise((resolve) => leg.once('connect', resolve))
+      Promise.all(legs.map(connected)).then(() => takeOver({ initiator: legs[1], responder: legs[0], token }))
     })
   })
   const keyPair = HyperDHT.keyPair()

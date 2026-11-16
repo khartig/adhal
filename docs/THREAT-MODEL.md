@@ -422,8 +422,8 @@ advantage this design has over its competitors.
 **Merge gates (Q-10).** The constraints above are only worth something if
 they are enforced. The relay stays experimental, and outside what a
 release claims, until each of these holds and a test shows it. Each
-gate's status is as of 2026-11-12, except gate 1's, which is as of
-2026-11-15:
+gate's status is as of 2026-11-12, except gates 1 and 2, which are as
+of 2026-11-15:
 
 1. A drop carried through the relay, with no Noise session underneath,
    completes, and a byte the relay alters fails authentication at that
@@ -446,7 +446,25 @@ gate's status is as of 2026-11-12, except gate 1's, which is as of
    the channel alone would stop it.
 2. A relay holding the nameplate and a valid token, but not the secret,
    cannot complete a handshake. Its attempt counts toward the cap like any
-   other failed confirmation. **Open:** no test.
+   other failed confirmation. **Met** (2026-11-15, the two `gate 2` tests
+   in `cli/test/relay.test.js`). With no Noise underneath, the relay
+   takes over both raw legs of a pair it matched on its own token, and
+   runs the handshake itself with the nameplate and a guessed secret: as
+   the sender toward the receiver, and as the receiver toward the sender.
+   It completes neither. The receiver refuses its REPLY with
+   `ERR_PAKE_CONFIRMATION`. The sender's REPLY gives the relay one offline
+   test of its guess, which fails, so it has no valid CONFIRM to send and
+   hangs up, which the swarm counts on the sender as
+   `ERR_REPLY_UNANSWERED` (tested on its own in
+   `security-properties.test.js`, Q-14). Under hyperdht, a relayed connection is a Noise
+   session between its two peers, so a relay operator can try the
+   handshake only as one of those peers. The second test is that peer: a
+   guesser pairing through the relay with the receiver CLI, whose punch
+   fails. The receiver reports one `candidate-dropped`, with
+   `ERR_PAKE_CONFIRMATION` and `counted: true`, the same as any guess, and
+   the real sender then completes the drop through the relay. A planted
+   bug that stops the receiver counting a failed confirmation fails that
+   test.
 3. The relay token is independent of the drop code. A test shows that it
    is freshly random per connection, and that two connections for the
    same code get unrelated tokens, so nothing from the secret or the

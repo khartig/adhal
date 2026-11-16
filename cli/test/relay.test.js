@@ -21,10 +21,11 @@ const { spawn } = require('node:child_process')
 const createTestnet = require('hyperdht/testnet')
 const HyperDHT = require('hyperdht')
 
-const { parseRelayKey, createSwarm, generateCode, splitCode, acceptStream, connectStream, sendFile, receiveFile } = require('@ad-hal/engine')
+const { parseRelayKey, createSwarm, generateCode, splitCode, acceptStream, connectStream, sendFile, receiveFile, topicFromNameplate, Responder, MessageReader, ERR_CONFIRMATION } = require('@ad-hal/engine')
 const { relayFlag } = require('../src/relay-flag')
 const { slow } = require('../test-helpers/tiers')
-const { startRelay, pairThroughRelay, BlindRelay } = require('../test-helpers/relay')
+const { startRelay, pairThroughRelay, makePunchFailing, BlindRelay } = require('../test-helpers/relay')
+const { within } = require('../test-helpers/test-peer')
 const { assertSameBytes } = require('../test-helpers/bytes')
 
 // The z32 hyperdht itself depends on, to check the engine's own decoder against.
@@ -320,12 +321,12 @@ function relayEye ({ target = 0, at = 0 } = {}) {
  * A sender and a receiver whose only path is a raw stream through a
  * blind-relay on a fresh testnet, with no Noise session on it.
  * @param {any} t
- * @param {(chunk: Buffer, from: { fromInitiator: boolean }) => Buffer} tamper
+ * @param {Parameters<typeof startRelay>[1]} relayOptions
  */
-async function rawRelayedPair (t, tamper) {
+async function rawRelayedPair (t, relayOptions) {
   const net = await createTestnet(5)
   t.after(() => net.destroy())
-  const relay = await startRelay(net.bootstrap, { tamper })
+  const relay = await startRelay(net.bootstrap, relayOptions)
   t.after(() => relay.destroy())
   const nodes = [new HyperDHT({ bootstrap: net.bootstrap, ephemeral: true }), new HyperDHT({ bootstrap: net.bootstrap, ephemeral: true })]
   t.after(() => Promise.all(nodes.map((n) => n.destroy())))
@@ -378,7 +379,7 @@ test('gate 1: a drop through the relay with no Noise underneath completes, and t
   const body = Buffer.concat(Array.from({ length: 40000 }, () => marker))
   const { source, out, sha256 } = await dropFixture(t, body)
   const eye = relayEye()
-  const { tx, rx } = await rawRelayedPair(t, eye.tamper)
+  const { tx, rx } = await rawRelayedPair(t, { tamper: eye.tamper })
   const { rxKeys, txKeys } = await handshakeThenArm(tx, rx, eye.seen)
 
   const [received, sent] = await Promise.all([
@@ -408,7 +409,7 @@ test('gate 1: a byte the relay alters fails authentication at that frame, and no
   // Frame 2 is the first CHUNK, after the MANIFEST: one byte into its
   // ciphertext, past the 12 bytes the relay could not use anyway.
   const eye = relayEye({ target: 2, at: 16 })
-  const { tx, rx } = await rawRelayedPair(t, eye.tamper)
+  const { tx, rx } = await rawRelayedPair(t, { tamper: eye.tamper })
   const { rxKeys, txKeys } = await handshakeThenArm(tx, rx, eye.seen)
 
   let manifests = 0
@@ -437,4 +438,149 @@ test('gate 1: a byte the relay alters fails authentication at that frame, and no
   assert.equal(sent.ok, false, 'the sender does not call it a success')
   assert.equal(sent.error.code, 'ERR_CONNECTION', 'it heard the receiver hang up through the relay')
   assert.deepEqual(await fs.promises.readdir(out), [], 'nothing published, no partial left')
+})
+
+// --- gate 2: a relay that holds the nameplate and a token, not the secret ---
+//
+// THREAT-MODEL.md section 8, gate 2: a relay holding the nameplate and a
+// valid token, but not the secret, cannot complete a handshake, and its
+// attempt counts toward the cap like any other failed confirmation. The
+// token is the relay's by construction: it is what the relay pairs on. The
+// nameplate is assumed: it is the public half of the code, read aloud.
+
+test('gate 2: a relay in the middle with the nameplate and the token, but not the secret, completes a handshake with neither side', slow, async (t) => {
+  // No Noise underneath, as for gate 1, so the relay is free to speak the
+  // handshake itself on both legs: to the receiver as a sender, and to the
+  // sender as a receiver, with one guessed secret.
+  const { nameplate, secret } = splitCode(generateCode())
+  const guess = splitCode(generateCode()).secret
+  /** @type {(r: any) => void} */
+  let relayFinished = () => {}
+  const relayRuns = new Promise((resolve) => { relayFinished = resolve })
+  /** @type {Buffer | null} */
+  let relayToken = null
+  const takeOver = async (/** @type {{ initiator: any, responder: any, token: Buffer }} */ { initiator, responder, token }) => {
+    relayToken = token
+    // The sender pairs as the initiator, below. Each failed leg is hung up,
+    // as the CLIs hang up on a failed handshake.
+    const hangUpOnFailure = (/** @type {any} */ leg) => (/** @type {any} */ r) => { if (!r.ok) leg.destroy(); return r }
+    const [asReceiver, asSender] = await Promise.all([
+      settle(acceptStream(initiator, { nameplate, secret: guess, timeout: 10000 })).then(hangUpOnFailure(initiator)),
+      settle(connectStream(responder, { nameplate, secret: guess, timeout: 10000 })).then(hangUpOnFailure(responder))
+    ])
+    relayFinished({ asReceiver, asSender })
+  }
+  const { tx, rx } = await rawRelayedPair(t, { takeOver })
+
+  const hangUpOnError = (/** @type {any} */ leg) => (/** @type {any} */ err) => { leg.destroy(); throw err }
+  const [received, sent] = await Promise.all([
+    settle(acceptStream(rx, { nameplate, secret, timeout: 10000 }).catch(hangUpOnError(rx))),
+    settle(connectStream(tx, { nameplate, secret, timeout: 10000 }).catch(hangUpOnError(tx)))
+  ])
+  const relay = await within(relayRuns, 15000, 'the relay\'s two handshakes ending')
+
+  assert.ok(relayToken, 'the relay held the token it paired the two on')
+  // The receiver: the relay's REPLY did not confirm. A guess, refused at
+  // the confirmation, which is what the swarm counts toward the cap.
+  assert.equal(received.ok, false, 'the receiver derived no keys with the relay')
+  assert.equal(received.error.code, ERR_CONFIRMATION)
+  assert.equal(relay.asSender.ok, false, 'nor did the relay, playing the sender')
+  // The sender: its REPLY lets whoever reads it test one guess, and the
+  // relay's failed. With no valid CONFIRM to send, the relay hangs up,
+  // which the swarm counts on the sender as ERR_REPLY_UNANSWERED.
+  assert.equal(relay.asReceiver.ok, false, 'the relay, playing the receiver, could not confirm')
+  assert.equal(relay.asReceiver.error.code, ERR_CONFIRMATION, 'its guess failed against the sender\'s REPLY')
+  assert.equal(sent.ok, false, 'the sender derived no keys with the relay')
+  // The hang-up, however the transport reports it: a close on TCP, a reset
+  // here.
+  assert.ok(['ERR_CONNECTION', 'ECONNRESET'].includes(sent.error.code), sent.error.stack)
+})
+
+/**
+ * Polls until `predicate` holds, and gives up by itself at `ms`. A loop
+ * raced against a timeout would go on polling after the race was lost and
+ * keep the test process alive: a failing test that hangs instead.
+ * @param {() => boolean} predicate @param {number} ms @param {string} what
+ */
+async function waitFor (predicate, ms, what) {
+  const deadline = Date.now() + ms
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error(`${what}: not within ${ms}ms`)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+}
+
+test('gate 2: a guess made through the relay counts toward the receiver\'s cap, and the real sender still gets through', slow, async (t) => {
+  // Under hyperdht, every relayed connection is a Noise session between its
+  // two peers, so a relay operator who wants to try the handshake has to
+  // be one of those peers: a guesser that pairs through its own relay.
+  // This is that guesser, against the real receiver CLI, whose punch fails
+  // so that every connection it accepts comes through the relay.
+  const net = await createTestnet(5)
+  t.after(() => net.destroy())
+  const relay = await startRelay(net.bootstrap)
+  t.after(() => relay.destroy())
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-relay-guess-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const bytes = crypto.randomBytes(256 * 1024)
+  const source = path.join(dir, 'payload.bin')
+  await fs.promises.writeFile(source, bytes)
+  const out = path.join(dir, 'out')
+
+  const env = { ...process.env, ADHAL_BOOTSTRAP: JSON.stringify(net.bootstrap), ADHAL_JOIN_TIMEOUT: '60000' }
+  const code = generateCode()
+  const { nameplate } = splitCode(code)
+  const rx = run(RECEIVE, ['-', out, '--json', '--yes'], env, `${code}\n`, { failPunch: true })
+  t.after(() => rx.child.kill())
+  await waitFor(() => {
+    if (rx.child.exitCode !== null) throw new Error(`the receiver exited:\n${rx.output()}`)
+    return rx.events().some((e) => e.event === 'announced')
+  }, 20000, 'the receiver announcing')
+
+  // ONE guess, whatever the guesser's swarm does next: it redials after the
+  // receiver drops it, and a second REPLY would be a second counted failure.
+  let guessed = false
+  /** @type {boolean | null} */
+  let guessRelayed = null
+  /** @type {(v?: any) => void} */
+  let replied = () => {}
+  const answered = new Promise((resolve) => { replied = resolve })
+  const guesser = makePunchFailing(net.bootstrap, { relay: relay.publicKey })
+  t.after(() => guesser.destroy())
+  guesser.on('connection', (/** @type {any} */ socket) => {
+    if (guessed) { socket.destroy(); return }
+    const reader = new MessageReader()
+    const wrong = new Responder({ nameplate, secret: splitCode(generateCode()).secret })
+    socket.on('data', (/** @type {Buffer} */ chunk) => {
+      if (guessed) return
+      reader.push(chunk)
+      const answer = wrong.readHello(reader)
+      if (!answer) return
+      guessed = true
+      // isRelayed knows only createSwarm's swarms. On a testnet every node
+      // is on 127.0.0.1, so the port says where the stream really goes.
+      guessRelayed = socket.rawStream.remotePort === relay.port
+      socket.write(answer.reply)
+      replied()
+    })
+  })
+  guesser.join(topicFromNameplate(nameplate), { server: false, client: true })
+  await within(answered, 45000, 'the guesser\'s REPLY')
+  const counted = () => rx.events().filter((e) => e.event === 'candidate-dropped' && e.counted)
+  await waitFor(() => counted().length > 0, 15000, `the receiver counting the guess\n${rx.output()}`)
+  await guesser.destroy()
+  const matchedByGuess = relay.stats.pairings.matched
+
+  const tx = run(SEND, ['-', source, '--json', `--relay=${relay.publicKey.toString('hex')}`], env, `${code}\n`, { failPunch: true })
+  t.after(() => tx.child.kill())
+  const [rxCode, txCode] = await Promise.all([rx.exited, tx.exited])
+  const output = () => `--- receiver\n${rx.output()}\n--- sender\n${tx.output()}`
+
+  assert.equal(guessRelayed, true, 'the guess came through the relay')
+  assert.ok(matchedByGuess >= 1, 'the relay paired the guesser with the receiver')
+  assert.deepEqual(counted().map((e) => e.code), [ERR_CONFIRMATION], `one counted failure, the guess's confirmation\n${output()}`)
+  assert.equal(rxCode, 0, output())
+  assert.equal(txCode, 0, output())
+  assert.equal(one(rx.events(), 'paired').relayed, true)
+  assert.equal(one(rx.events(), 'done').sha256, crypto.createHash('sha256').update(bytes).digest('hex'))
 })

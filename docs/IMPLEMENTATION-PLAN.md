@@ -135,7 +135,7 @@ has all 21).
 | Q-05 independent cryptographic review | After W17 | Reviewing a moving spec wastes the review. |
 | Q-07 Windows as a required CI leg | Stage 3 | Documented as unsupported for security purposes until then (W16). |
 | Q-09 length padding, re-announce back-off | Padding: only if file-size confidentiality becomes a stated goal. Back-off: after W14 | Padding is a protocol change, a negotiated capability and a new message type, since v2 has nowhere to carry it. Back-off changes nothing on the wire, but it matters only for a join timeout the user lengthens, and the 4 s refresh was set by measurement. |
-| Q-10 relay invariants | Before the relay leaves experimental | Written into THREAT-MODEL §8 as merge gates (W16). The relay exists, experimentally, since 2026-11-12: gates 1 and 6 are met (gate 1 on 2026-11-15), and gates 2 to 5 are open. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
+| Q-10 relay invariants | Before the relay leaves experimental | Written into THREAT-MODEL §8 as merge gates (W16). The relay exists, experimentally, since 2026-11-12: gates 1, 2, and 6 are met (1 and 2 on 2026-11-15), and gates 3 to 5 are open. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
 
 ---
 
