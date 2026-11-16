@@ -6,7 +6,7 @@ Trials: 20 per direction
 File: 10 MiB (10485760 bytes) /tmp/test.bin
 Slot: 240 seconds, refresh 4000 ms
 Relay: run A receiver off (18 of 18 successes relayed), sender on (18 of 18 successes relayed); run B receiver on (20 of 20 successes relayed), sender off (20 of 20 successes relayed)
-Relay server: a blind-relay, named with `--relay=<key>` on Machine 2 only. The JSON records `relay: true`, never the key, by design. Where the relay ran, and on what network, is not recorded
+Relay server: a Pear blind-relay, which works directly with hyperdht, on a DigitalOcean server running Ubuntu, as reported after the run. Named with `--relay=<key>` on Machine 2 only. The JSON records `relay: true`, never the key, by design. The server's region and the blind-relay version were not recorded
 Run A: Machine 1 receiver, Machine 2 sender (seed `20261114T0152Z-starlink-cgnat-vpn-on-ubuntu-to-vpn-comcast-on-macos-relay-a`, slot start 1794621163, 17:52:43 PST)
 Run B: Machine 1 sender, Machine 2 receiver (seed `20261114T0152Z-starlink-cgnat-vpn-on-ubuntu-to-vpn-comcast-on-macos-relay-b`, slot start 1794626263, 19:17:43 PST)
 
@@ -132,7 +132,7 @@ sender, which logged `cancelled-by-peer`, with the peer's reason
 interrupted. That trial would have completed in a longer slot.
 
 What makes a relayed attempt fail is not known from these records: the
-relay server, the relay's path to either exit server, and the mismatched
+relay server on DigitalOcean, its path to either exit server, and the mismatched
 hyperdht versions are all candidates. The receiving side's records do not
 show the attempts at all, so the place to look is Machine 1's side of
 the relay pairing, with the versions matched first.
