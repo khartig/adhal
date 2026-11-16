@@ -43,6 +43,10 @@ async function startRelay (bootstrap, { tamper, takeOver } = {}) {
   const initiatorOf = new WeakMap()
   /** @type {Map<string, any[]>} takeOver's half-arrived pairs, by token */
   const pairing = new Map()
+  /** @type {Buffer[]} the token of every pairing, in order: a reused token appears twice */
+  const tokens = []
+  /** @type {Set<string>} pairings one of whose two sessions has emitted 'pair' */
+  const halfEmitted = new Set()
   const relay = new BlindRelay.Server({
     createStream: (/** @type {any} */ opts) => {
       // framed: hyperdht's secret stream frames its messages, and a
@@ -95,6 +99,13 @@ async function startRelay (bootstrap, { tamper, takeOver } = {}) {
     // byte: the pair is confirmed to the clients in the same tick.
     session.on('pair', (/** @type {boolean} */ isInitiator, /** @type {Buffer} */ token, /** @type {any} */ stream) => {
       initiatorOf.set(stream, isInitiator)
+      // Both ends' sessions emit the pair, one after the other in the same
+      // tick, with the one token: count the pairing once.
+      const seen = token.toString('hex')
+      if (halfEmitted.delete(seen) === false) {
+        halfEmitted.add(seen)
+        tokens.push(Buffer.from(token))
+      }
       if (!takeOver) return
       const key = token.toString('hex')
       const legs = pairing.get(key) || []
@@ -115,6 +126,7 @@ async function startRelay (bootstrap, { tamper, takeOver } = {}) {
     port: /** @type {any} */ (server.address()).port,
     stats: relay.stats,
     sessionPeers,
+    tokens,
     async destroy () {
       await relay.close().catch(() => {})
       await server.close()

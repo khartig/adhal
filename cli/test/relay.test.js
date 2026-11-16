@@ -34,6 +34,7 @@ const z32 = require(require.resolve('z32', { paths: [path.dirname(require.resolv
 const SEND = path.join(__dirname, '..', 'src', 'swarm-send.js')
 const RECEIVE = path.join(__dirname, '..', 'src', 'swarm-receive.js')
 const FAIL_PUNCH = path.join(__dirname, '..', 'test-helpers', 'fail-punch-preload.js')
+const TOKEN_SPY = path.join(__dirname, '..', 'test-helpers', 'token-spy-preload.js')
 
 // --- the key ---------------------------------------------------------------
 
@@ -115,10 +116,12 @@ test('createSwarm refuses a relay that is not a 32-byte key, and offers none wit
  * @param {string[]} args
  * @param {NodeJS.ProcessEnv} env
  * @param {string} stdin
- * @param {{ failPunch: boolean }} options
+ * @param {{ failPunch: boolean, spyTokens?: boolean }} options `spyTokens`
+ *   loads the token spy, which logs to env.ADHAL_TEST_TOKEN_LOG
  */
-function run (script, args, env, stdin, { failPunch }) {
-  const child = spawn(process.execPath, [...(failPunch ? ['--require', FAIL_PUNCH] : []), script, ...args], { env })
+function run (script, args, env, stdin, { failPunch, spyTokens = false }) {
+  const preloads = [...(failPunch ? ['--require', FAIL_PUNCH] : []), ...(spyTokens ? ['--require', TOKEN_SPY] : [])]
+  const child = spawn(process.execPath, [...preloads, script, ...args], { env })
   let stdout = ''
   let stderr = ''
   child.stdout.on('data', (c) => { stdout += c.toString('utf8') })
@@ -583,4 +586,89 @@ test('gate 2: a guess made through the relay counts toward the receiver\'s cap, 
   assert.equal(txCode, 0, output())
   assert.equal(one(rx.events(), 'paired').relayed, true)
   assert.equal(one(rx.events(), 'done').sha256, crypto.createHash('sha256').update(bytes).digest('hex'))
+})
+
+// --- gate 3: the relay token is independent of the drop code ---------------
+//
+// THREAT-MODEL.md section 8, gate 3: the relay token is freshly random per
+// connection, and two connections for the same code get unrelated tokens,
+// so nothing from the secret or the nameplate can enter it. Seen from both
+// ends: the relay records every token it pairs on, and a preload in each
+// CLI records every token blind-relay's token() makes there, and with what.
+
+/** @param {Buffer} a @param {Buffer} b */
+function bitsApart (a, b) {
+  let n = 0
+  for (let i = 0; i < a.length; i++) for (let x = a[i] ^ b[i]; x; x >>= 1) n += x & 1
+  return n
+}
+
+test('gate 3: two relayed drops with one code pair on fresh, unrelated tokens, each made from nothing passed in', slow, async (t) => {
+  const net = await createTestnet(5)
+  t.after(() => net.destroy())
+  const relay = await startRelay(net.bootstrap)
+  t.after(() => relay.destroy())
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-relay-token-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const bytes = crypto.randomBytes(64 * 1024)
+  const source = path.join(dir, 'payload.bin')
+  await fs.promises.writeFile(source, bytes)
+  const tokenLog = path.join(dir, 'tokens.jsonl')
+  const env = { ...process.env, ADHAL_BOOTSTRAP: JSON.stringify(net.bootstrap), ADHAL_JOIN_TIMEOUT: '30000', ADHAL_TEST_TOKEN_LOG: tokenLog }
+
+  // One code, used twice: whatever a token were derived from in the code,
+  // the two drops would share it.
+  const code = generateCode()
+  const { nameplate, secret } = splitCode(code)
+  /** @type {Buffer[][]} the relay's tokens, per drop */
+  const perDrop = []
+  for (const n of [1, 2]) {
+    const before = relay.tokens.length
+    const out = path.join(dir, `out-${n}`)
+    const rx = run(RECEIVE, ['-', out, '--json', '--yes'], env, `${code}\n`, { failPunch: true, spyTokens: true })
+    t.after(() => rx.child.kill())
+    await waitFor(() => {
+      if (rx.child.exitCode !== null) throw new Error(`receiver ${n} exited:\n${rx.output()}`)
+      return rx.events().some((e) => e.event === 'announced')
+    }, 20000, `receiver ${n} announcing`)
+    const tx = run(SEND, ['-', source, '--json', `--relay=${relay.publicKey.toString('hex')}`], env, `${code}\n`, { failPunch: true, spyTokens: true })
+    t.after(() => tx.child.kill())
+    const [rxCode, txCode] = await Promise.all([rx.exited, tx.exited])
+    const output = `--- receiver ${n}\n${rx.output()}\n--- sender ${n}\n${tx.output()}`
+    assert.equal(rxCode, 0, output)
+    assert.equal(txCode, 0, output)
+    assert.equal(one(rx.events(), 'paired').relayed, true, `drop ${n} went through the relay`)
+    perDrop.push(relay.tokens.slice(before))
+    assert.ok(perDrop[n - 1].length >= 1, `the relay paired drop ${n} on a token`)
+  }
+
+  const all = relay.tokens
+  for (const token of all) assert.equal(token.length, 32)
+  // Fresh per connection: no token is used twice, within a drop or across.
+  assert.equal(new Set(all.map((tok) => tok.toString('hex'))).size, all.length, 'every pairing had its own token')
+  // Unrelated across one code: each of drop 1's tokens differs from each of
+  // drop 2's in about half its 256 bits. Under 64 apart would happen to two
+  // random tokens with odds around 1e-16.
+  for (const a of perDrop[0]) {
+    for (const b of perDrop[1]) {
+      assert.ok(bitsApart(a, b) > 64, `tokens of two drops with one code are ${bitsApart(a, b)} bits apart`)
+    }
+  }
+  // And none carries the code in any form a token could hold it.
+  const topic = topicFromNameplate(nameplate)
+  for (const token of all) {
+    assert.equal(token.equals(topic), false, 'not the topic')
+    for (const [what, part] of /** @type {Array<[string, string]>} */ ([['nameplate', nameplate], ['secret', secret], ['code', code]])) {
+      assert.equal(token.includes(Buffer.from(part, 'utf8')), false, `not the ${what}`)
+    }
+  }
+
+  // Seen from the CLIs: every token the relay paired on is one blind-relay's
+  // token() made in a CLI, called with no argument, so its 32 bytes came
+  // from randombytes_buf and nothing else.
+  const calls = fs.readFileSync(tokenLog, 'utf8').trim().split('\n').map((l) => JSON.parse(l))
+  assert.ok(calls.length >= all.length, 'the spy saw the token calls')
+  for (const call of calls) assert.equal(call.args, 0, `token() was given nothing (pid ${call.pid})`)
+  const made = new Set(calls.map((c) => c.token))
+  for (const token of all) assert.ok(made.has(token.toString('hex')), 'the relay paired only on tokens token() made')
 })

@@ -310,6 +310,7 @@ does not count them as tests:
 | `tiers.js` | The `slow` marker |
 | `relay.js` | A blind-relay server on a testnet, optionally one that alters what it relays or speaks on both legs itself; a peer whose hole punch always fails; and a raw stream through the relay with no Noise on it (THREAT-MODEL §8, gate 1) |
 | `fail-punch-preload.js` | The same punch failure in a spawned CLI, loaded with `node --require` |
+| `token-spy-preload.js` | Records every relay token blind-relay's `token()` makes in a spawned CLI, and what it was given (THREAT-MODEL §8, gate 3) |
 
 Beside the behavior tests, three files pin the protocol as a whole:
 `state-machine.test.js` (every message in every state, PROTOCOL §4.4),

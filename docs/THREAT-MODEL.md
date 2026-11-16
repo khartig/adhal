@@ -422,7 +422,7 @@ advantage this design has over its competitors.
 **Merge gates (Q-10).** The constraints above are only worth something if
 they are enforced. The relay stays experimental, and outside what a
 release claims, until each of these holds and a test shows it. Each
-gate's status is as of 2026-11-12, except gates 1 and 2, which are as
+gate's status is as of 2026-11-12, except gates 1 to 3, which are as
 of 2026-11-15:
 
 1. A drop carried through the relay, with no Noise session underneath,
@@ -468,8 +468,20 @@ of 2026-11-15:
 3. The relay token is independent of the drop code. A test shows that it
    is freshly random per connection, and that two connections for the
    same code get unrelated tokens, so nothing from the secret or the
-   nameplate can enter it. **Open:** hyperdht makes the token with
-   `blind-relay`'s `token()`, but no test shows it.
+   nameplate can enter it. **Met** (2026-11-15, the `gate 3` test in
+   `cli/test/relay.test.js`). Two relayed drops run through the CLIs with
+   one code. The relay records the token of every pairing, and a preload
+   in each CLI (`cli/test-helpers/token-spy-preload.js`) records every
+   call to `blind-relay`'s `token()`. Every pairing has its own token,
+   each of the first drop's is more than 64 of 256 bits from each of the
+   second's, and none contains the nameplate, the secret, or the code, or
+   equals the topic. Every token the relay paired on was made by a
+   `token()` call given no argument, so its bytes came from
+   `randombytes_buf` alone (hyperdht 6.36.0 calls it in `lib/connect.js`
+   and `lib/server.js`; blind-relay 1.6.1). A planted `token()` that
+   returns one token for every connection fails the test. What the test
+   cannot show is that a different hyperdht keeps doing this, so it pins
+   the behavior for the versions in the lockfile.
 4. The relay persists nothing about a drop beyond its per-token counters.
    Resume through a relay re-pairs and re-hashes, exactly as it does
    directly; that half is already met (§6, PROTOCOL §7). **Open for the
