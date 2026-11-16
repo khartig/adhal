@@ -19,12 +19,57 @@ const BlindRelay = require(require.resolve('blind-relay', { paths: [path.dirname
 
 /**
  * A blind-relay server listening on the testnet.
+ *
+ * With `tamper`, it is a relay whose operator changed it: blind-relay's own
+ * server and pairing protocol, but the bytes it relays pass through
+ * `tamper` on their way, so a test can alter them. blind-relay forwards
+ * inside udx-native (`relayTo`), where JavaScript never sees a byte, so
+ * this replaces `relayTo` on each stream it opens with a forwarder in
+ * JavaScript. `fromInitiator` says which end of the pair wrote the chunk.
+ *
  * @param {Array<{ host: string, port: number }>} bootstrap
+ * @param {{ tamper?: (chunk: Buffer, from: { fromInitiator: boolean }) => Buffer }} [options]
  */
-async function startRelay (bootstrap) {
+async function startRelay (bootstrap, { tamper } = {}) {
   const dht = new HyperDHT({ bootstrap })
+  /** @type {WeakMap<object, boolean>} each relay-side stream's end of the pair */
+  const initiatorOf = new WeakMap()
   const relay = new BlindRelay.Server({
-    createStream: (/** @type {any} */ opts) => dht.createRawStream({ ...opts, framed: true })
+    createStream: (/** @type {any} */ opts) => {
+      // framed: hyperdht's secret stream frames its messages, and a
+      // pass-through relay keeps the packet boundaries it was given. The
+      // tampering relay terminates each leg, and its peers are raw streams.
+      const stream = dht.createRawStream(tamper ? opts : { ...opts, framed: true })
+      if (tamper) {
+        stream.relayTo = (/** @type {any} */ remote) => {
+          // A relay-side stream is connected to its client only when the
+          // first packet from that client arrives (blind-relay's firewall
+          // hook), and a UDX stream cannot be written before that. Hold
+          // what arrives for it until then.
+          /** @type {Buffer[] | null} */
+          let held = remote.connected ? null : []
+          if (held) {
+            remote.once('connect', () => {
+              for (const chunk of /** @type {Buffer[]} */ (held)) remote.write(chunk)
+              held = null
+            })
+          }
+          stream.on('data', (/** @type {Buffer} */ chunk) => {
+            const out = tamper(chunk, { fromInitiator: /** @type {boolean} */ (initiatorOf.get(stream)) })
+            if (held) held.push(out)
+            else remote.write(out)
+          })
+          stream.on('end', () => {
+            if (held) remote.once('connect', () => remote.end())
+            else remote.end()
+          })
+          // A leg that closes takes the other with it, so a peer that hangs
+          // up is heard as a hang-up at the far end, not as silence.
+          stream.on('close', () => remote.destroy())
+        }
+      }
+      return stream
+    }
   })
   /** @type {Set<string>} hex public keys of everyone who opened a session */
   const sessionPeers = new Set()
@@ -35,6 +80,11 @@ async function startRelay (bootstrap) {
     // client side opens its blind-relay channel with.
     const session = relay.accept(socket, { id: socket.remotePublicKey })
     session.on('error', () => {})
+    // Emitted once both streams are linked and before either can carry a
+    // byte: the pair is confirmed to the clients in the same tick.
+    session.on('pair', (/** @type {boolean} */ isInitiator, /** @type {any} */ _token, /** @type {any} */ stream) => {
+      initiatorOf.set(stream, isInitiator)
+    })
   })
   const keyPair = HyperDHT.keyPair()
   await server.listen(keyPair)
@@ -79,4 +129,47 @@ function makePunchFailing (bootstrap, { relay = null } = {}) {
   return swarm
 }
 
-module.exports = { startRelay, makePunchFailing }
+/**
+ * One end of a stream through the relay with no Noise session on it: the
+ * steps hyperdht's relayConnection (lib/connect.js, 6.36.0) takes, less the
+ * secret stream it starts on the result. The two ends agree on `token` and
+ * on which of them is the initiator, as hyperdht's two sides do through the
+ * peer handshake. Only the control connection to the relay is encrypted;
+ * the relayed stream carries exactly the bytes written to it.
+ *
+ * @param {any} dht
+ * @param {Buffer} relayKey
+ * @param {{ isInitiator: boolean, token: Buffer }} options
+ * @returns {Promise<{ stream: any, close: () => void }>}
+ */
+async function pairThroughRelay (dht, relayKey, { isInitiator, token }) {
+  const relaySocket = dht.connect(relayKey)
+  relaySocket.on('error', () => {})
+  const client = BlindRelay.Client.from(relaySocket, { id: relaySocket.publicKey })
+  const stream = dht.createRawStream()
+  stream.on('error', () => {})
+  const close = () => {
+    stream.destroy()
+    relaySocket.destroy()
+  }
+  try {
+    /** @type {Buffer} */
+    const remoteId = await new Promise((resolve, reject) => {
+      client.pair(isInitiator, token, stream).on('error', reject).on('data', resolve)
+    })
+    const { remotePort, remoteHost, socket } = relaySocket.rawStream
+    stream.connect(socket, remoteId, remotePort, remoteHost)
+    // One datagram, so the relay connects its end of this leg now rather
+    // than at this side's first write: the receiver writes first, and its
+    // HELLO has to have somewhere to go. hyperdht's secret stream gets the
+    // same from its own first message. A datagram is not stream data, so
+    // the peer never reads it.
+    stream.trySend(Buffer.from([0]))
+  } catch (err) {
+    close()
+    throw err
+  }
+  return { stream, close }
+}
+
+module.exports = { startRelay, makePunchFailing, pairThroughRelay, BlindRelay }

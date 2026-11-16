@@ -422,14 +422,28 @@ advantage this design has over its competitors.
 **Merge gates (Q-10).** The constraints above are only worth something if
 they are enforced. The relay stays experimental, and outside what a
 release claims, until each of these holds and a test shows it. Each
-gate's status is as of 2026-11-12:
+gate's status is as of 2026-11-12, except gate 1's, which is as of
+2026-11-15:
 
 1. A drop carried through the relay, with no Noise session underneath,
    completes, and a byte the relay alters fails authentication at that
    frame. That is `sealed-transfer.test.js`'s plain-TCP case, with the relay
-   in the middle. **Partly met.** A drop through a blind-relay completes
-   (`cli/test/relay.test.js`), and the plain-TCP case shows the protocol
-   needs no Noise underneath. No test has the relay alter a byte yet.
+   in the middle. **Met** (2026-11-15, the two `gate 1` tests in
+   `cli/test/relay.test.js`). Two raw streams are paired through
+   blind-relay's own server with blind-relay's pairing protocol, as
+   hyperdht pairs them, but with no Noise secret stream started on them.
+   The PAKE and a whole drop run over them and complete, and the relay,
+   reading the frames as it forwards them, finds no file content, name,
+   or digest. Then the relay alters one byte of the first CHUNK. The
+   receive fails `ERR_PROTOCOL` (`failed to authenticate`) at frame 2, the
+   altered one, after accepting the untouched MANIFEST before it. Nothing
+   is written, and the sender hears the hang-up through the relay.
+   blind-relay forwards inside udx-native, where JavaScript cannot touch
+   a byte, so the test's relay replaces that forwarding with its own, as
+   a relay operator who modified the server could
+   (`cli/test-helpers/relay.js`). The CLIs' relayed drops still run under
+   hyperdht's Noise, where an altered byte fails first. These tests show
+   the channel alone would stop it.
 2. A relay holding the nameplate and a valid token, but not the secret,
    cannot complete a handshake. Its attempt counts toward the cap like any
    other failed confirmation. **Open:** no test.

@@ -21,10 +21,11 @@ const { spawn } = require('node:child_process')
 const createTestnet = require('hyperdht/testnet')
 const HyperDHT = require('hyperdht')
 
-const { parseRelayKey, createSwarm, generateCode } = require('@ad-hal/engine')
+const { parseRelayKey, createSwarm, generateCode, splitCode, acceptStream, connectStream, sendFile, receiveFile } = require('@ad-hal/engine')
 const { relayFlag } = require('../src/relay-flag')
 const { slow } = require('../test-helpers/tiers')
-const { startRelay } = require('../test-helpers/relay')
+const { startRelay, pairThroughRelay, BlindRelay } = require('../test-helpers/relay')
+const { assertSameBytes } = require('../test-helpers/bytes')
 
 // The z32 hyperdht itself depends on, to check the engine's own decoder against.
 const z32 = require(require.resolve('z32', { paths: [path.dirname(require.resolve('hyperdht'))] }))
@@ -257,4 +258,183 @@ test('a bare --relay is refused before any network work', slow, async (t) => {
     assert.equal(failed.code, 'ERR_USAGE', p.output())
     assert.match(failed.message, /--relay=<key>/)
   }
+})
+
+// --- gate 1: the relay in the middle, with no Noise under the drop ---------
+//
+// THREAT-MODEL.md section 8, gate 1: a drop carried through the relay, with
+// no Noise session underneath, completes, and a byte the relay alters fails
+// authentication at that frame. hyperdht always starts a Noise secret
+// stream on a relayed connection, and an altered byte would fail there,
+// before Adhal's channel saw it. That shows the relay cannot tamper, but
+// not that the channel alone stops it, which is what a relayed connection
+// "exactly as safe as a direct one" needs, whatever the transport. So
+// these pair two raw streams through blind-relay's own server, as hyperdht
+// does, and run the handshake and the transfer on them directly: the
+// plain-TCP case in sealed-transfer.test.js, with the relay in the middle.
+
+/**
+ * What a relay that reads the sender's direction as it forwards it sees,
+ * and, if told to, the one byte it alters: payload byte `at` of frame
+ * `target`, counting frames from when `armed` is set. It needs no key to
+ * find the frames, because their 4-byte length prefixes (PROTOCOL.md
+ * section 5) are not encrypted by anything underneath.
+ * @param {{ target?: number, at?: number }} [options]
+ */
+function relayEye ({ target = 0, at = 0 } = {}) {
+  const seen = { armed: false, frames: 0, altered: false, bytes: /** @type {Buffer[]} */ ([]) }
+  let header = Buffer.alloc(0)
+  let left = 0
+  let pos = 0
+  /** @param {Buffer} chunk @param {{ fromInitiator: boolean }} from */
+  const tamper = (chunk, { fromInitiator }) => {
+    // The sender pairs as the initiator, below.
+    if (!fromInitiator) return chunk
+    seen.bytes.push(Buffer.from(chunk))
+    if (!seen.armed) return chunk
+    const out = Buffer.from(chunk)
+    for (let i = 0; i < out.length; i++) {
+      if (left === 0) {
+        header = Buffer.concat([header, out.subarray(i, i + 1)])
+        if (header.length === 4) {
+          left = header.readUInt32BE(0)
+          header = Buffer.alloc(0)
+          pos = 0
+          seen.frames++
+        }
+        continue
+      }
+      if (seen.frames === target && pos === at && !seen.altered) {
+        out[i] ^= 0x01
+        seen.altered = true
+      }
+      pos++
+      left--
+    }
+    return out
+  }
+  return { seen, tamper }
+}
+
+/**
+ * A sender and a receiver whose only path is a raw stream through a
+ * blind-relay on a fresh testnet, with no Noise session on it.
+ * @param {any} t
+ * @param {(chunk: Buffer, from: { fromInitiator: boolean }) => Buffer} tamper
+ */
+async function rawRelayedPair (t, tamper) {
+  const net = await createTestnet(5)
+  t.after(() => net.destroy())
+  const relay = await startRelay(net.bootstrap, { tamper })
+  t.after(() => relay.destroy())
+  const nodes = [new HyperDHT({ bootstrap: net.bootstrap, ephemeral: true }), new HyperDHT({ bootstrap: net.bootstrap, ephemeral: true })]
+  t.after(() => Promise.all(nodes.map((n) => n.destroy())))
+  // Fresh and random, as hyperdht makes it (gate 3).
+  const token = BlindRelay.token()
+  const [tx, rx] = await Promise.all([
+    pairThroughRelay(nodes[0], relay.publicKey, { isInitiator: true, token }),
+    pairThroughRelay(nodes[1], relay.publicKey, { isInitiator: false, token })
+  ])
+  t.after(() => { tx.close(); rx.close() })
+  assert.equal(relay.stats.pairings.matched, 1, 'blind-relay paired the two')
+  for (const end of [tx, rx]) assert.equal(end.stream.handshakeHash, undefined, 'a raw stream, not a Noise secret stream')
+  return { tx: tx.stream, rx: rx.stream }
+}
+
+/** @param {any} t @param {Buffer} body */
+async function dropFixture (t, body) {
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-relay-raw-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const source = path.join(dir, 'payload.bin')
+  await fs.promises.writeFile(source, body)
+  const out = path.join(dir, 'out')
+  await fs.promises.mkdir(out)
+  return { source, out, sha256: crypto.createHash('sha256').update(body).digest('hex') }
+}
+
+/**
+ * The PAKE, and then the relay armed: everything the sender writes from
+ * here on is a sealed channel frame, starting with the MANIFEST.
+ * @param {any} tx @param {any} rx @param {{ armed: boolean }} seen
+ */
+async function handshakeThenArm (tx, rx, seen) {
+  const { nameplate, secret } = splitCode(generateCode())
+  const [rxKeys, txKeys] = await Promise.all([
+    acceptStream(rx, { nameplate, secret }),
+    connectStream(tx, { nameplate, secret })
+  ])
+  // REPLY, the sender's only handshake message, has reached the receiver,
+  // or acceptStream would not have resolved.
+  seen.armed = true
+  return { rxKeys, txKeys }
+}
+
+/** @param {any} promise */
+const settle = (promise) => promise.then((value) => ({ ok: true, value }), (error) => ({ ok: false, error }))
+
+test('gate 1: a drop through the relay with no Noise underneath completes, and the relay sees only sealed frames', slow, async (t) => {
+  // Easy to spot, as in sealed-transfer.test.js's wire test.
+  const marker = Buffer.from('ADHAL-PLAINTEXT-MARKER-', 'utf8')
+  const body = Buffer.concat(Array.from({ length: 40000 }, () => marker))
+  const { source, out, sha256 } = await dropFixture(t, body)
+  const eye = relayEye()
+  const { tx, rx } = await rawRelayedPair(t, eye.tamper)
+  const { rxKeys, txKeys } = await handshakeThenArm(tx, rx, eye.seen)
+
+  const [received, sent] = await Promise.all([
+    receiveFile(rx, out, { sendKey: rxKeys.sendKey, receiveKey: rxKeys.receiveKey, pending: rxKeys.pending }),
+    sendFile(tx, source, { sendKey: txKeys.sendKey, receiveKey: txKeys.receiveKey, pending: txKeys.pending, resultTimeout: 10000 })
+  ])
+  assert.equal(sent.sha256, sha256)
+  assert.equal(received.sha256, sha256)
+  assertSameBytes(await fs.promises.readFile(received.path), body)
+
+  // The relay could read the framing, which only an unencrypted transport
+  // allows: nothing but Adhal's own channel stood between it and the drop.
+  assert.ok(eye.seen.frames >= 2, `the relay found the MANIFEST and the CHUNKs (${eye.seen.frames} frames)`)
+  const relayed = Buffer.concat(eye.seen.bytes)
+  assert.ok(relayed.length > body.length, 'the whole transfer went through the relay')
+  for (const [what, needle] of /** @type {Array<[string, Buffer]>} */ ([
+    ['the file content', marker],
+    ['the file name', Buffer.from('payload.bin', 'utf8')],
+    ['the digest', Buffer.from(sha256, 'utf8')]
+  ])) {
+    assert.equal(relayed.includes(needle), false, `${what} must not be legible to the relay`)
+  }
+})
+
+test('gate 1: a byte the relay alters fails authentication at that frame, and nothing is written', slow, async (t) => {
+  const { source, out } = await dropFixture(t, crypto.randomBytes(512 * 1024))
+  // Frame 2 is the first CHUNK, after the MANIFEST: one byte into its
+  // ciphertext, past the 12 bytes the relay could not use anyway.
+  const eye = relayEye({ target: 2, at: 16 })
+  const { tx, rx } = await rawRelayedPair(t, eye.tamper)
+  const { rxKeys, txKeys } = await handshakeThenArm(tx, rx, eye.seen)
+
+  let manifests = 0
+  const receiving = settle(receiveFile(rx, out, {
+    sendKey: rxKeys.sendKey,
+    receiveKey: rxKeys.receiveKey,
+    pending: rxKeys.pending,
+    onManifest: () => { manifests++ }
+  }).catch((/** @type {any} */ err) => {
+    // What both CLIs do on a failed receive, and how the sender learns:
+    // an unauthenticated peer is owed no RESULT.
+    rx.destroy()
+    throw err
+  }))
+  const [received, sent] = await Promise.all([
+    receiving,
+    settle(sendFile(tx, source, { sendKey: txKeys.sendKey, receiveKey: txKeys.receiveKey, pending: txKeys.pending, resultTimeout: 10000 }))
+  ])
+
+  assert.equal(eye.seen.altered, true, 'the relay altered a byte')
+  assert.equal(received.ok, false)
+  assert.equal(received.error.code, 'ERR_PROTOCOL', received.error.stack)
+  assert.match(received.error.message, /failed to authenticate/)
+  assert.equal(received.error.framesReceived, 2n, 'it failed at the frame the relay altered, the first CHUNK')
+  assert.equal(manifests, 1, 'the MANIFEST before it, untouched, was accepted')
+  assert.equal(sent.ok, false, 'the sender does not call it a success')
+  assert.equal(sent.error.code, 'ERR_CONNECTION', 'it heard the receiver hang up through the relay')
+  assert.deepEqual(await fs.promises.readdir(out), [], 'nothing published, no partial left')
 })
