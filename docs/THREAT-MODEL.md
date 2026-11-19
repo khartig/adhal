@@ -417,13 +417,25 @@ advantage this design has over its competitors.
   This was written as "derived from the nameplate only"; hyperdht's relay
   path does better, with a fresh random 32-byte token per connection
   (`blind-relay` `token()`), so the constraint now says so.
-- Per-token bandwidth and duration caps.
+- **Bounded use, by Adhal.** Adhal bounds its own use of a relay (gate
+  5). Bandwidth and duration caps on the relay itself are the relay
+  host's to set, not Adhal's. blind-relay 1.6.1 and Pear 3.6.0's
+  `pear blind-relay` have none, and caps per token cannot work on their
+  own, because every connection brings a fresh token (gate 3) and an
+  abuser simply pairs again. Meaningful caps count per IP address or per
+  credential, which lets the operator link a user's connections, so that
+  trade is the operator's to make. [sluice](https://github.com/khartig/sluice) is a separate project, a
+  relay host built on blind-relay for groups that want caps and run
+  their own relay. Adhal stays relay-agnostic: it takes a relay's key,
+  and works with any server that speaks blind-relay over hyperdht,
+  Pear's own included. This constraint read "per-token bandwidth and
+  duration caps" until 2026-11-18, when the caps moved to the relay host.
 
 **Merge gates (Q-10).** The constraints above are only worth something if
 they are enforced. The relay stays experimental, and outside what a
 release claims, until each of these holds and a test shows it. Each
 gate's status is as of 2026-11-12, except gates 1 to 3, which are as
-of 2026-11-15:
+of 2026-11-15, and gates 4 and 5, reworded on 2026-11-18:
 
 1. A drop carried through the relay, with no Noise session underneath,
    completes, and a byte the relay alters fails authentication at that
@@ -482,15 +494,30 @@ of 2026-11-15:
    returns one token for every connection fails the test. What the test
    cannot show is that a different hyperdht keeps doing this, so it pins
    the behavior for the versions in the lockfile.
-4. The relay persists nothing about a drop beyond its per-token counters.
-   Resume through a relay re-pairs and re-hashes, exactly as it does
-   directly; that half is already met (§6, PROTOCOL §7). **Open for the
-   relay's half:** what the relay keeps depends on the server that runs
-   it, and nothing tests it.
-5. The per-token bandwidth and duration caps are enforced. **Open:**
-   blind-relay 1.6.1 has no caps of its own (checked in its source,
-   2026-11-12), so they would have to come from the server that runs it,
-   or from the network in front of it.
+4. Adhal gives a relay nothing worth keeping, and depends on nothing a
+   relay keeps. What a relay stores is up to whoever runs it, so this
+   gate is what Adhal can show. Everything it relays is sealed, with no
+   file content, name, or digest legible to the relay (gate 1), and the
+   token it pairs on carries nothing from the code (gate 3). A drop cut
+   off at the relay resumes by re-pairing and re-hashing, as it does
+   directly (§6, PROTOCOL §7), so nothing on the relay is ever needed or
+   trusted. **Partly met:** gates 1 and 3 test the first half, and resume
+   re-pairs and re-hashes on a direct path (`cli/test/resume.test.js`),
+   but no test resumes a drop through a relay. A relay host that claims
+   to keep nothing has to show it itself; keeping its counters in memory
+   only is a design goal of [sluice](https://github.com/khartig/sluice). This gate read "the relay persists
+   nothing about a drop beyond its per-token counters" until 2026-11-18.
+5. Adhal bounds its own use of a relay. A relayed drop never carries
+   more than its declared size: a sender that sends more is refused
+   (`cli/test/verify.test.js`). A peer that stops mid-file is timed out
+   (`cli/test/hardening.test.js`). The relay is used only after a failed
+   punch (gate 6). The relay attempts per drop are capped. A relayed drop
+   that loses its connection says so, and how to resume. **Open:** there
+   is no cap on relay attempts per drop yet (one failed trial on
+   2026-11-13 made 22), and no test of what a relayed drop cut off
+   mid-transfer reports. Caps on the relay itself belong to the relay
+   host (the constraint above). This gate read "the per-token bandwidth
+   and duration caps are enforced" until 2026-11-18.
 6. A drop that can connect directly does so, and the relay is not used.
    **Met:** with a relay at both ends and a punch that works, no session
    is opened with the relay (`cli/test/relay.test.js`). Hyperswarm's
