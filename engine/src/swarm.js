@@ -194,10 +194,12 @@ const UNANSWERED_CONNECTION_MS = 5000
 // identity (a future "keep this device") belongs inside the authenticated
 // channel and never in front of the DHT.
 /**
- * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number, refusePeerRelay?: boolean, relayThrough?: Uint8Array | null }} [options]
+ * @param {{ bootstrap?: Array<{ host: string, port: number }>, maxParallel?: number, refusePeerRelay?: boolean, relayThrough?: Uint8Array | null, maxRelayAttempts?: number }} [options]
  *   `refusePeerRelay` refuses a relay the peer names (see refusePeerRelays).
  *   `relayThrough` is a relay's 32-byte public key, used only once a hole
  *   punch to the peer has failed (see relayOnlyAfterFailedPunch).
+ *   `maxRelayAttempts` is how many dials this swarm makes through it at
+ *   most (MAX_RELAY_ATTEMPTS by default).
  */
 function createSwarm (options = {}) {
   if (options && 'keyPair' in options) {
@@ -206,11 +208,15 @@ function createSwarm (options = {}) {
       'so that DHT nodes cannot link two drops (THREAT-MODEL.md section 4)'
     )
   }
-  const { bootstrap, maxParallel = MAX_PARALLEL, refusePeerRelay = false, relayThrough = null } = options
+  const { bootstrap, maxParallel = MAX_PARALLEL, refusePeerRelay = false, relayThrough = null, maxRelayAttempts = MAX_RELAY_ATTEMPTS } = options
   if (relayThrough !== null && !(relayThrough instanceof Uint8Array && relayThrough.byteLength === 32)) {
     throw new TypeError('relayThrough must be a relay\'s 32-byte public key (see parseRelayKey)')
   }
-  const relayAttempts = { count: 0 }
+  if (!Number.isInteger(maxRelayAttempts) || maxRelayAttempts < 1) {
+    throw new TypeError('maxRelayAttempts must be a whole number of at least 1')
+  }
+  /** @type {RelayAttempts} */
+  const relayAttempts = { count: 0, max: maxRelayAttempts, capped: false, listeners: new Set() }
   const swarm = new Hyperswarm({
     keyPair: HyperDHT.keyPair(),
     maxParallel,
@@ -280,22 +286,76 @@ function createSwarm (options = {}) {
 // Each time it answers with the key is a dial through the relay, and those
 // are counted, so that a drop that times out can say the relay was tried
 // (timeoutMessage).
+//
+// AND CAPPED (THREAT-MODEL.md section 8, gate 5: Adhal bounds its own use
+// of a relay). Without a cap, a drop that waits long enough dials the relay
+// for as long as it waits: every peer whose punch fails is retried through
+// it, again and again, and with ADHAL_JOIN_TIMEOUT=0 that is forever. Each
+// dial costs the relay a session and a pairing request. Past the cap, the
+// relay is not offered again; Hyperswarm goes on retrying the peer
+// directly, which costs the relay nothing, and a relay the peer names is
+// still followed. The listeners hear the first dial refused, once.
+//
+// MAX_RELAY_ATTEMPTS is sized from the 2026-11-13 trials through a real
+// relay (docs/trials/20261114T0152Z): a drop that paired took one to seven
+// relayed connections, and the worst failed one made 22 dials in 225 s.
+// 32 leaves room above both, so a drop that would have paired through the
+// relay is not cut short by its own cap, and a drop that cannot pair stops
+// dialing after a few minutes rather than never.
+const MAX_RELAY_ATTEMPTS = 32
+
+/**
+ * @typedef {{ count: number, max: number, capped: boolean, listeners: Set<(count: number) => void> }} RelayAttempts
+ */
+
 /**
  * @param {Buffer} key
- * @param {{ count: number }} attempts
+ * @param {RelayAttempts} attempts
  * @returns {(force: boolean) => Buffer | null}
  */
 function relayOnlyAfterFailedPunch (key, attempts) {
   return (force) => {
     if (!force) return null
+    if (attempts.count >= attempts.max) {
+      if (!attempts.capped) {
+        attempts.capped = true
+        for (const fn of attempts.listeners) fn(attempts.count)
+      }
+      return null
+    }
     attempts.count++
     return key
   }
 }
 
 // Dials this swarm made through its own relay, for swarms made with one.
-/** @type {WeakMap<object, { count: number }>} */
+/** @type {WeakMap<object, RelayAttempts>} */
 const relayAttemptCounts = new WeakMap()
+
+/**
+ * Calls `fn` once, with the number of dials made, the first time this
+ * swarm would have dialed its relay again and did not, because it had
+ * reached its cap (MAX_RELAY_ATTEMPTS). Never, for a swarm with no relay.
+ * @param {any} swarm
+ * @param {(count: number) => void} fn
+ * @returns {() => void}
+ */
+function onRelayCapReached (swarm, fn) {
+  const state = relayAttemptCounts.get(swarm)
+  if (!state) return () => {}
+  state.listeners.add(fn)
+  return () => { state.listeners.delete(fn) }
+}
+
+/**
+ * Whether `swarm` has stopped offering its relay, having reached its cap.
+ * @param {any} swarm
+ * @returns {boolean}
+ */
+function relayCapReached (swarm) {
+  const state = relayAttemptCounts.get(swarm)
+  return Boolean(state && state.capped)
+}
 
 /**
  * How many dials `swarm` has made through its own relay so far, or null
@@ -617,7 +677,7 @@ function keepRefreshing (discovery, isSettled, interval = REFRESH_INTERVAL) {
 // candidates means the DHT and the punch both worked and the handshake did
 // not -- a completely different investigation, and the one that actually
 // cost a debugging session.
-function timeoutMessage (phase, timeout, candidates, refused = 0, { failed = 0, relay = false, relayAttempts = 0 } = {}) {
+function timeoutMessage (phase, timeout, candidates, refused = 0, { failed = 0, relay = false, relayAttempts = 0, relayCapped = false } = {}) {
   const head = `timed out after ${timeout}ms ${phase}: no peer ever connected. `
   // How a relay is given, for the advice below. Named for the CLI, which
   // is where these messages are read.
@@ -628,7 +688,10 @@ function timeoutMessage (phase, timeout, candidates, refused = 0, { failed = 0, 
     const why = refused > 0
       ? `hyperdht refused ${refused} hole punch(es), because this side's NAT and the peer's are both randomized`
       : `${failed} hole punch(es) to a peer failed`
-    return head + `${why}, and the relay given with --relay was tried ${relayAttempts} time(s) without connecting. ` +
+    const tried = relayCapped
+      ? `was tried ${relayAttempts} time(s) without connecting, the most one drop tries`
+      : `was tried ${relayAttempts} time(s) without connecting`
+    return head + `${why}, and the relay given with --relay ${tried}. ` +
       'Check that the relay is running and reachable from both sides, and that the peer did not pass --refuse-peer-relay'
   }
   if (candidates === 0 && refused > 0) {
@@ -665,17 +728,17 @@ function timeoutMessage (phase, timeout, candidates, refused = 0, { failed = 0, 
  * @param {number} timeout
  * @param {number} candidates
  * @param {number} [refused] hole punches hyperdht refused (HOLEPUNCH_REFUSED)
- * @param {{ failed?: number, relay?: boolean, relayAttempts?: number }} [punch]
+ * @param {{ failed?: number, relay?: boolean, relayAttempts?: number, relayCapped?: boolean }} [punch]
  *   `failed` hole punches that failed otherwise (HOLEPUNCH_FAILED);
  *   `relay` whether this side had a relay; `relayAttempts` dials made
- *   through it
+ *   through it; `relayCapped` whether they reached MAX_RELAY_ATTEMPTS
  *
  * Still ERR_NO_PEER when punches were refused or failed: nothing
  * connected, which is what that code means. `holepunchRefused`,
  * `holepunchFailed`, and `relayAttempts` are what say why.
  */
 function timeoutError (phase, timeout, candidates, refused = 0, punch = {}) {
-  const { failed = 0, relayAttempts = 0 } = punch
+  const { failed = 0, relayAttempts = 0, relayCapped = false } = punch
   return new TransferError(
     candidates === 0 ? 'ERR_NO_PEER' : 'ERR_NO_HANDSHAKE',
     timeoutMessage(phase, timeout, candidates, refused, punch),
@@ -684,7 +747,8 @@ function timeoutError (phase, timeout, candidates, refused = 0, punch = {}) {
       timeout,
       ...(refused > 0 ? { holepunchRefused: refused } : {}),
       ...(failed > 0 ? { holepunchFailed: failed } : {}),
-      ...(relayAttempts > 0 ? { relayAttempts } : {})
+      ...(relayAttempts > 0 ? { relayAttempts } : {}),
+      ...(relayCapped ? { relayCapped } : {})
     }
   )
 }
@@ -956,7 +1020,7 @@ function acceptOnce (swarm, topic, { secret, nameplate, timeout = 30000, refresh
     const relayAttemptsBefore = relayAttemptsOf(swarm)
     const punchSummary = () => {
       const now = relayAttemptsOf(swarm)
-      return { failed, relay: now !== null, relayAttempts: now === null ? 0 : now - /** @type {number} */ (relayAttemptsBefore) }
+      return { failed, relay: now !== null, relayAttempts: now === null ? 0 : now - /** @type {number} */ (relayAttemptsBefore), relayCapped: relayCapReached(swarm) }
     }
 
     const stopListening = () => {
@@ -1303,7 +1367,7 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
     const relayAttemptsBefore = relayAttemptsOf(swarm)
     const punchSummary = () => {
       const now = relayAttemptsOf(swarm)
-      return { failed, relay: now !== null, relayAttempts: now === null ? 0 : now - /** @type {number} */ (relayAttemptsBefore) }
+      return { failed, relay: now !== null, relayAttempts: now === null ? 0 : now - /** @type {number} */ (relayAttemptsBefore), relayCapped: relayCapReached(swarm) }
     }
 
     const stopListening = () => {
@@ -1614,4 +1678,4 @@ function connectOnce (swarm, topic, { secret, nameplate, timeout = 30000, refres
 // timeoutMessage is exported for tests: asserting both of its branches
 // end to end would mean racing a real peer against a real timeout, which
 // is exactly the kind of timing-dependent test that fails only under load.
-module.exports = { createSwarm, refusePeerRelays, onPeerRelayRefused, isRelayed, relayOf, relayAttemptsOf, onFailedPunch, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HOLEPUNCH_REFUSED, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }
+module.exports = { createSwarm, refusePeerRelays, onPeerRelayRefused, isRelayed, relayOf, relayAttemptsOf, onRelayCapReached, relayCapReached, MAX_RELAY_ATTEMPTS, onFailedPunch, acceptOnce, connectOnce, connectionStats, addressKind, timeoutMessage, timeoutError, HOLEPUNCH_REFUSED, HANDSHAKE_TIMEOUT_MS, UNANSWERED_CONNECTION_MS }

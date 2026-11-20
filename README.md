@@ -77,8 +77,9 @@ What to know before using it:
 
 Not built yet: LAN discovery. The optional relay is **experimental**:
 `--relay=<key>` connects through a relay you name when a direct
-connection fails, but only four of its six merge gates are met
-([`THREAT-MODEL.md`](docs/THREAT-MODEL.md) §8), so do not rely on it yet.
+connection fails. All six of its merge gates are met
+([`THREAT-MODEL.md`](docs/THREAT-MODEL.md) §8), but one problem seen on
+real networks is still open, so do not rely on it yet.
 Any blind-relay works, Pear's `pear blind-relay start` included. A relay
 host with its own limits, for a group to run itself, is a separate
 project: [sluice](https://github.com/khartig/sluice).

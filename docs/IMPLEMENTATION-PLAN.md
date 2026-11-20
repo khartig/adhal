@@ -151,7 +151,7 @@ has all 21).
 | Q-05 independent cryptographic review | After W17 | Reviewing a moving spec wastes the review. |
 | Q-07 Windows as a required CI leg | Stage 3 | Documented as unsupported for security purposes until then (W16). |
 | Q-09 length padding, re-announce back-off | Padding: only if file-size confidentiality becomes a stated goal. Back-off: after W14 | Padding is a protocol change, a negotiated capability and a new message type, since v2 has nowhere to carry it. Back-off changes nothing on the wire, but it matters only for a join timeout the user lengthens, and the 4 s refresh was set by measurement. |
-| Q-10 relay invariants | Before the relay leaves experimental | Written into THREAT-MODEL §8 as merge gates (W16). The relay exists, experimentally, since 2026-11-12: gates 1, 2, 3, and 6 are met (1 to 3 on 2026-11-15), gate 4 is partly met, and gate 5 is open (both reworded on 2026-11-18, when caps on the relay itself moved to the relay host). Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
+| Q-10 relay invariants | Before the relay leaves experimental | Written into THREAT-MODEL §8 as merge gates (W16). The relay exists, experimentally, since 2026-11-12: all six gates are met: 1 to 3 on 2026-11-15, and 4 and 5 on 2026-11-19, after they were reworded on 2026-11-18, when caps on the relay itself moved to the relay host. It stays experimental until the problem the 2026-11-13 relay trials left open is resolved: relayed attempts that close before the handshake. Resume's half is already met: nothing is persisted, and PREFIX re-hashes the prefix. |
 
 ---
 
@@ -184,9 +184,13 @@ seen only by the side that named the relay, which made some connects
 take up to 127 s and caused both failures
 ([`ARCHITECTURE.md`](ARCHITECTURE.md), Measured on real networks).
 
-What remains on Adhal's side is gate 5's open half: a cap on relay
-attempts per drop, and a relayed drop cut off mid-transfer that says so
-and says how to resume. A relay host with caps, abuse controls, and
+Gate 5's last half was done on 2026-11-19: a drop dials its relay at
+most 32 times, and a relayed drop cut off mid-transfer says a relay may
+have ended it and how to resume, which a test shows works through a
+relay. With that, all six of THREAT-MODEL §8's gates are met. Still
+open before the relay leaves experimental: the relayed attempts that
+close before the handshake (above), to be looked at with the hyperdht
+versions matched on both machines. A relay host with caps, abuse controls, and
 privacy settings of its own is [sluice](https://github.com/khartig/sluice),
 a separate project (§3). Its defaults are to be sized from the runs
 above: about 0.8 MB/s through the relay, up to 22 relayed pairing

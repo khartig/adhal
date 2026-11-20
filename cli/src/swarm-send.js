@@ -21,15 +21,15 @@
 // --json replaces the human lines with the event stream in ./events.js, on
 // stdout: docs/CLI-CONTRACT.md section 3.
 
-const { createSwarm, onPeerRelayRefused, isRelayed, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@ad-hal/engine')
+const { createSwarm, onPeerRelayRefused, onRelayCapReached, isRelayed, connectionStats, connectOnce, sendFile, sendStream, resolveCode, displayName } = require('@ad-hal/engine')
 
 const { createProgressReporter } = require('./progress')
 const { installCancelHandler } = require('./signals')
-const { describeError, isCancellation } = require('./report')
+const { describeError, relayCutNote, isCancellation } = require('./report')
 const { readCode } = require('./read-code')
 const { parseBootstrap } = require('./env')
 const { createEventStream, peerId, connectionField, version } = require('./events')
-const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, HOLEPUNCH_FAILED, HOLEPUNCH_FAILED_RELAYING, RELAYED, PEER_RELAY_REFUSED } = require('./usage')
+const { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, HOLEPUNCH_FAILED, HOLEPUNCH_FAILED_RELAYING, RELAYED, PEER_RELAY_REFUSED, relayCapReachedNote } = require('./usage')
 const { relayFlag } = require('./relay-flag')
 
 
@@ -185,6 +185,13 @@ async function main () {
     if (refused !== 1) return
     if (events) events.emit('warning', { kind: 'peer-relay-refused', message: PEER_RELAY_REFUSED })
     say(`[swarm-send] note: ${PEER_RELAY_REFUSED}`)
+  })
+  // Once, when the drop stops offering its relay: past MAX_RELAY_ATTEMPTS
+  // the relay is not dialed again (THREAT-MODEL.md section 8, gate 5).
+  onRelayCapReached(swarm, (count) => {
+    const message = relayCapReachedNote(count)
+    if (events) events.emit('warning', { kind: 'relay-attempts-capped', message, relayAttempts: count })
+    say(`[swarm-send] note: ${message}`)
   })
   const cancel = installCancelHandler({ label: 'swarm-send', log: say })
   const progress = events
@@ -351,7 +358,9 @@ async function main () {
     }
   } catch (err) {
     progress.close()
-    const message = describeError(err)
+    const stats = connection ? connectionStats(connection) : null
+    const cutNote = relayCutNote(err, { relayed: Boolean(stats && stats.relayed), role: 'sender', stream: streaming })
+    const message = cutNote ? `${describeError(err)} ${cutNote}` : describeError(err)
     const alsoSocket = socketError && !isCancellation(err) ? socketError.message : null
     if (events) {
       events.failed(err, message, { ...(alsoSocket ? { socketError: alsoSocket } : {}), ...connectionField(connection) })

@@ -21,7 +21,8 @@ const { spawn } = require('node:child_process')
 const createTestnet = require('hyperdht/testnet')
 const HyperDHT = require('hyperdht')
 
-const { parseRelayKey, createSwarm, generateCode, splitCode, acceptStream, connectStream, sendFile, receiveFile, topicFromNameplate, Responder, MessageReader, ERR_CONFIRMATION } = require('@ad-hal/engine')
+const { parseRelayKey, createSwarm, generateCode, splitCode, acceptStream, connectStream, sendFile, receiveFile, topicFromNameplate, Responder, MessageReader, ERR_CONFIRMATION, onRelayCapReached, relayCapReached, relayAttemptsOf, timeoutError, MAX_RELAY_ATTEMPTS, PREFIX_BOUNDARY } = require('@ad-hal/engine')
+const { relayCutNote } = require('../src/report')
 const { relayFlag } = require('../src/relay-flag')
 const { slow } = require('../test-helpers/tiers')
 const { startRelay, pairThroughRelay, makePunchFailing, BlindRelay } = require('../test-helpers/relay')
@@ -671,4 +672,148 @@ test('gate 3: two relayed drops with one code pair on fresh, unrelated tokens, e
   for (const call of calls) assert.equal(call.args, 0, `token() was given nothing (pid ${call.pid})`)
   const made = new Set(calls.map((c) => c.token))
   for (const token of all) assert.ok(made.has(token.toString('hex')), 'the relay paired only on tokens token() made')
+})
+
+// --- gate 5: Adhal bounds its own use of a relay ----------------------------
+//
+// THREAT-MODEL.md section 8, gate 5. Two parts here: a drop stops dialing its
+// relay after MAX_RELAY_ATTEMPTS, and a relayed drop the relay cuts off
+// mid-transfer says that a relay may have ended it, and how to resume.
+
+test('gate 5: a drop dials its relay at most MAX_RELAY_ATTEMPTS times, says so once, and still never offers it before a failed punch', async (t) => {
+  assert.equal(MAX_RELAY_ATTEMPTS, 32, 'sized from the 2026-11-13 trials: 22 dials in the worst failed drop')
+  const key = crypto.randomBytes(32)
+  const swarm = createSwarm({ relayThrough: key, maxRelayAttempts: 3, bootstrap: [{ host: '127.0.0.1', port: 9 }] })
+  t.after(() => swarm.destroy())
+  /** @type {number[]} */
+  const heard = []
+  onRelayCapReached(swarm, (count) => heard.push(count))
+  for (let i = 0; i < 3; i++) {
+    assert.equal(swarm.relayThrough(false, swarm), null, 'a first dial is never relayed, and is not counted')
+    assert.ok(swarm.relayThrough(true, swarm).equals(key), `retry ${i + 1} goes through the relay`)
+  }
+  assert.equal(relayAttemptsOf(swarm), 3)
+  assert.equal(relayCapReached(swarm), false, 'reaching the cap is not passing it')
+  assert.deepEqual(heard, [])
+  for (let i = 0; i < 5; i++) assert.equal(swarm.relayThrough(true, swarm), null, 'past the cap, the relay is not offered')
+  assert.equal(relayAttemptsOf(swarm), 3, 'and refused offers are not dials')
+  assert.equal(relayCapReached(swarm), true)
+  assert.deepEqual(heard, [3], 'heard once, with the dials made')
+
+  for (const bad of [0, -1, 1.5, NaN, '3']) {
+    assert.throws(() => createSwarm({ relayThrough: key, maxRelayAttempts: /** @type {any} */ (bad) }), TypeError, String(bad))
+  }
+  const plain = createSwarm({ bootstrap: [{ host: '127.0.0.1', port: 9 }] })
+  t.after(() => plain.destroy())
+  assert.equal(relayCapReached(plain), false, 'a swarm with no relay has no cap to reach')
+})
+
+test('gate 5: a drop that timed out after its relay cap says so, and carries relayCapped', () => {
+  const capped = timeoutError('waiting for a peer', 1000, 0, 0, { failed: 4, relay: true, relayAttempts: 32, relayCapped: true })
+  assert.equal(capped.code, 'ERR_NO_PEER')
+  assert.match(capped.message, /tried 32 time\(s\) without connecting, the most one drop tries/)
+  assert.equal(/** @type {any} */ (capped).relayCapped, true)
+  const notCapped = timeoutError('waiting for a peer', 1000, 0, 0, { failed: 4, relay: true, relayAttempts: 5 })
+  assert.doesNotMatch(notCapped.message, /the most one drop tries/)
+  assert.equal(/** @type {any} */ (notCapped).relayCapped, undefined)
+})
+
+test('gate 5: the relay note is added only to a relayed drop cut off mid-transfer, with resume advice only where it can resume', () => {
+  const cut = (/** @type {Record<string, any>} */ fields) => Object.assign(new Error('x'), fields)
+  const relayed = { relayed: true, stream: false }
+  // The sender, mid-send: a file can resume, a stream cannot.
+  const sending = cut({ code: 'ERR_CONNECTION', phase: 'send', bytes: 4096, size: 8192 })
+  assert.match(relayCutNote(sending, { ...relayed, role: 'sender' }), /went through a relay.*send the file again with a new code/)
+  assert.match(relayCutNote(sending, { ...relayed, role: 'sender', stream: true }), /went through a relay/)
+  assert.doesNotMatch(relayCutNote(sending, { ...relayed, role: 'sender', stream: true }), /send the file again/)
+  // After the last byte, and on the receiver mid-file: the relay sentence,
+  // and the resume advice is partialNote's, already in the receiver's line.
+  for (const [err, role] of /** @type {Array<[any, 'sender' | 'receiver']>} */ ([
+    [cut({ code: 'ERR_CONNECTION', phase: 'result', bytes: 8192 }), 'sender'],
+    [cut({ code: 'ERR_CONNECTION', bytes: 4096 }), 'receiver'],
+    [cut({ code: 'ERR_STALLED', bytes: 4096 }), 'receiver'],
+    [cut({ code: 'ERR_STALLED', phase: 'result', bytes: 8192 }), 'sender']
+  ])) {
+    const note = relayCutNote(err, { ...relayed, role })
+    assert.match(note, /went through a relay/, `${err.code} ${err.phase}`)
+    assert.doesNotMatch(note, /send the file again/)
+  }
+  // Not relayed, not mid-transfer, or not a lost path: nothing added.
+  for (const [err, role, isRelayed] of /** @type {Array<[any, 'sender' | 'receiver', boolean]>} */ ([
+    [sending, 'sender', false],
+    [cut({ code: 'ERR_CONNECTION', phase: 'handshake', role: 'sender' }), 'sender', true],
+    [cut({ code: 'ERR_CONNECTION', phase: 'offer' }), 'sender', true],
+    [cut({ code: 'ERR_STALLED', phase: 'offer', bytes: 0 }), 'sender', true],
+    [cut({ code: 'ERR_STALLED', bytes: 0 }), 'receiver', true],
+    [cut({ code: 'ERR_HASH_MISMATCH' }), 'receiver', true],
+    [cut({ code: 'ABORT_ERR', bytes: 4096 }), 'receiver', true]
+  ])) {
+    assert.equal(relayCutNote(err, { relayed: isRelayed, role, stream: false }), '', `${err.code} ${err.phase} relayed=${isRelayed}`)
+  }
+})
+
+test('gate 5: a relayed drop the relay cuts off says a relay may have ended it, and resumes through the relay as the note says', slow, async (t) => {
+  const net = await createTestnet(5)
+  t.after(() => net.destroy())
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'adhal-relay-cut-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const bytes = crypto.randomBytes(8 * 1024 * 1024)
+  const source = path.join(dir, 'payload.bin')
+  await fs.promises.writeFile(source, bytes)
+  const out = path.join(dir, 'out')
+  const sha256 = crypto.createHash('sha256').update(bytes).digest('hex')
+  const env = { ...process.env, ADHAL_BOOTSTRAP: JSON.stringify(net.bootstrap), ADHAL_JOIN_TIMEOUT: '30000' }
+
+  /** @param {any} relay @param {string} label */
+  const relayedDrop = async (relay, label) => {
+    const code = generateCode()
+    const rx = run(RECEIVE, ['-', out, '--json', '--yes'], env, `${code}\n`, { failPunch: true })
+    t.after(() => rx.child.kill())
+    await waitFor(() => {
+      if (rx.child.exitCode !== null) throw new Error(`${label}: the receiver exited:\n${rx.output()}`)
+      return rx.events().some((e) => e.event === 'announced')
+    }, 20000, `${label}: the receiver announcing`)
+    const tx = run(SEND, ['-', source, '--json', `--relay=${relay.publicKey.toString('hex')}`], env, `${code}\n`, { failPunch: true })
+    t.after(() => tx.child.kill())
+    const [rxCode, txCode] = await Promise.all([rx.exited, tx.exited])
+    return { rxCode, txCode, rx: rx.events(), tx: tx.events(), output: `--- ${label} receiver\n${rx.output()}\n--- ${label} sender\n${tx.output()}` }
+  }
+
+  // A relay with a 3 MiB cap per pairing, against an 8 MiB file: the cut
+  // lands well past a PREFIX_BOUNDARY, so there is something to resume.
+  const cutting = await startRelay(net.bootstrap, { cutAfterBytes: 3 * 1024 * 1024 })
+  t.after(() => cutting.destroy())
+  const first = await relayedDrop(cutting, 'cut')
+  assert.ok(cutting.cuts >= 1, `the relay cut the pairing\n${first.output}`)
+  assert.equal(first.txCode, 1, first.output)
+  assert.equal(first.rxCode, 1, first.output)
+  assert.equal(one(first.tx, 'paired').relayed, true)
+  const txFailed = one(first.tx, 'failed')
+  const rxFailed = one(first.rx, 'failed')
+  for (const [failed, side] of [[txFailed, 'sender'], [rxFailed, 'receiver']]) {
+    assert.equal(failed.connection.relayed, true, `${side} ended through the relay`)
+    assert.match(failed.message, /This connection went through a relay, which can end a connection on a limit of its own/, `${side}\n${first.output}`)
+  }
+  assert.ok(rxFailed.bytes > 0 && rxFailed.bytes < bytes.length, `the receiver got part of the file (${rxFailed.bytes} bytes)`)
+  assert.ok(rxFailed.partial, `the receiver kept a partial to resume from\n${first.output}`)
+  assert.match(rxFailed.message, /send it again, with a new code, and the transfer resumes/)
+  if (txFailed.code === 'ERR_CONNECTION' && txFailed.phase === 'send') {
+    assert.match(txFailed.message, /send the file again with a new code, received into the same folder/)
+  }
+
+  // What the note says to do: a new code, the same file, the same folder,
+  // through a relay that does not cut.
+  const open = await startRelay(net.bootstrap)
+  t.after(() => open.destroy())
+  const second = await relayedDrop(open, 'resume')
+  assert.equal(second.txCode, 0, second.output)
+  assert.equal(second.rxCode, 0, second.output)
+  assert.equal(one(second.rx, 'paired').relayed, true, 'the resume went through the relay too')
+  const done = one(second.rx, 'done')
+  assert.equal(done.sha256, sha256)
+  assert.ok(done.resumedFrom > 0, `it resumed rather than starting over (resumedFrom ${done.resumedFrom})`)
+  // From what the cut drop kept, rounded down to a PREFIX_BOUNDARY: a
+  // resume starts on one (PROTOCOL.md section 7.5).
+  assert.equal(done.resumedFrom, Math.floor(rxFailed.partial.bytes / PREFIX_BOUNDARY) * PREFIX_BOUNDARY,
+    `from the last boundary at or below the ${rxFailed.partial.bytes} bytes the cut drop kept`)
 })

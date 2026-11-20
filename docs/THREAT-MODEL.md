@@ -435,7 +435,8 @@ advantage this design has over its competitors.
 they are enforced. The relay stays experimental, and outside what a
 release claims, until each of these holds and a test shows it. Each
 gate's status is as of 2026-11-12, except gates 1 to 3, which are as
-of 2026-11-15, and gates 4 and 5, reworded on 2026-11-18:
+of 2026-11-15, and gates 4 and 5, reworded on 2026-11-18 and met on
+2026-11-19:
 
 1. A drop carried through the relay, with no Noise session underneath,
    completes, and a byte the relay alters fails authentication at that
@@ -501,9 +502,12 @@ of 2026-11-15, and gates 4 and 5, reworded on 2026-11-18:
    token it pairs on carries nothing from the code (gate 3). A drop cut
    off at the relay resumes by re-pairing and re-hashing, as it does
    directly (§6, PROTOCOL §7), so nothing on the relay is ever needed or
-   trusted. **Partly met:** gates 1 and 3 test the first half, and resume
-   re-pairs and re-hashes on a direct path (`cli/test/resume.test.js`),
-   but no test resumes a drop through a relay. A relay host that claims
+   trusted. **Met** (2026-11-19). Gates 1 and 3 test the first half. For
+   the second, the `gate 5` cut-off test in `cli/test/relay.test.js` has
+   a relay end a relayed drop mid-transfer, then runs a new drop with a
+   new code through the relay, which resumes from the kept partial (from
+   the last 1 MiB boundary, PROTOCOL §7.5), re-hashes it, and completes
+   with the sender's digest. A relay host that claims
    to keep nothing has to show it itself; keeping its counters in memory
    only is a design goal of [sluice](https://github.com/khartig/sluice). This gate read "the relay persists
    nothing about a drop beyond its per-token counters" until 2026-11-18.
@@ -512,11 +516,21 @@ of 2026-11-15, and gates 4 and 5, reworded on 2026-11-18:
    (`cli/test/verify.test.js`). A peer that stops mid-file is timed out
    (`cli/test/hardening.test.js`). The relay is used only after a failed
    punch (gate 6). The relay attempts per drop are capped. A relayed drop
-   that loses its connection says so, and how to resume. **Open:** there
-   is no cap on relay attempts per drop yet (one failed trial on
-   2026-11-13 made 22), and no test of what a relayed drop cut off
-   mid-transfer reports. Caps on the relay itself belong to the relay
-   host (the constraint above). This gate read "the per-token bandwidth
+   that loses its connection says so, and how to resume. **Met**
+   (2026-11-19, the `gate 5` tests in `cli/test/relay.test.js`). A drop
+   dials its relay at most 32 times (`MAX_RELAY_ATTEMPTS` in
+   `engine/src/swarm.js`), sized above the 22 dials the worst failed
+   trial on 2026-11-13 made, and above what the drops that paired needed.
+   Past the cap the relay is not offered again; Hyperswarm goes on
+   retrying the peer directly, which costs the relay nothing. Both CLIs
+   say so once (`relay-attempts-capped`), and a drop that then times out
+   says the cap was reached (`relayCapped`). A relay that ends a relayed
+   drop mid-transfer, simulated by a test relay with a byte cap, makes
+   both CLIs say that a relay can end a connection on a limit of its own,
+   and the sender of a file how to resume (`relayCutNote` in
+   `cli/src/report.js`). A planted bug that ignores the cap, and one that
+   drops the note, each fail a test. Caps on the relay itself belong to
+   the relay host (the constraint above). This gate read "the per-token bandwidth
    and duration caps are enforced" until 2026-11-18.
 6. A drop that can connect directly does so, and the relay is not used.
    **Met:** with a relay at both ends and a punch that works, no session

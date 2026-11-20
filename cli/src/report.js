@@ -226,4 +226,40 @@ function describeUnescaped (err) {
   }
 }
 
-module.exports = { describeError, isLocalCancellation, isPeerCancellation, isCancellation }
+// A RELAYED DROP THAT WAS CUT OFF MID-TRANSFER (THREAT-MODEL.md section 8,
+// gate 5). A relay can end a connection on a limit of its own -- bytes,
+// time, an idle pairing -- and from either end that looks exactly like any
+// other lost path: the socket closes, or goes quiet. Nothing on the wire
+// says which, so this says both, and says how to pick the drop up again.
+//
+// Only for failures in the middle of a transfer: an ERR_CONNECTION while
+// sending, after the last byte, or on the receiver mid-file, and an
+// ERR_STALLED once bytes had moved. Before the first file byte there is
+// nothing to resume, and the existing sentences already say what to check.
+//
+// The receiver's resume advice is partialNote's, already in its sentence.
+// The sender's is here: it cannot see whether the receiver kept a partial,
+// and a stream (`-`) cannot resume at all.
+/**
+ * @param {any} err
+ * @param {{ relayed: boolean, role: 'sender' | 'receiver', stream: boolean }} context
+ *   `relayed` whether the paired connection went through a relay when it
+ *   ended (connectionStats in engine/src/swarm.js)
+ * @returns {string} the sentence to append, or '' when it does not apply
+ */
+function relayCutNote (err, { relayed, role, stream }) {
+  if (!relayed || !err) return ''
+  const midTransfer =
+    (err.code === 'ERR_CONNECTION' && (err.phase === undefined || err.phase === 'send' || err.phase === 'result')) ||
+    (err.code === 'ERR_STALLED' && (err.phase === 'result' || (err.phase === undefined && err.bytes > 0)))
+  if (!midTransfer) return ''
+  const note = 'This connection went through a relay, which can end a connection on a limit of its own, ' +
+    'such as a cap on bytes or time, as well as lose it the way any path can.'
+  if (role === 'sender' && !stream && err.phase === 'send') {
+    return note + ' If the receiver kept the part that arrived, send the file again with a new code, ' +
+      'received into the same folder, and only the rest is sent.'
+  }
+  return note
+}
+
+module.exports = { describeError, relayCutNote, isLocalCancellation, isPeerCancellation, isCancellation }

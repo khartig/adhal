@@ -31,13 +31,21 @@ const BlindRelay = require(require.resolve('blind-relay', { paths: [path.dirname
  * connected, `takeOver` is handed the two relay-side streams, and the
  * token that paired them, to speak on as a party itself.
  *
+ * With `cutAfterBytes`, it relays as blind-relay does, natively, and ends
+ * a pairing once either of its streams has received more than that many
+ * bytes: a relay with a byte cap of its own, as a relay host can have.
+ * udx-native counts natively relayed bytes on the relay's own streams,
+ * which is what makes the cap possible without forwarding in JavaScript.
+ * `cuts` counts the pairings it ended.
+ *
  * @param {Array<{ host: string, port: number }>} bootstrap
  * @param {{
  *   tamper?: (chunk: Buffer, from: { fromInitiator: boolean }) => Buffer,
- *   takeOver?: (legs: { initiator: any, responder: any, token: Buffer }) => void
+ *   takeOver?: (legs: { initiator: any, responder: any, token: Buffer }) => void,
+ *   cutAfterBytes?: number
  * }} [options]
  */
-async function startRelay (bootstrap, { tamper, takeOver } = {}) {
+async function startRelay (bootstrap, { tamper, takeOver, cutAfterBytes } = {}) {
   const dht = new HyperDHT({ bootstrap })
   /** @type {WeakMap<object, boolean>} each relay-side stream's end of the pair */
   const initiatorOf = new WeakMap()
@@ -47,6 +55,27 @@ async function startRelay (bootstrap, { tamper, takeOver } = {}) {
   const tokens = []
   /** @type {Set<string>} pairings one of whose two sessions has emitted 'pair' */
   const halfEmitted = new Set()
+  /** @type {Map<string, any[]>} cutAfterBytes: each pairing's relay-side streams */
+  const capped = new Map()
+  /** @type {Set<NodeJS.Timeout>} */
+  const capTimers = new Set()
+  const counters = { cuts: 0 }
+  /** @param {string} key @param {any} stream */
+  const watchForCap = (key, stream) => {
+    const legs = capped.get(key) || []
+    legs.push(stream)
+    capped.set(key, legs)
+    if (legs.length < 2) return
+    const timer = setInterval(() => {
+      if (!legs.some((leg) => leg.bytesReceived > /** @type {number} */ (cutAfterBytes))) return
+      clearInterval(timer)
+      capTimers.delete(timer)
+      capped.delete(key)
+      counters.cuts++
+      for (const leg of legs) leg.destroy()
+    }, 10)
+    capTimers.add(timer)
+  }
   const relay = new BlindRelay.Server({
     createStream: (/** @type {any} */ opts) => {
       // framed: hyperdht's secret stream frames its messages, and a
@@ -106,6 +135,7 @@ async function startRelay (bootstrap, { tamper, takeOver } = {}) {
         halfEmitted.add(seen)
         tokens.push(Buffer.from(token))
       }
+      if (cutAfterBytes !== undefined) watchForCap(seen, stream)
       if (!takeOver) return
       const key = token.toString('hex')
       const legs = pairing.get(key) || []
@@ -127,7 +157,9 @@ async function startRelay (bootstrap, { tamper, takeOver } = {}) {
     stats: relay.stats,
     sessionPeers,
     tokens,
+    get cuts () { return counters.cuts },
     async destroy () {
+      for (const timer of capTimers) clearInterval(timer)
       await relay.close().catch(() => {})
       await server.close()
       await dht.destroy()

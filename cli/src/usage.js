@@ -36,6 +36,14 @@ const HOLEPUNCH_FAILED = 'a peer was found, but the hole punch to it failed. Sti
 // The same, when this side has a relay to fall back on.
 const HOLEPUNCH_FAILED_RELAYING = 'a peer was found, but the hole punch to it failed. Trying the relay given with --relay instead'
 
+// Printed by both swarm CLIs, once, when this side stops offering its relay
+// because the drop reached its cap on relay dials (relayOnlyAfterFailedPunch
+// in engine/src/swarm.js, THREAT-MODEL.md section 8, gate 5).
+/** @param {number} count */
+const relayCapReachedNote = (count) => `the relay given with --relay was tried ${count} times without a connection that lasted, ` +
+  'the most one drop tries. Still waiting for a direct connection, or one through a relay the peer names; ' +
+  'if neither comes, check that the relay is running and reachable from both sides'
+
 // Printed by both swarm CLIs when the paired connection goes through a
 // relay, whichever side chose it (isRelayed in engine/src/swarm.js). Q-09's
 // notice, for the relay: what its operator learns, and what it does not.
@@ -151,4 +159,4 @@ function usage (cli) {
   return USAGE[cli]
 }
 
-module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, HOLEPUNCH_FAILED, HOLEPUNCH_FAILED_RELAYING, RELAYED, PEER_RELAY_REFUSED, TEST_ONLY }
+module.exports = { usage, NOT_ANONYMOUS, DOUBLE_RANDOMIZED_NAT, DOUBLE_RANDOMIZED_NAT_RELAYING, HOLEPUNCH_FAILED, HOLEPUNCH_FAILED_RELAYING, RELAYED, PEER_RELAY_REFUSED, relayCapReachedNote, TEST_ONLY }
